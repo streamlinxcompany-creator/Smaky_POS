@@ -173,3 +173,10 @@
 
 /* Los pedidos ya no usan estados como botones de proceso; siguen visibles solo como información. */
 .order-square:before{background:#6e2c1d}.status-card-paid:before{background:#3f8a55}.status-card-cancelled:before{background:#6b4440}.status-card-paid .order-square-icon{background:#17251b;border-color:#294b33}.status-card-cancelled .order-square-icon{background:#251817;border-color:#432727}
+
+
+/* Flujo de pedidos: editor como ventana/página completa, no como subventana modal. */
+.order-workspace-page{width:100%;min-height:calc(100vh - 66px);display:flex;flex-direction:column}
+.order-workspace-page .order-workspace{width:100%;height:calc(100vh - 126px);min-height:560px;border-radius:17px;box-shadow:0 18px 55px rgba(0,0,0,.28);animation:workspacePageIn .16s ease-out both}
+@keyframes workspacePageIn{from{opacity:.7;transform:translateY(4px)}to{opacity:1;transform:none}}
+@media(max-width:760px){.order-workspace-page{min-height:calc(100vh - 110px)}.order-workspace-page .order-workspace{height:calc(100vh - 110px);min-height:560px;border-radius:14px}}

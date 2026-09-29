@@ -26,25 +26,37 @@ export function Orders() {
   const [orders, setOrders] = useState<Order[]>([])
   const [selected, setSelected] = useState<Order | null>(null)
 
-  const refresh = () => getOrders().then(all => setOrders(all.filter(order => dayKey(order.createdAt) === dayKey(new Date().toISOString()))))
+  const refresh = () => getOrders().then(all => setOrders(all.filter(order => dayKey(order.createdAt) === dayKey(new Date().toISOString()) && !['paid', 'cancelled'].includes(order.status))))
   useEffect(() => { void refresh() }, [])
 
   const todayOrders = useMemo(() => orders.slice().sort((a, b) => b.orderNumber - a.orderNumber), [orders])
-  const openCount = todayOrders.filter(order => !['paid', 'cancelled'].includes(order.status)).length
+  const openCount = todayOrders.length
 
   const updateLocalOrder = (updated: Order) => {
+    if (['paid', 'cancelled'].includes(updated.status)) {
+      setOrders(current => current.filter(item => item.id !== updated.id))
+      setSelected(null)
+      return
+    }
     setOrders(current => current.map(item => item.id === updated.id ? updated : item))
     setSelected(updated)
   }
 
+  if (selected && user) return <OrderWorkspace
+    user={user}
+    initialOrder={selected}
+    onClose={() => setSelected(null)}
+    onOrderChange={updateLocalOrder}
+  />
+
   return <div>
     <div className="page-heading compact">
       <div><p className="eyebrow">OPERACIÓN · HOY</p><h1>Pedidos</h1><p className="muted">Abre cualquier pedido y trabaja todo desde un solo panel: productos, modificaciones, comanda y cobro.</p></div>
-      <div className="orders-top-actions"><span className="orders-count"><b>{todayOrders.length}</b> pedidos hoy · <b>{openCount}</b> abiertos</span><button className="primary-inline add-order-btn" onClick={() => navigate('/pos')}><Plus size={15}/> Agregar pedido</button></div>
+      <div className="orders-top-actions"><span className="orders-count"><b>{todayOrders.length}</b> pendientes hoy · <b>{openCount}</b> por cobrar</span><button className="primary-inline add-order-btn" onClick={() => navigate('/pos')}><Plus size={15}/> Agregar pedido</button></div>
     </div>
 
     {todayOrders.length === 0 ? <div className="orders-day-empty panel">
-      <div className="orders-day-empty-icon"><FileText size={25}/></div><p className="eyebrow">SIN PEDIDOS TODAVÍA</p><h2>Hoy todavía no hay pedidos</h2><span>Registra el primero desde el punto de venta.</span><button className="primary-inline" onClick={() => navigate('/pos')}><Plus size={15}/> Registrar nuevo pedido</button>
+      <div className="orders-day-empty-icon"><FileText size={25}/></div><p className="eyebrow">TODO AL DÍA</p><h2>No hay pedidos pendientes</h2><span>Los pedidos cobrados pasan automáticamente a Ventas.</span><button className="primary-inline" onClick={() => navigate('/pos')}><Plus size={15}/> Registrar nuevo pedido</button>
     </div> : <div className="orders-grid">
       {todayOrders.map(order => <button className={`order-square status-card-${order.status}`} key={order.id} onClick={() => setSelected(order)}>
         <div className="order-square-top"><span>Pedido</span><b>#{order.orderNumber}</b></div>
@@ -56,11 +68,5 @@ export function Orders() {
       </button>)}
     </div>}
 
-    {selected && user && <OrderWorkspace
-      user={user}
-      initialOrder={selected}
-      onClose={() => setSelected(null)}
-      onOrderChange={updateLocalOrder}
-    />}
   </div>
 }

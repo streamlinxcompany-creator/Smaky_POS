@@ -166,7 +166,8 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
       if (!result) throw new Error('No fue posible registrar el pago.')
       setCurrent(result.order)
       printSaleReceipt(result.sale, printTarget)
-      setMessage('Pago registrado · pedido cerrado')
+      setMessage('Pago registrado · pedido enviado a Ventas')
+      onClose()
     } catch (caught) {
       printTarget?.close()
       console.error('No fue posible cobrar el pedido:', caught)
@@ -188,8 +189,8 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
     }
   }
 
-  return <div className="modal-backdrop workspace-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
-    <section className="order-workspace" role="dialog" aria-modal="true">
+  return <div className="order-workspace-page">
+    <section className="order-workspace" role="region" aria-label="Editor de pedido">
       <header className="workspace-head">
         <div className="workspace-title">
           <button className="receipt-close" onClick={onClose} aria-label="Cerrar"><X size={18}/></button>
