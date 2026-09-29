@@ -16,6 +16,7 @@ export function POS() {
   const [category, setCategory] = useState('Todos')
   const [cart, setCart] = useState<SaleItem[]>([])
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => { if (editing) void getProducts().then(setProducts) }, [editing])
 
@@ -38,15 +39,21 @@ export function POS() {
   const registerOrder = async () => {
     const user = getSessionUser()
     if (!cart.length || !user || saving) return
+    setError('')
     const printTarget = window.open('', '_blank', 'width=420,height=720')
     setSaving(true)
     try {
       const order = await createOrder(cart, { customerName: '', phone: '', address: '', notes: '' }, user)
-      printOrderComanda(order, printTarget)
       setCart([])
       navigate('/pedidos')
-    } catch {
+      // La impresión es secundaria: aunque el navegador bloquee la ventana emergente,
+      // el pedido ya debe quedar registrado y visible en Pedidos.
+      const printed = printOrderComanda(order, printTarget)
+      if (!printed) setError('El pedido se guardó correctamente, pero el navegador bloqueó la impresión de la comanda. Permite las ventanas emergentes para Smaky.')
+    } catch (caught) {
       printTarget?.close()
+      console.error('No fue posible guardar el pedido:', caught)
+      setError(caught instanceof Error ? caught.message : 'No fue posible guardar el pedido. Inténtalo nuevamente.')
     } finally { setSaving(false) }
   }
 
@@ -79,6 +86,8 @@ export function POS() {
         </div>
       </section>
 
+      {error && <div className="pos-error" role="alert">{error}<button onClick={() => setError('')} aria-label="Cerrar">×</button></div>}
+
       <aside className="cart pos-summary-drawer">
         <div className="cart-header"><div><h2>Resumen del pedido</h2><p>{units} productos seleccionados</p></div><ShoppingCart size={20}/></div>
         <div className="cart-items">
@@ -93,7 +102,7 @@ export function POS() {
         </div>
         <div className="checkout order-register">
           <div><span>Total del pedido</span><strong>{money(total)}</strong></div>
-          <button disabled={!cart.length || saving} onClick={() => void registerOrder}><Printer size={17}/> {saving ? 'Guardando…' : 'Guardar pedido e imprimir comanda'}</button>
+          <button disabled={!cart.length || saving} onClick={() => void registerOrder()}><Printer size={17}/> {saving ? 'Guardando…' : 'Guardar pedido e imprimir comanda'}</button>
           {!cart.length && <small>Agrega al menos un producto para guardar el pedido.</small>}
         </div>
       </aside>

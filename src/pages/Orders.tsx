@@ -140,7 +140,7 @@ export function Orders() {
         <p className="eyebrow">PEDIDO {selected.orderNumber}</p><h2>Modificar pedido</h2><p className="confirm-copy">Ajusta cantidades o escribe las indicaciones que necesita cocina. Al guardar se imprime una comanda actualizada.</p>
         <div className="modification-list">{draftItems.map(item => <div className="modification-item" key={item.productId}><div className="modification-item-top"><div><b>{item.name}</b><span>{money(item.unitPrice)} c/u</span></div><div className="qty"><button onClick={() => changeDraftQty(item.productId, -1)}><Minus size={13}/></button><b>{item.quantity}</b><button onClick={() => changeDraftQty(item.productId, 1)}><Plus size={13}/></button></div><strong>{money(item.total)}</strong></div><textarea rows={2} value={item.modification || ''} onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setDraftModification(item.productId, e.target.value)} placeholder="Ej: sin salsas, sin tomate, sin lechuga..."/><div className="mod-chips">{['Sin salsas','Sin tomate','Sin lechuga','Sin cebolla','Sin queso'].map(chip => <button key={chip} onClick={() => setDraftModification(item.productId, appendModification(item.modification, chip))}>{chip}</button>)}</div>{draftItems.length > 1 && <button className="remove-mod-item" onClick={() => setDraftItems(current => current.filter(x => x.productId !== item.productId))}><Trash2 size={13}/> Quitar del pedido</button>}</div>)}</div>
         <div className="modification-total"><span>Nuevo total</span><strong>{money(draftItems.reduce((sum, item) => sum + item.total, 0))}</strong></div>
-        <button className="primary" disabled={!draftItems.length || saving} onClick={() => void saveModifications}>{saving ? 'Guardando…' : 'Guardar cambios e imprimir comanda'}</button>
+        <button className="primary" disabled={!draftItems.length || saving} onClick={() => void saveModifications()}>{saving ? 'Guardando…' : 'Guardar cambios e imprimir comanda'}</button>
       </div>
     </div>}
 
@@ -150,7 +150,7 @@ export function Orders() {
         <div className="confirm-icon"><CreditCard size={19}/></div><p className="eyebrow">COBRAR PEDIDO {selected.orderNumber}</p><h2>Registrar pago</h2><p className="confirm-copy">El pedido pasará a Ventas y se imprimirá el comprobante.</p>
         <div className="payment-grid checkout-payment-grid">{([['cash', 'Efectivo'], ['transfer', 'Transferencia'], ['card', 'Tarjeta']] as const).map(([value, label]) => <button className={payment === value ? 'selected' : ''} onClick={() => setPayment(value)} key={value}>{label}</button>)}</div>
         <div className="checkout-order-total"><span>Total a cobrar</span><strong>{money(selected.total)}</strong></div>
-        <button className="primary" disabled={saving} onClick={() => void pay}>{saving ? 'Guardando…' : 'Confirmar pago e imprimir factura'}</button>
+        <button className="primary" disabled={saving} onClick={() => void pay()}>{saving ? 'Guardando…' : 'Confirmar pago e imprimir factura'}</button>
       </div>
     </div>}
   </div>
