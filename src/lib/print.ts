@@ -12,23 +12,19 @@ const printWindow = (title: string, body: string, width = 420, target?: Window |
 }
 
 export function printOrderComanda(order: Order, target?: Window | null) {
-  const items = order.items.map(item => `<div class="item"><div class="row"><strong>${item.quantity}× ${item.name}</strong><strong>${money(item.total)}</strong></div><small>${money(item.unitPrice)} c/u</small></div>`).join('')
-  return printWindow(`Comanda #${order.orderNumber}`, `
-    <div class="center"><div class="brand">SMAKY</div><div class="muted">COMANDA · PEDIDO #${order.orderNumber}</div><div class="muted">${date(order.createdAt)} · ${time(order.createdAt)}</div></div>
-    <div class="line"></div><div class="label">Cliente</div><div style="font-weight:700;margin:3px 0 6px">${order.customerName}</div>
-    <div class="row"><div><div class="label">Teléfono</div>${order.phone || '—'}</div><div style="text-align:right"><div class="label">Atiende</div>${order.userName}</div></div>
-    <div style="margin-top:8px"><div class="label">Dirección</div><div>${order.address}</div></div>
-    <div class="line"></div><h1>Productos</h1>${items}${order.notes ? `<div class="note"><b>Observaciones:</b><br>${order.notes}</div>` : ''}
-    <div class="line"><div class="row"><span class="label">Total pedido</span><strong class="total">${money(order.total)}</strong></div></div>`, 420, target)
+  const items = order.items.map(item => `<div class="item"><div class="row"><strong>${item.quantity}× ${item.name}</strong></div>${item.modification ? `<small><b>Modificación:</b> ${item.modification}</small>` : ''}</div>`).join('')
+  return printWindow(`Comanda ${order.orderNumber}`, `
+    <div class="center"><div class="brand">SMAKY</div><div class="muted">COMANDA · PEDIDO ${order.orderNumber}</div><div class="muted">${date(order.createdAt)} · ${time(order.createdAt)}</div></div>
+    <div class="line"></div><h1>Preparación</h1>${items}
+    <div class="line"></div><div class="center" style="font-weight:800;font-size:15px">PEDIDO ${order.orderNumber}</div>`, 420, target)
 }
 
 export function printSaleReceipt(sale: Sale, target?: Window | null) {
-  const items = sale.items.map(item => `<div class="item"><div class="row"><strong>${item.quantity}× ${item.name}</strong><strong>${money(item.total)}</strong></div><small>${money(item.unitPrice)} c/u</small></div>`).join('')
+  const items = sale.items.map(item => `<div class="item"><div class="row"><strong>${item.quantity}× ${item.name}</strong><strong>${money(item.total)}</strong></div><small>${money(item.unitPrice)} c/u${item.modification ? `<br><b>Modificación:</b> ${item.modification}` : ''}</small></div>`).join('')
   const payment = sale.payment === 'cash' ? 'Efectivo' : sale.payment === 'transfer' ? 'Transferencia' : 'Tarjeta'
   return printWindow(`Comprobante #${sale.orderNumber ?? sale.id.slice(-6)}`, `
-    <div class="center"><div class="brand">SMAKY</div><div class="muted">FACTURA / COMPROBANTE</div><div class="muted">${sale.orderNumber ? `Pedido #${sale.orderNumber} · ` : ''}${date(sale.createdAt)} · ${time(sale.createdAt)}</div></div>
-    <div class="line"></div><div class="row"><div><div class="label">Cliente</div><strong>${sale.customerName}</strong></div><div style="text-align:right"><div class="label">Pago</div><strong>${payment}</strong></div></div>
-    <div style="margin-top:8px"><div class="label">Dirección</div><div>${sale.address}</div></div>
+    <div class="center"><div class="brand">SMAKY</div><div class="muted">FACTURA / COMPROBANTE</div><div class="muted">${sale.orderNumber ? `Pedido ${sale.orderNumber} · ` : ''}${date(sale.createdAt)} · ${time(sale.createdAt)}</div></div>
+    <div class="line"></div><div class="row"><div><div class="label">Atendido por</div><strong>${sale.userName}</strong></div><div style="text-align:right"><div class="label">Pago</div><strong>${payment}</strong></div></div>
     <div class="line"><h1>Productos</h1>${items}</div>
     <div class="row"><span>Subtotal</span><strong>${money(sale.subtotal)}</strong></div>
     <div style="margin-top:8px" class="row"><span class="label">Total</span><strong class="total">${money(sale.total)}</strong></div>

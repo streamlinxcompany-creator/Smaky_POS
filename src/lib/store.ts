@@ -61,27 +61,53 @@ export async function addSale(sale: Sale) {
   return sale
 }
 
+const businessDayKey = (iso: string | Date) => new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit'
+}).format(new Date(iso))
+
 export async function getOrders() {
   return db.orders.orderBy('createdAt').reverse().toArray()
 }
 
 export async function createOrder(items: Order['items'], delivery: DeliveryInfo, user: User) {
-  const lastOrder = await db.orders.orderBy('orderNumber').reverse().first()
+  const now = new Date()
+  const todayKey = businessDayKey(now)
+  const existing = await db.orders.toArray()
+  const todayOrders = existing.filter(order => businessDayKey(order.createdAt) === todayKey)
+  const nextNumber = todayOrders.reduce((max, order) => Math.max(max, Number(order.orderNumber) || 0), 0) + 1
+  const cleanItems = items.map(item => ({ ...item, modification: item.modification?.trim() || undefined }))
+  const total = cleanItems.reduce((sum, item) => sum + item.total, 0)
   const order: Order = {
     id: crypto.randomUUID(),
-    orderNumber: (lastOrder?.orderNumber ?? 0) + 1,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    orderNumber: nextNumber,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
     userId: user.id,
     userName: user.name,
-    ...delivery,
-    items: items.map(item => ({ ...item })),
-    subtotal: items.reduce((sum, item) => sum + item.total, 0),
-    total: items.reduce((sum, item) => sum + item.total, 0),
+    customerName: '',
+    phone: '',
+    address: '',
+    notes: '',
+    items: cleanItems,
+    subtotal: total,
+    total,
     status: 'pending'
   }
   await db.orders.add(order)
   return order
+}
+
+export async function updateOrderItems(orderId: string, items: Order['items']) {
+  const order = await db.orders.get(orderId)
+  if (!order || ['paid', 'cancelled'].includes(order.status) || !items.length) return order ?? null
+  const cleanItems = items.map(item => ({ ...item, modification: item.modification?.trim() || undefined }))
+  const subtotal = cleanItems.reduce((sum, item) => sum + item.total, 0)
+  await db.orders.update(orderId, { items: cleanItems, subtotal, total: subtotal, updatedAt: new Date().toISOString() })
+  return db.orders.get(orderId)
+}
+
+export async function getSaleForOrder(orderId: string) {
+  return db.sales.where('orderId').equals(orderId).first()
 }
 
 export async function updateOrderStatus(orderId: string, status: OrderStatus) {

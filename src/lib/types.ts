@@ -16,6 +16,7 @@ export type SaleItem = {
   quantity: number
   unitPrice: number
   total: number
+  modification?: string
 }
 
 export type DeliveryInfo = {
