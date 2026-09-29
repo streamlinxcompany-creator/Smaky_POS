@@ -1,0 +1,128 @@
+import { ArrowRight, FileText, ShieldAlert, Trash2, X } from 'lucide-react'
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
+import { deleteSale, getSales } from '../lib/store'
+import { money, time, date } from '../lib/format'
+import type { PaymentMethod, Sale } from '../lib/types'
+import { getSessionUser } from '../lib/auth'
+
+const paymentLabel = (payment: PaymentMethod) => payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : 'Tarjeta'
+
+export function Sales() {
+  const [sales, setSales] = useState<Sale[]>([])
+  const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleteProgress, setDeleteProgress] = useState(0)
+  const [deleting, setDeleting] = useState(false)
+  const deleteProgressRef = useRef(0)
+  const sessionUser = getSessionUser()
+  const canDelete = sessionUser?.role === 'manager' || sessionUser?.role === 'admin'
+
+  useEffect(() => { getSales().then(setSales) }, [])
+
+  const closeReceipt = () => {
+    setSelectedSale(null)
+    setConfirmDelete(false)
+    deleteProgressRef.current = 0
+    setDeleteProgress(0)
+  }
+
+  const updateDeleteSlide = (event: PointerEvent<HTMLDivElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const raw = ((event.clientX - bounds.left) / bounds.width) * 100
+    const next = Math.max(0, Math.min(100, raw))
+    deleteProgressRef.current = next
+    setDeleteProgress(next)
+  }
+
+  const slideDeleteDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (deleting) return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    updateDeleteSlide(event)
+  }
+
+  const performDelete = async () => {
+    if (!selectedSale || !sessionUser || deleteProgressRef.current < 92 || deleting) return
+    setDeleting(true)
+    try {
+      const removed = await deleteSale(selectedSale.id, sessionUser.id)
+      if (!removed) return
+      setSales(current => current.filter(sale => sale.id !== selectedSale.id))
+      setDeleting(false)
+      closeReceipt()
+      return
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const slideDeleteUp = () => {
+    if (deleteProgressRef.current >= 92 && !deleting) void performDelete()
+  }
+
+  return <div>
+    <div className="page-heading compact">
+      <div><p className="eyebrow">HISTORIAL</p><h1>Ventas</h1><p className="muted">Todas las transacciones registradas. Haz clic en una venta para ver su comprobante.</p></div>
+    </div>
+
+    <div className="panel table-panel">
+      {sales.length === 0 ? <div className="sales-empty"><FileText size={30}/><b>Aún no hay ventas</b><span>Las ventas confirmadas desde el punto de venta aparecerán aquí.</span></div> : <table>
+        <thead><tr><th>Fecha</th><th>Pedido</th><th>Usuario</th><th>Pago</th><th>Total</th></tr></thead>
+        <tbody>{sales.map(sale => <tr key={sale.id} className="clickable-row" onClick={() => setSelectedSale(sale)}>
+          <td>{date(sale.createdAt)} · {time(sale.createdAt)}</td>
+          <td>{sale.items.map(item => `${item.quantity}× ${item.name}`).join(', ')}</td>
+          <td>{sale.userName}</td>
+          <td><span className="badge">{paymentLabel(sale.payment)}</span></td>
+          <td><b>{money(sale.total)}</b></td>
+        </tr>)}</tbody>
+      </table>}
+    </div>
+
+    {selectedSale && <div className="modal-backdrop receipt-backdrop">
+      <div className="receipt-modal" role="dialog" aria-modal="true" aria-labelledby="receipt-title">
+        <button className="receipt-close" onClick={closeReceipt} aria-label="Cerrar"><X size={18}/></button>
+        <div className="receipt-top">
+          <div className="receipt-brand-mark">S</div>
+          <p className="eyebrow">COMPROBANTE</p>
+          <h2 id="receipt-title">Smaky Burgers</h2>
+          <span>Venta #{selectedSale.id.slice(-6).toUpperCase()}</span>
+        </div>
+
+        <div className="receipt-meta">
+          <div><span>Fecha</span><b>{date(selectedSale.createdAt)} · {time(selectedSale.createdAt)}</b></div>
+          <div><span>Atendido por</span><b>{selectedSale.userName}</b></div>
+          <div><span>Pago</span><b>{paymentLabel(selectedSale.payment)}</b></div>
+        </div>
+
+        <div className="receipt-section-title">Productos</div>
+        <div className="receipt-items">{selectedSale.items.map(item => <div className="receipt-item" key={item.productId}>
+          <div><b>{item.quantity}× {item.name}</b><span>{money(item.unitPrice)} c/u</span></div>
+          <strong>{money(item.total)}</strong>
+        </div>)}</div>
+
+        <div className="receipt-total">
+          <div><span>Subtotal</span><b>{money(selectedSale.subtotal)}</b></div>
+          <div className="grand"><span>Total</span><strong>{money(selectedSale.total)}</strong></div>
+        </div>
+        {canDelete && <div className="receipt-danger">
+          <button className="delete-sale-btn" onClick={() => { setConfirmDelete(true); deleteProgressRef.current = 0; setDeleteProgress(0) }}><Trash2 size={15}/> Eliminar esta venta</button>
+        </div>}
+        <div className="receipt-footer">Gracias por tu compra · Smaky POS</div>
+      </div>
+    </div>}
+
+    {confirmDelete && selectedSale && <div className="modal-backdrop danger-backdrop">
+      <div className="delete-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-sale-title">
+        <div className="delete-confirm-icon"><ShieldAlert size={22}/></div>
+        <span className="eyebrow danger-eyebrow">ELIMINAR VENTA</span>
+        <h2 id="delete-sale-title">¿Seguro que quieres eliminar esta venta?</h2>
+        <p className="delete-confirm-copy">Venta #{selectedSale.id.slice(-6).toUpperCase()} · {money(selectedSale.total)} · {selectedSale.userName}. Esta acción quitará la venta del historial.</p>
+        <div className={`delete-slider ${deleteProgress >= 92 ? 'ready' : ''}`} onPointerDown={slideDeleteDown} onPointerMove={updateDeleteSlide} onPointerUp={slideDeleteUp}>
+          <div className="delete-slider-fill" style={{width: `${Math.max(0, deleteProgress)}%`}}/>
+          <div className="delete-slider-text">{deleting ? 'Eliminando…' : deleteProgress >= 92 ? 'Suelta para eliminar' : 'Desliza para eliminar'}</div>
+          <div className="delete-slider-thumb" style={{left: `calc(${Math.max(0, Math.min(92, deleteProgress))}% - 0px)`}}><ArrowRight size={18}/></div>
+        </div>
+        <button className="cancel-delete-btn" disabled={deleting} onClick={() => { setConfirmDelete(false); deleteProgressRef.current = 0; setDeleteProgress(0) }}>Cancelar</button>
+      </div>
+    </div>}
+  </div>
+}
