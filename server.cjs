@@ -1,9 +1,9 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
 
-const PORT = 4173;
+const PORT = process.env.PORT || 4173;
+const HOST = '0.0.0.0';
 const DIST = path.join(__dirname, 'dist');
 
 const mimeTypes = {
@@ -53,12 +53,6 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  const url = `http://127.0.0.1:${PORT}`;
-
-  console.log(`POS iniciado en ${url}`);
-
-  setTimeout(() => {
-    exec(`start "" "${url}"`);
-  }, 800);
+server.listen(PORT, HOST, () => {
+  console.log(`Smaky POS running on port ${PORT}`);
 });
