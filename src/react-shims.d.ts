@@ -3,6 +3,7 @@ declare module 'react' {
   export type ReactNode = any
   export type FormEvent<T = Element> = any
   export type PointerEvent<T = Element> = any
+  export type ChangeEvent<T = Element> = any
   export const StrictMode: any
   export function useState<S>(initialState: S | (() => S)): [S, (value: S | ((prev: S) => S)) => void]
   export function useEffect(effect: () => void | (() => void), deps?: any[]): void
