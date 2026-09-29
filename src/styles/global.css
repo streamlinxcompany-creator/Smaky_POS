@@ -180,3 +180,68 @@
 .order-workspace-page .order-workspace{width:100%;height:calc(100vh - 126px);min-height:560px;border-radius:17px;box-shadow:0 18px 55px rgba(0,0,0,.28);animation:workspacePageIn .16s ease-out both}
 @keyframes workspacePageIn{from{opacity:.7;transform:translateY(4px)}to{opacity:1;transform:none}}
 @media(max-width:760px){.order-workspace-page{min-height:calc(100vh - 110px)}.order-workspace-page .order-workspace{height:calc(100vh - 110px);min-height:560px;border-radius:14px}}
+
+/* Order workspace v0.8 — editor de pedido como pantalla real + resumen más legible. */
+.content:has(.order-workspace-page){padding:0;max-width:none}
+.order-workspace-page{width:100%;min-height:calc(100vh - 66px);display:flex;flex-direction:column;background:#0b0c0d}
+.order-workspace-page .order-workspace{width:100%;height:calc(100vh - 66px);min-height:0;border:0;border-radius:0;box-shadow:none;animation:none;background:#0b0c0d}
+.order-workspace-page .workspace-head{padding:18px 28px;background:#0d0f10;border-bottom:1px solid #262829}
+.order-workspace-page .workspace-body{grid-template-columns:minmax(0,1.06fr) minmax(500px,.94fr)}
+.order-workspace-page .workspace-catalog{padding:22px 28px 20px;background:linear-gradient(180deg,#0e1011,#0b0c0d)}
+.order-workspace-page .workspace-product-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;padding-right:8px}
+.order-workspace-page .workspace-product{min-height:72px;padding:11px;border-radius:13px}
+.order-workspace-page .workspace-product-icon{width:46px;height:46px}
+.order-workspace-page .workspace-summary{padding:20px 22px 18px;background:linear-gradient(180deg,#121415 0%,#0e1011 100%);border-left:1px solid #2a2c2d}
+.order-workspace-page .workspace-summary-head{padding:0 2px 16px;align-items:flex-end}
+.workspace-summary-kicker{margin:0 0 5px;color:#c7603a;font-size:8px;font-weight:800;letter-spacing:1.6px}
+.workspace-summary-head>b{font-size:15px!important;line-height:1.2}
+.workspace-summary-head>div:first-child>span{font-size:10px;line-height:1.45;max-width:470px}
+.workspace-summary-total{text-align:right;flex:0 0 auto}
+.workspace-summary-total small{display:block;color:#656260;font-size:9px;margin-bottom:2px}
+.workspace-summary-total strong{font:800 28px 'Plus Jakarta Sans';letter-spacing:-.8px;color:#f5ece7}
+.order-workspace-page .workspace-lines{padding:15px 4px 13px 0;display:flex;flex-direction:column;gap:10px}
+.order-workspace-page .workspace-line{padding:14px 15px;border:1px solid #2b2d2f;border-radius:14px;background:linear-gradient(180deg,#161819,#121415);box-shadow:0 6px 16px rgba(0,0,0,.10)}
+.order-workspace-page .workspace-line:hover{border-color:#3a3533}
+.order-workspace-page .workspace-line-head{display:grid;grid-template-columns:35px minmax(0,1fr) auto;align-items:center;gap:10px}
+.workspace-line-index{width:35px;height:35px;border-radius:10px;display:grid;place-items:center;background:#291712;border:1px solid #4a281e;color:#e4774c;font:800 11px 'Plus Jakarta Sans'}
+.order-workspace-page .workspace-line-name b{font-size:12px;line-height:1.25}
+.order-workspace-page .workspace-line-name small{font-size:9px;margin-top:4px;color:#77736f}
+.order-workspace-page .workspace-line-head>strong{font:800 12px 'Plus Jakarta Sans';color:#f0e8e3}
+.order-workspace-page .workspace-line-controls{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:9px;margin-top:12px;padding-top:10px;border-top:1px solid #252728}
+.workspace-qty-label{font-size:9px;color:#666462;text-transform:uppercase;letter-spacing:.8px}
+.order-workspace-page .workspace-qty{gap:7px!important}
+.order-workspace-page .workspace-qty button{width:30px;height:30px;border-radius:8px;background:#1c1e1f;border:1px solid #343638}
+.order-workspace-page .workspace-qty b{min-width:22px;text-align:center;font-size:11px}
+.order-workspace-page .workspace-remove{padding:6px;color:#6d6966;border-radius:8px}
+.order-workspace-page .workspace-remove:hover:not(:disabled){background:#251816;color:#e08060}
+.workspace-modification{margin-top:11px;padding:11px 11px 10px;border:1px solid #292c2d;background:#0f1112;border-radius:11px}
+.workspace-modification-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:7px}
+.workspace-modification-head b,.workspace-modification-head span{display:block}
+.workspace-modification-head b{font-size:10px;color:#d9d1cc}
+.workspace-modification-head span{font-size:8px;color:#6f6b68;margin-top:3px;line-height:1.4}
+.workspace-modification-head em{font-style:normal;white-space:nowrap;padding:4px 6px;border-radius:999px;border:1px solid #4e2a20;background:#241510;color:#da7652;font-size:7px;font-weight:800;letter-spacing:.7px}
+.order-workspace-page .workspace-line textarea{min-height:62px;margin-top:0;font-size:10px;line-height:1.45;padding:9px 10px;border-radius:9px;background:#0b0d0e}
+.order-workspace-page .mod-chips{gap:5px;margin-top:7px}
+.order-workspace-page .mod-chips button{padding:6px 8px;border-radius:8px;background:#191b1c;border:1px solid #303233;color:#9a9692;font-size:8px}
+.order-workspace-page .mod-chips button:hover{border-color:#5d3022;color:#eee;background:#211613}
+.order-workspace-page .workspace-note{padding:13px 2px 0;border-top:1px solid #292b2c}
+.workspace-note-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.workspace-note-head label{margin:0}
+.workspace-note-head span{color:#5f5c59;font-size:8px}
+.order-workspace-page .workspace-note textarea{min-height:68px;margin-top:7px;font-size:10px;line-height:1.45;padding:10px;border-radius:10px}
+.order-workspace-page .workspace-total-row{padding:13px 2px;border-top:1px solid #292b2c}
+.workspace-total-row>div:first-child span,.workspace-total-row>div:first-child small{display:block}
+.workspace-total-row>div:first-child span{font-size:9px;color:#696663}
+.workspace-total-row>div:first-child small{font-size:8px;color:#50504e;margin-top:3px}
+.order-workspace-page .workspace-total-row>strong{font:800 27px 'Plus Jakarta Sans';letter-spacing:-.7px}
+.order-workspace-page .workspace-payment{padding-top:13px;margin-top:1px}
+.order-workspace-page .workspace-payment-title b{font-size:11px}
+.order-workspace-page .workspace-payment-title span{font-size:9px}
+.order-workspace-page .workspace-payment-grid{margin-top:8px}
+.order-workspace-page .workspace-payment-grid button{min-height:38px;padding:9px 6px;font-size:9px;border-radius:9px}
+.order-workspace-page .workspace-final-actions{grid-template-columns:minmax(155px,.9fr) minmax(230px,1.35fr);gap:9px;margin-top:9px}
+.order-workspace-page .workspace-final-actions .secondary,.order-workspace-page .workspace-final-actions .primary{min-height:44px;border-radius:10px;font-size:10px}
+.order-workspace-page .workspace-success,.order-workspace-page .workspace-error{font-size:9px}
+@media(max-width:1120px){.order-workspace-page .workspace-body{grid-template-columns:minmax(0,1fr) minmax(450px,.95fr)}.order-workspace-page .workspace-product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:920px){.order-workspace-page .workspace-body{grid-template-columns:1fr}.order-workspace-page .workspace-catalog{display:none}.order-workspace-page .workspace-summary{border-left:0}.order-workspace-page .workspace-final-actions{grid-template-columns:1fr 1.2fr}}
+@media(max-width:760px){.content:has(.order-workspace-page){padding:0}.order-workspace-page,.order-workspace-page .order-workspace{min-height:calc(100vh - 66px);height:calc(100vh - 66px)}.order-workspace-page .workspace-head{padding:14px 16px}.order-workspace-page .workspace-summary{padding:15px 14px}.workspace-summary-total strong{font-size:23px}.order-workspace-page .workspace-line{padding:12px}.order-workspace-page .workspace-final-actions{grid-template-columns:1fr}.workspace-modification{padding:10px}.workspace-note-head span{display:none}}

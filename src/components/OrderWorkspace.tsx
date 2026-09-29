@@ -221,30 +221,50 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
         </section>
 
         <aside className="workspace-summary">
-          <div className="workspace-summary-head"><div><b>{order ? `Pedido #${order.orderNumber}` : 'Tu pedido'}</b><span>{units} unidades · {items.length} líneas</span></div><strong>{money(total)}</strong></div>
+          <div className="workspace-summary-head">
+            <div>
+              <p className="workspace-summary-kicker">CUENTA ACTUAL</p>
+              <b>{order ? `Pedido #${order.orderNumber}` : 'Tu pedido'}</b>
+              <span>{units} unidades · {items.length} líneas · Cada línea puede tener su propia modificación</span>
+            </div>
+            <div className="workspace-summary-total">
+              <small>Total</small>
+              <strong>{money(total)}</strong>
+            </div>
+          </div>
 
           <div className="workspace-lines">
-            {!items.length && <div className="workspace-empty-cart"><ShoppingCart size={28}/><b>Agrega tu primer producto</b><span>Los detalles aparecerán aquí.</span></div>}
-            {items.map(item => <div className="workspace-line" key={item.lineId || item.productId}>
+            {!items.length && <div className="workspace-empty-cart"><ShoppingCart size={30}/><b>Agrega tu primer producto</b><span>Los productos y sus modificaciones aparecerán aquí.</span></div>}
+            {items.map(item => <article className="workspace-line" key={item.lineId || item.productId}>
               <div className="workspace-line-head">
+                <div className="workspace-line-index"><span>{item.quantity}×</span></div>
                 <div className="workspace-line-name"><b>{item.name}</b><small>{item.category || 'Producto'} · {money(item.unitPrice)} c/u</small></div>
                 <strong>{money(item.quantity * item.unitPrice)}</strong>
               </div>
+
               <div className="workspace-line-controls">
-                <div className="qty"><button disabled={isLocked} onClick={() => changeQty(item.lineId || item.productId, -1)}><Minus size={13}/></button><b>{item.quantity}</b><button disabled={isLocked} onClick={() => changeQty(item.lineId || item.productId, 1)}><Plus size={13}/></button></div>
-                <button className="workspace-remove" disabled={isLocked} onClick={() => removeItem(item.lineId || item.productId)}><Trash2 size={14}/></button>
+                <div className="workspace-qty-label">Cantidad</div>
+                <div className="qty workspace-qty"><button aria-label={`Disminuir ${item.name}`} disabled={isLocked} onClick={() => changeQty(item.lineId || item.productId, -1)}><Minus size={14}/></button><b>{item.quantity}</b><button aria-label={`Aumentar ${item.name}`} disabled={isLocked} onClick={() => changeQty(item.lineId || item.productId, 1)}><Plus size={14}/></button></div>
+                <button className="workspace-remove" disabled={isLocked} onClick={() => removeItem(item.lineId || item.productId)} aria-label={`Eliminar ${item.name}`}><Trash2 size={15}/></button>
               </div>
-              <textarea disabled={isLocked} value={item.modification || ''} onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setModification(item.lineId || item.productId, event.target.value)} placeholder="Modificación: sin tomate, sin salsa…" rows={2}/>
-              {!isLocked && <div className="mod-chips">{modificationChips.map(chip => <button key={chip} onClick={() => setModification(item.lineId || item.productId, appendModification(item.modification, chip))}>{chip}</button>)}</div>}
-            </div>)}
+
+              <div className="workspace-modification">
+                <div className="workspace-modification-head">
+                  <div><b>Modificación</b><span>{item.modification ? 'Queda indicada en la comanda' : 'Opcional · escríbela o usa un atajo'}</span></div>
+                  {item.modification && <em>PERSONALIZADO</em>}
+                </div>
+                <textarea disabled={isLocked} value={item.modification || ''} onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setModification(item.lineId || item.productId, event.target.value)} placeholder="Ej. Sin tomate, sin salsa, extra queso…" rows={2}/>
+                {!isLocked && <div className="mod-chips">{modificationChips.map(chip => <button key={chip} onClick={() => setModification(item.lineId || item.productId, appendModification(item.modification, chip))}>{chip}</button>)}</div>}
+              </div>
+            </article>)}
           </div>
 
           <div className="workspace-note">
-            <label>Observaciones del pedido</label>
-            <textarea value={notes} disabled={isLocked} onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setNotes(event.target.value)} placeholder="Ej. Llevar servilletas / recoger en mostrador…" rows={2}/>
+            <div className="workspace-note-head"><label>Notas generales</label><span>Aplican a todo el pedido</span></div>
+            <textarea value={notes} disabled={isLocked} onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setNotes(event.target.value)} placeholder="Ej. Llevar servilletas · recoger en mostrador · entregar completa…" rows={3}/>
           </div>
 
-          <div className="workspace-total-row"><span>Total</span><strong>{money(total)}</strong></div>
+          <div className="workspace-total-row"><div><span>Total del pedido</span><small>{items.length} líneas · {units} unidades</small></div><strong>{money(total)}</strong></div>
 
           {!order && <div className="workspace-bottom-actions">
             <button className="secondary workspace-print" disabled={!items.length || saving} onClick={() => void saveDraft(true)}><Printer size={16}/> {saving ? 'Registrando…' : 'Registrar e imprimir comanda'}</button>
