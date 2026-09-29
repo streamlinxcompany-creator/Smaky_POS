@@ -1,6 +1,6 @@
 import { db } from './db'
 import { products as seedProducts } from './demoData'
-import type { Product, Role, Sale, User } from './types'
+import type { Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod } from './types'
 
 const seedManager: User = {
   id: 'u-owner',
@@ -61,6 +61,64 @@ export async function addSale(sale: Sale) {
   return sale
 }
 
+export async function getOrders() {
+  return db.orders.orderBy('createdAt').reverse().toArray()
+}
+
+export async function createOrder(items: Order['items'], delivery: DeliveryInfo, user: User) {
+  const lastOrder = await db.orders.orderBy('orderNumber').reverse().first()
+  const order: Order = {
+    id: crypto.randomUUID(),
+    orderNumber: (lastOrder?.orderNumber ?? 0) + 1,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    userId: user.id,
+    userName: user.name,
+    ...delivery,
+    items: items.map(item => ({ ...item })),
+    subtotal: items.reduce((sum, item) => sum + item.total, 0),
+    total: items.reduce((sum, item) => sum + item.total, 0),
+    status: 'pending'
+  }
+  await db.orders.add(order)
+  return order
+}
+
+export async function updateOrderStatus(orderId: string, status: OrderStatus) {
+  const order = await db.orders.get(orderId)
+  if (!order || ['paid', 'cancelled'].includes(order.status)) return order ?? null
+  await db.orders.update(orderId, { status, updatedAt: new Date().toISOString() })
+  return db.orders.get(orderId)
+}
+
+export async function completeOrder(orderId: string, payment: PaymentMethod, actor: User) {
+  return db.transaction('rw', db.orders, db.sales, db.users, async () => {
+    const [order, freshActor] = await Promise.all([db.orders.get(orderId), db.users.get(actor.id)])
+    if (!order || !freshActor?.active || ['paid', 'cancelled'].includes(order.status)) return null
+
+    const sale: Sale = {
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      userId: freshActor.id,
+      userName: freshActor.name,
+      payment,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      customerName: order.customerName,
+      phone: order.phone,
+      address: order.address,
+      notes: order.notes,
+      items: order.items.map(item => ({ ...item })),
+      subtotal: order.subtotal,
+      total: order.total
+    }
+
+    await db.sales.add(sale)
+    await db.orders.update(order.id, { status: 'paid', updatedAt: new Date().toISOString() })
+    return { sale, order: await db.orders.get(order.id) as Order }
+  })
+}
+
 export async function deleteSale(targetId: string, actorId: string) {
   const actor = await db.users.get(actorId)
   if (!actor || !actor.active || !['manager', 'admin'].includes(actor.role)) return false
@@ -111,18 +169,15 @@ export async function updateUserSettings(targetId: string, changes: Partial<User
   const wantsActiveChange = changes.active !== undefined && changes.active !== target.active
   const actorIsManager = actor.role === 'manager'
 
-  // El Gerente es único y no puede degradarse, desactivarse ni convertirse en otra cosa.
   if (target.role === 'manager') {
     if (target.id !== actor.id) return target
     if (wantsRoleChange || wantsActiveChange) return target
   }
 
-  // Solo el Gerente puede crear/quitar/degradar Administradores o promover trabajadores.
   if (wantsRoleChange && !actorIsManager) return target
   if (wantsRoleChange && !['admin', 'employee'].includes(changes.role as string)) return target
   if (target.role === 'admin' && changes.role === 'employee' && !actorIsManager) return target
 
-  // Nadie puede desactivar su propia sesión.
   if (target.id === actor.id && wantsActiveChange) return target
 
   if (wantsActiveChange && target.role === 'admin' && !actorIsManager) return target

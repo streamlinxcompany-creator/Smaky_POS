@@ -1,30 +1,28 @@
-import { Check, ChevronRight, CreditCard, Minus, Plus, ShoppingCart, Trash2, Wallet, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
-import { getProducts, addSale } from '../lib/store'
+import { Check, MapPin, Minus, Plus, Printer, ShoppingCart, Trash2, UserRound } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { createOrder, getProducts } from '../lib/store'
 import { money } from '../lib/format'
-import type { PaymentMethod, Product, SaleItem } from '../lib/types'
+import type { DeliveryInfo, Product, SaleItem } from '../lib/types'
 import { getSessionUser } from '../lib/auth'
+import { printOrderComanda } from '../lib/print'
 
-const paymentLabel = (payment: PaymentMethod) => payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : 'Tarjeta'
+const emptyDelivery: DeliveryInfo = { customerName: '', phone: '', address: '', notes: '' }
 
 export function POS() {
   const [products, setProducts] = useState<Product[]>([])
   const user = getSessionUser()
   const [category, setCategory] = useState('Todos')
   const [cart, setCart] = useState<SaleItem[]>([])
-  const [payment, setPayment] = useState<PaymentMethod>('cash')
-  const [confirming, setConfirming] = useState(false)
-  const [slideProgress, setSlideProgress] = useState(0)
-  const [pending, setPending] = useState<{ items: SaleItem[]; payment: PaymentMethod; total: number } | null>(null)
-  const [done, setDone] = useState(false)
+  const [delivery, setDelivery] = useState<DeliveryInfo>(emptyDelivery)
   const [saving, setSaving] = useState(false)
-  const slideProgressRef = useRef(0)
+  const [done, setDone] = useState(false)
 
   useEffect(() => { getProducts().then(setProducts) }, [])
 
   const categories = ['Todos', 'Hamburguesas', 'Combos', 'Acompañamientos', 'Bebidas']
   const filtered = products.filter(p => category === 'Todos' || p.category === category)
   const total = useMemo(() => cart.reduce((a, i) => a + i.total, 0), [cart])
+  const canRegister = Boolean(cart.length && delivery.customerName.trim() && delivery.address.trim())
 
   const add = (product: Product) => setCart(current => {
     const existing = current.find(item => item.productId === product.id)
@@ -37,70 +35,30 @@ export function POS() {
     : [item]
   ))
 
-  const beginCheckout = () => {
-    if (!cart.length) return
-    setPending({ items: cart.map(item => ({ ...item })), payment, total })
-    slideProgressRef.current = 0
-    setSlideProgress(0)
-    setConfirming(true)
-  }
+  const setField = (key: keyof DeliveryInfo, value: string) => setDelivery(current => ({ ...current, [key]: value }))
 
-  const cancelCheckout = () => {
-    setConfirming(false)
-    slideProgressRef.current = 0
-    setSlideProgress(0)
-    setPending(null)
-  }
-
-  const confirmCheckout = async () => {
-    if (!pending || slideProgressRef.current < 92 || saving) return
+  const registerOrder = async () => {
+    if (!canRegister || !user || saving) return
+    const printTarget = window.open('', '_blank', 'width=420,height=720')
     setSaving(true)
     try {
-      if (!user) return
-      await addSale({
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-      userId: user.id,
-      userName: user.name,
-      payment: pending.payment,
-      items: pending.items,
-      subtotal: pending.total,
-      total: pending.total
-    })
+      const order = await createOrder(cart, delivery, user)
+      printOrderComanda(order, printTarget)
       setCart([])
-      setConfirming(false)
-      setPending(null)
-      slideProgressRef.current = 0
-      setSlideProgress(0)
+      setDelivery(emptyDelivery)
       setDone(true)
-      setTimeout(() => setDone(false), 2400)
+      setTimeout(() => setDone(false), 2600)
+    } catch {
+      printTarget?.close()
     } finally {
       setSaving(false)
     }
   }
 
-  const updateSlide = (event: PointerEvent<HTMLDivElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect()
-    const raw = ((event.clientX - bounds.left) / bounds.width) * 100
-    const next = Math.max(0, Math.min(100, raw))
-    slideProgressRef.current = next
-    setSlideProgress(next)
-  }
-
-  const slidePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (saving) return
-    event.currentTarget.setPointerCapture(event.pointerId)
-    updateSlide(event)
-  }
-
-  const slidePointerUp = () => {
-    if (slideProgressRef.current >= 92 && !saving) void confirmCheckout()
-  }
-
   return <div className="pos-page">
     <div className="page-heading compact">
-      <div><p className="eyebrow">CAJA</p><h1>Punto de venta</h1></div>
-      <div className="sync-pill"><span className="dot online"/> Listo para vender</div>
+      <div><p className="eyebrow">DOMICILIOS</p><h1>Tomar pedido</h1><p className="muted">Registra el pedido, imprime la comanda y luego gestiónalo desde Pedidos.</p></div>
+      <div className="sync-pill"><span className="dot online"/> Listo para recibir pedidos</div>
     </div>
 
     <div className="pos-layout">
@@ -116,7 +74,16 @@ export function POS() {
       </section>
 
       <aside className="cart">
-        <div className="cart-header"><div><h2>Pedido actual</h2><p>{cart.reduce((a, i) => a + i.quantity, 0)} productos</p></div><ShoppingCart size={20}/></div>
+        <div className="cart-header"><div><h2>Pedido nuevo</h2><p>{cart.reduce((a, i) => a + i.quantity, 0)} productos · Domicilio</p></div><ShoppingCart size={20}/></div>
+
+        <div className="delivery-form">
+          <div className="delivery-form-title"><UserRound size={15}/><b>Datos del cliente</b></div>
+          <input value={delivery.customerName} onChange={e => setField('customerName', e.target.value)} placeholder="Nombre del cliente *" />
+          <input value={delivery.phone} onChange={e => setField('phone', e.target.value)} placeholder="Teléfono" inputMode="tel" />
+          <div className="delivery-address"><MapPin size={15}/><input value={delivery.address} onChange={e => setField('address', e.target.value)} placeholder="Dirección de entrega *" /></div>
+          <textarea value={delivery.notes} onChange={e => setField('notes', e.target.value)} placeholder="Observaciones (sin cebolla, apartamento, etc.)" rows={2}/>
+        </div>
+
         <div className="cart-items">
           {cart.length === 0
             ? <div className="empty-cart"><ShoppingCart size={32}/><b>El pedido está vacío</b><span>Toca un producto para agregarlo</span></div>
@@ -128,47 +95,13 @@ export function POS() {
             </div>)}
         </div>
 
-        <div className="payment"><span>Método de pago</span><div className="payment-grid">
-          {([['cash', 'Efectivo', Wallet], ['transfer', 'Transferencia', CreditCard], ['card', 'Tarjeta', CreditCard]] as const).map(([value, label, Icon]) => <button className={payment === value ? 'selected' : ''} onClick={() => setPayment(value)} key={value}><Icon size={16}/>{label}</button>)}
-        </div></div>
-
-        <div className="checkout">
-          <div><span>Total</span><strong>{money(total)}</strong></div>
-          <button disabled={!cart.length} onClick={beginCheckout}><Check size={18}/> Cobrar pedido</button>
+        <div className="checkout order-register">
+          <div><span>Total del pedido</span><strong>{money(total)}</strong></div>
+          <button disabled={!canRegister || saving} onClick={() => void registerOrder}><Printer size={17}/> {saving ? 'Registrando…' : 'Registrar e imprimir comanda'}</button>
+          {!canRegister && <small>Completa cliente, dirección y agrega productos para registrar.</small>}
         </div>
-        {done && <div className="success-toast"><Check size={17}/> Venta guardada correctamente</div>}
+        {done && <div className="success-toast"><Check size={17}/> Pedido registrado · comanda enviada a impresión</div>}
       </aside>
     </div>
-
-    {confirming && pending && <div className="modal-backdrop checkout-backdrop">
-      <div className="checkout-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-order-title">
-        <button className="checkout-modal-close" onClick={cancelCheckout} aria-label="Cancelar"><X size={18}/></button>
-        <div className="confirm-icon"><ShoppingCart size={19}/></div>
-        <p className="eyebrow">CONFIRMACIÓN</p>
-        <h2 id="confirm-order-title">¿Seguro del pedido?</h2>
-        <p className="confirm-copy">Revisa los productos y el método de pago antes de registrar la venta.</p>
-
-        <div className="confirm-order-list">{pending.items.map(item => <div className="confirm-order-item" key={item.productId}>
-          <div><b>{item.quantity}× {item.name}</b><span>{money(item.unitPrice)} c/u</span></div>
-          <strong>{money(item.total)}</strong>
-        </div>)}</div>
-
-        <div className="confirm-summary">
-          <div><span>Método de pago</span><b>{paymentLabel(pending.payment)}</b></div>
-          <div><span>Total</span><strong>{money(pending.total)}</strong></div>
-        </div>
-
-        <div className="confirm-slider-wrap">
-          <div className="slider-hint"><span>Mueve para confirmar</span><div className="slider-lights" aria-hidden="true"><i/><i/><i/><ChevronRight size={14}/></div></div>
-          <div className={`confirm-slider ${slideProgress >= 92 ? 'ready' : ''}`} onPointerDown={slidePointerDown} onPointerMove={event => event.currentTarget.hasPointerCapture(event.pointerId) && updateSlide(event)} onPointerUp={slidePointerUp} onPointerCancel={slidePointerUp}>
-            <div className="confirm-slider-fill" style={{ width: `${slideProgress}%` }}/>
-            <div className="confirm-slider-text">{slideProgress >= 92 ? 'Suelta para confirmar' : 'Desliza hacia la derecha'}</div>
-            <div className="confirm-slider-thumb" style={{ left: `calc(${8 + (Math.min(100, Math.max(0, slideProgress)) * 0.84)}% - 24px)` }}><ChevronRight size={19}/></div>
-          </div>
-          <p className="slider-safe-note">La venta solo se guarda cuando completas el deslizamiento.</p>
-          {saving && <div className="confirm-saving"><span className="spinner"/> Guardando venta...</div>}
-        </div>
-      </div>
-    </div>}
   </div>
 }

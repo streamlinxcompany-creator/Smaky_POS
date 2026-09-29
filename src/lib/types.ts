@@ -1,5 +1,6 @@
 export type Role = 'manager' | 'admin' | 'employee'
 export type PaymentMethod = 'cash' | 'transfer' | 'card'
+export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'paid' | 'cancelled'
 
 export type Product = {
   id: string
@@ -17,7 +18,27 @@ export type SaleItem = {
   total: number
 }
 
-export type Sale = {
+export type DeliveryInfo = {
+  customerName: string
+  phone: string
+  address: string
+  notes: string
+}
+
+export type Order = DeliveryInfo & {
+  id: string
+  orderNumber: number
+  createdAt: string
+  updatedAt: string
+  userId: string
+  userName: string
+  items: SaleItem[]
+  subtotal: number
+  total: number
+  status: OrderStatus
+}
+
+export type Sale = DeliveryInfo & {
   id: string
   createdAt: string
   userId: string
@@ -26,6 +47,8 @@ export type Sale = {
   items: SaleItem[]
   subtotal: number
   total: number
+  orderId?: string
+  orderNumber?: number
 }
 
 export type User = {

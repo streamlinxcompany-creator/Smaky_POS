@@ -1,9 +1,10 @@
-import { ArrowRight, FileText, ShieldAlert, Trash2, X } from 'lucide-react'
+import { ArrowRight, FileText, Printer, ShieldAlert, Trash2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { deleteSale, getSales } from '../lib/store'
 import { money, time, date } from '../lib/format'
 import type { PaymentMethod, Sale } from '../lib/types'
 import { getSessionUser } from '../lib/auth'
+import { printSaleReceipt } from '../lib/print'
 
 const paymentLabel = (payment: PaymentMethod) => payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : 'Tarjeta'
 
@@ -69,7 +70,7 @@ export function Sales() {
         <thead><tr><th>Fecha</th><th>Pedido</th><th>Usuario</th><th>Pago</th><th>Total</th></tr></thead>
         <tbody>{sales.map(sale => <tr key={sale.id} className="clickable-row" onClick={() => setSelectedSale(sale)}>
           <td>{date(sale.createdAt)} · {time(sale.createdAt)}</td>
-          <td>{sale.items.map(item => `${item.quantity}× ${item.name}`).join(', ')}</td>
+          <td><b>#{sale.orderNumber ?? sale.id.slice(-6).toUpperCase()}</b><div className="sales-customer">{sale.customerName || 'Consumidor final'}</div></td>
           <td>{sale.userName}</td>
           <td><span className="badge">{paymentLabel(sale.payment)}</span></td>
           <td><b>{money(sale.total)}</b></td>
@@ -88,9 +89,12 @@ export function Sales() {
         </div>
 
         <div className="receipt-meta">
+          <div><span>Pedido</span><b>#{selectedSale.orderNumber ?? selectedSale.id.slice(-6).toUpperCase()}</b></div>
+          <div><span>Cliente</span><b>{selectedSale.customerName || 'Consumidor final'}</b></div>
+          <div><span>Pago</span><b>{paymentLabel(selectedSale.payment)}</b></div>
           <div><span>Fecha</span><b>{date(selectedSale.createdAt)} · {time(selectedSale.createdAt)}</b></div>
           <div><span>Atendido por</span><b>{selectedSale.userName}</b></div>
-          <div><span>Pago</span><b>{paymentLabel(selectedSale.payment)}</b></div>
+          <div><span>Dirección</span><b>{selectedSale.address || '—'}</b></div>
         </div>
 
         <div className="receipt-section-title">Productos</div>
@@ -103,6 +107,7 @@ export function Sales() {
           <div><span>Subtotal</span><b>{money(selectedSale.subtotal)}</b></div>
           <div className="grand"><span>Total</span><strong>{money(selectedSale.total)}</strong></div>
         </div>
+        <button className="secondary receipt-print-btn" onClick={() => printSaleReceipt(selectedSale)}><Printer size={15}/> Imprimir comprobante</button>
         {canDelete && <div className="receipt-danger">
           <button className="delete-sale-btn" onClick={() => { setConfirmDelete(true); deleteProgressRef.current = 0; setDeleteProgress(0) }}><Trash2 size={15}/> Eliminar esta venta</button>
         </div>}
