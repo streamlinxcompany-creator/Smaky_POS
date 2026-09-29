@@ -11,8 +11,10 @@ export type Product = {
 }
 
 export type SaleItem = {
+  lineId?: string
   productId: string
   name: string
+  category?: Product['category']
   quantity: number
   unitPrice: number
   total: number

@@ -84,10 +84,10 @@ export async function createOrder(items: Order['items'], delivery: DeliveryInfo,
     updatedAt: now.toISOString(),
     userId: user.id,
     userName: user.name,
-    customerName: '',
-    phone: '',
-    address: '',
-    notes: '',
+    customerName: delivery.customerName || '',
+    phone: delivery.phone || '',
+    address: delivery.address || '',
+    notes: delivery.notes || '',
     items: cleanItems,
     subtotal: total,
     total,
@@ -97,12 +97,12 @@ export async function createOrder(items: Order['items'], delivery: DeliveryInfo,
   return order
 }
 
-export async function updateOrderItems(orderId: string, items: Order['items']) {
+export async function updateOrderItems(orderId: string, items: Order['items'], notes?: string) {
   const order = await db.orders.get(orderId)
   if (!order || ['paid', 'cancelled'].includes(order.status) || !items.length) return order ?? null
   const cleanItems = items.map(item => ({ ...item, modification: item.modification?.trim() || undefined }))
   const subtotal = cleanItems.reduce((sum, item) => sum + item.total, 0)
-  await db.orders.update(orderId, { items: cleanItems, subtotal, total: subtotal, updatedAt: new Date().toISOString() })
+  await db.orders.update(orderId, { items: cleanItems, subtotal, total: subtotal, ...(notes !== undefined ? { notes: notes.trim() } : {}), updatedAt: new Date().toISOString() })
   return db.orders.get(orderId)
 }
 
