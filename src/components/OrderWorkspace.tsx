@@ -1,4 +1,4 @@
-import { Check, ChevronDown, CreditCard, FileText, Minus, Plus, Printer, Search, ShoppingCart, Trash2, X } from 'lucide-react'
+import { Check, CreditCard, FileText, Minus, Plus, Printer, Search, ShoppingCart, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { completeOrder, createOrder, getProducts, getSaleForOrder, updateOrderItems } from '../lib/store'
 import { money, time, date } from '../lib/format'
@@ -53,15 +53,17 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
   const [category, setCategory] = useState<(typeof categories)[number]>('Todos')
   const [search, setSearch] = useState('')
   const [payment, setPayment] = useState<PaymentMethod>('cash')
-  const [expandedLineId, setExpandedLineId] = useState<string | null>(null)
+  const [notes, setNotes] = useState(initialOrder?.notes || '')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [editingLineId, setEditingLineId] = useState<string | null>(null)
 
   const isLocked = order?.status === 'paid' || order?.status === 'cancelled'
   const initialItems = order?.items || []
-  const dirty = Boolean(order) && !sameItems(items, initialItems)
+  const dirty = Boolean(order) && (!sameItems(items, initialItems) || notes !== (order?.notes || ''))
   const total = useMemo(() => items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [items])
+  const editingItem = editingLineId ? items.find(item => (item.lineId || item.productId) === editingLineId) || null : null
   const units = useMemo(() => items.reduce((sum, item) => sum + item.quantity, 0), [items])
   const filtered = products.filter(product => {
     const categoryMatch = category === 'Todos' || product.category === category
@@ -75,7 +77,7 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
     setOrder(next)
     if (next) {
       setItems(next.items.map(item => ({ ...item, lineId: item.lineId || newLineId() })))
-      setExpandedLineId(null)
+      setNotes(next.notes || '')
       onOrderChange?.(next)
     }
   }
@@ -113,6 +115,11 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
     setItems(current => current.filter(item => (item.lineId || item.productId) !== (lineId || '')))
   }
 
+  const printCurrentComanda = (target?: Window | null, currentOrder = order) => {
+    if (!currentOrder) return false
+    return printOrderComanda({ ...currentOrder, items, subtotal: total, total, notes }, target)
+  }
+
   const saveDraft = async (print = true): Promise<Order | null> => {
     const printTarget = print ? window.open('', '_blank', 'width=460,height=760') : null
     setSaving(true)
@@ -120,14 +127,14 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
     try {
       if (!items.length) throw new Error('Agrega al menos un producto para registrar el pedido.')
       if (!order) {
-        const created = await createOrder(items, { customerName: '', phone: '', address: '', notes: '' }, user)
+        const created = await createOrder(items, { customerName: '', phone: '', address: '', notes }, user)
         setCurrent(created)
         const printed = printOrderComanda(created, printTarget)
         if (print && !printed) setError('El pedido se registró, pero el navegador bloqueó la comanda. Permite las ventanas emergentes para Smaky.')
         else setMessage(`Pedido #${created.orderNumber} registrado`)
         return created
       }
-      const updated = dirty ? await updateOrderItems(order.id, items) : order
+      const updated = dirty ? await updateOrderItems(order.id, items, notes) : order
       if (!updated) return null
       setCurrent(updated)
       if (print) {
@@ -152,7 +159,7 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
     try {
       let currentOrder = order
       if (dirty) {
-        const updated = await updateOrderItems(order.id, items)
+        const updated = await updateOrderItems(order.id, items, notes)
         if (!updated) throw new Error('No fue posible guardar los cambios antes de cobrar.')
         currentOrder = updated
         setCurrent(updated)
@@ -190,13 +197,14 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
         <div className="workspace-title">
           <button className="receipt-close" onClick={onClose} aria-label="Cerrar"><X size={18}/></button>
           <div>
-            <p className="eyebrow">{order ? `PEDIDO ${order.orderNumber}` : 'NUEVO PEDIDO'}</p>
+            <p className="eyebrow">CUENTA ACTUAL</p>
             <h2>{order ? `Pedido #${order.orderNumber}` : 'Nuevo pedido'}</h2>
+            {order && <span>{date(order.createdAt)} · {time(order.createdAt)} · {order.userName}</span>}
           </div>
         </div>
         <div className="workspace-head-meta">
           {order && <span className={`order-status status-${order.status}`}>{order.status === 'paid' ? 'Pagado' : order.status === 'cancelled' ? 'Cancelado' : 'Pedido abierto'}</span>}
-          <span className="workspace-time-meta">{order ? `${date(order.createdAt)} · ${time(order.createdAt)} · ${order.userName}` : 'Cuenta actual'}</span>
+          <span className="workspace-units"><ShoppingCart size={14}/>{units} unidades · {items.length} líneas</span>
         </div>
       </header>
 
@@ -215,11 +223,10 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
         </section>
 
         <aside className="workspace-summary">
-          <div className="workspace-summary-head">
+          <div className="workspace-summary-head workspace-summary-head-compact">
             <div>
-              <p className="workspace-summary-kicker">CUENTA ACTUAL</p>
-              <b>{order ? `Pedido #${order.orderNumber}` : 'Tu pedido'}</b>
-              <span>{units} productos · {items.length} líneas</span>
+              <p className="workspace-summary-kicker">PEDIDO</p>
+              <b>{order ? `#${order.orderNumber}` : 'Tu pedido'}</b>
             </div>
             <div className="workspace-summary-total">
               <small>Total</small>
@@ -228,41 +235,15 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
           </div>
 
           <div className="workspace-lines">
-            {!items.length && <div className="workspace-empty-cart"><ShoppingCart size={30}/><b>Agrega tu primer producto</b><span>Los productos aparecerán aquí.</span></div>}
+            {!items.length && <div className="workspace-empty-cart"><ShoppingCart size={30}/><b>Agrega tu primer producto</b><span>Los productos y sus modificaciones aparecerán aquí.</span></div>}
             {items.map(item => {
               const lineId = item.lineId || item.productId
-              const expanded = expandedLineId === lineId
-              return <article className={`workspace-line ${expanded ? 'is-expanded' : 'is-collapsed'}`} key={lineId}>
-                <button
-                  type="button"
-                  className="workspace-line-collapsed"
-                  aria-expanded={expanded}
-                  onClick={() => setExpandedLineId(current => current === lineId ? null : lineId)}
-                >
-                  <span className="workspace-line-badge">{item.quantity}×</span>
-                  <span className="workspace-line-name">
-                    <b>{item.name}</b>
-                  </span>
-                  <strong>{money(item.quantity * item.unitPrice)}</strong>
-                  <ChevronDown className="workspace-line-chevron" size={17}/>
-                </button>
-
-                {expanded && <div className="workspace-line-editor">
-                  <div className="workspace-line-controls">
-                    <div className="workspace-qty-label">Cantidad</div>
-                    <div className="qty workspace-qty"><button aria-label={`Disminuir ${item.name}`} disabled={isLocked} onClick={() => changeQty(lineId, -1)}><Minus size={14}/></button><b>{item.quantity}</b><button aria-label={`Aumentar ${item.name}`} disabled={isLocked} onClick={() => changeQty(lineId, 1)}><Plus size={14}/></button></div>
-                    <button className="workspace-remove" disabled={isLocked} onClick={() => removeItem(lineId)} aria-label={`Eliminar ${item.name}`}><Trash2 size={15}/></button>
-                  </div>
-
-                  <div className="workspace-modification">
-                    <div className="workspace-modification-head">
-                      <div><b>Modificar producto</b><span>La modificación queda asociada solo a esta línea.</span></div>
-                      {item.modification && <em>EDITADO</em>}
-                    </div>
-                    <textarea disabled={isLocked} value={item.modification || ''} onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setModification(lineId, event.target.value)} placeholder="Ej. Sin tomate, sin salsa, extra queso…" rows={2}/>
-                    {!isLocked && <div className="mod-chips">{modificationChips.map(chip => <button type="button" key={chip} onClick={() => setModification(lineId, appendModification(item.modification, chip))}>{chip}</button>)}</div>}
-                  </div>
-                </div>}
+              return <article className={`workspace-line workspace-line-compact ${editingLineId === lineId ? 'selected' : ''}`} key={lineId} onClick={() => !isLocked && setEditingLineId(lineId)}>
+                <div className="workspace-line-index"><span>{item.quantity}×</span></div>
+                <div className="workspace-line-name"><b>{item.name}</b><small>{item.modification ? item.modification : item.category || 'Producto'}</small></div>
+                <strong>{money(item.quantity * item.unitPrice)}</strong>
+                <button className="workspace-edit" disabled={isLocked} onClick={(event) => { event.stopPropagation(); setEditingLineId(lineId) }} aria-label={`Modificar ${item.name}`}><SlidersHorizontal size={15}/></button>
+                <button className="workspace-remove" disabled={isLocked} onClick={(event) => { event.stopPropagation(); removeItem(lineId) }} aria-label={`Eliminar ${item.name}`}><Trash2 size={15}/></button>
               </article>
             })}
           </div>
@@ -289,6 +270,42 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
           {error && <div className="workspace-error" role="alert">{error}<button onClick={() => setError('')} aria-label="Cerrar">×</button></div>}
         </aside>
       </div>
+
+      {editingItem && <div className="item-editor-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingLineId(null) }}>
+        <section className="item-editor-modal" role="dialog" aria-modal="true" aria-label={`Modificar ${editingItem.name}`}>
+          <header className="item-editor-head">
+            <div>
+              <span className="item-editor-kicker">MODIFICAR PRODUCTO</span>
+              <h3>{editingItem.name}</h3>
+              <p>{editingItem.category || 'Producto'} · {money(editingItem.unitPrice)} c/u</p>
+            </div>
+            <button className="item-editor-close" onClick={() => setEditingLineId(null)} aria-label="Cerrar"><X size={18}/></button>
+          </header>
+
+          <div className="item-editor-body">
+            <div className="item-editor-section">
+              <div className="item-editor-section-head"><div><b>Cantidad</b><span>Cuántas unidades quieres en esta línea</span></div><strong>{money(editingItem.quantity * editingItem.unitPrice)}</strong></div>
+              <div className="item-editor-qty"><button disabled={isLocked} onClick={() => changeQty(editingItem.lineId || editingItem.productId, -1)}><Minus size={17}/></button><b>{editingItem.quantity}</b><button disabled={isLocked} onClick={() => changeQty(editingItem.lineId || editingItem.productId, 1)}><Plus size={17}/></button></div>
+            </div>
+
+            <div className="item-editor-section">
+              <div className="item-editor-section-head"><div><b>Personalización</b><span>Indica exactamente qué debe cambiar</span></div>{editingItem.modification && <em>PERSONALIZADO</em>}</div>
+              <textarea disabled={isLocked} value={editingItem.modification || ''} onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setModification(editingItem.lineId || editingItem.productId, event.target.value)} placeholder="Ej. Sin tomate, sin salsa, extra queso…" rows={4}/>
+              {!isLocked && <div className="mod-chips item-editor-chips">{modificationChips.map(chip => <button key={chip} onClick={() => setModification(editingItem.lineId || editingItem.productId, appendModification(editingItem.modification, chip))}>{chip}</button>)}</div>}
+            </div>
+
+            <div className="item-editor-preview">
+              <div><span>En la cuenta</span><b>{editingItem.quantity}× {editingItem.name}</b>{editingItem.modification && <small>{editingItem.modification}</small>}</div>
+              <strong>{money(editingItem.quantity * editingItem.unitPrice)}</strong>
+            </div>
+          </div>
+
+          <footer className="item-editor-footer">
+            <button className="secondary" onClick={() => setEditingLineId(null)}>Cerrar</button>
+            <button className="primary" onClick={() => setEditingLineId(null)}>Guardar cambios</button>
+          </footer>
+        </section>
+      </div>}
     </section>
   </div>
 }
