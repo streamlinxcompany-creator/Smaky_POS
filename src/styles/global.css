@@ -341,3 +341,47 @@
 @media(max-width:480px){
   .pos-orders-grid{grid-template-columns:1fr}
 }
+
+/* Cobro v0.10 — verificación visual y factura del cliente */
+.checkout-confirm-modal,.checkout-success-modal{max-height:min(820px,calc(100vh - 36px));overflow:auto}
+.checkout-confirm-modal{animation:checkoutIn .18s ease-out both}
+@keyframes checkoutIn{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}
+.checkout-error{margin-top:12px}
+.checkout-success-modal{padding:24px}
+.payment-success-head{display:flex;align-items:center;gap:13px;padding:3px 35px 17px 2px;margin-bottom:12px;border-bottom:1px solid #292b2c}
+.payment-success-icon{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;background:#17311f;border:1px solid #2d6240;color:#8bd39d;flex:0 0 auto}
+.payment-success-head .eyebrow{margin:0 0 5px;color:#79b889}
+.payment-success-head h2{margin:0;font:800 22px 'Plus Jakarta Sans';letter-spacing:-.5px}
+.payment-success-head span{display:block;margin-top:4px;color:#777;font-size:9px}
+.checkout-receipt{background:#f4efe9;color:#1c1b1a;border:1px solid #ddd5ce;border-radius:16px;overflow:hidden;box-shadow:0 18px 45px rgba(0,0,0,.2)}
+.checkout-receipt-top{text-align:center;padding:18px 20px 15px;border-bottom:1px dashed #c9c1ba;background:linear-gradient(180deg,#f8f4ef,#f2ece6)}
+.checkout-receipt-mark{width:40px;height:40px;border-radius:12px;background:#171716;color:#f4efe9;display:grid;place-items:center;font:800 17px 'Plus Jakarta Sans';margin:0 auto 9px}
+.checkout-receipt-top .eyebrow{color:#a24728;margin-bottom:5px}
+.checkout-receipt-top h3{margin:0;font:800 21px 'Plus Jakarta Sans';letter-spacing:-.4px}
+.checkout-receipt-top>span{display:block;color:#77706b;font-size:9px;margin-top:4px}
+.checkout-receipt-meta{display:grid;grid-template-columns:repeat(4,1fr);gap:0;background:#f7f3ee;border-bottom:1px solid #ddd5ce}
+.checkout-receipt-meta>div{padding:11px 10px;border-right:1px solid #e2dbd4}
+.checkout-receipt-meta>div:last-child{border-right:0}
+.checkout-receipt-meta span,.checkout-receipt-meta b{display:block}
+.checkout-receipt-meta span{font-size:8px;color:#918983;text-transform:uppercase;letter-spacing:.6px}
+.checkout-receipt-meta b{font-size:9px;margin-top:4px;line-height:1.3}
+.checkout-receipt-items{padding:4px 14px}
+.checkout-receipt-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px dashed #d9d1ca}
+.checkout-receipt-item:last-child{border-bottom:0}
+.checkout-receipt-item b,.checkout-receipt-item span{display:block}
+.checkout-receipt-item b{font-size:10px}.checkout-receipt-item span{font-size:8px;color:#887f79;margin-top:3px}.checkout-receipt-item strong{font-size:10px;white-space:nowrap}
+.checkout-receipt-total{margin:4px 14px 14px;padding-top:9px;border-top:2px solid #262523}
+.checkout-receipt-total>div{display:flex;align-items:center;justify-content:space-between;padding:3px 0}
+.checkout-receipt-total span{font-size:9px;color:#7a726c}.checkout-receipt-total b{font-size:9px}.checkout-receipt-total>div:last-child{padding-top:7px}.checkout-receipt-total>div:last-child span{font:700 12px 'Plus Jakarta Sans';color:#2f2d2b}.checkout-receipt-total>div:last-child strong{font:800 21px 'Plus Jakarta Sans'}
+.checkout-success-actions{display:grid;grid-template-columns:1fr 1.25fr;gap:8px;margin-top:11px}.checkout-success-actions .secondary,.checkout-success-actions .primary{min-height:40px;justify-content:center;font-size:10px}
+@media(max-width:560px){.checkout-modal{padding:19px}.checkout-receipt-meta{grid-template-columns:1fr 1fr}.checkout-receipt-meta>div:nth-child(2){border-right:0}.checkout-receipt-meta>div:nth-child(-n+2){border-bottom:1px solid #e2dbd4}.checkout-success-actions{grid-template-columns:1fr}.confirm-summary{grid-template-columns:1fr 1fr}}
+@media(max-width:420px){.confirm-summary{grid-template-columns:1fr}.checkout-confirm-modal h2{font-size:21px}.checkout-receipt-meta{grid-template-columns:1fr 1fr}}
+
+/* Comprobante del historial: mismo lenguaje visual que la factura del cobro */
+.receipt-modal{background:#f4efe9;border-color:#ddd5ce;box-shadow:0 30px 85px rgba(0,0,0,.52)}
+.receipt-top{background:linear-gradient(180deg,#f8f4ef,#f2ece6);padding-top:10px}
+.receipt-brand-mark{background:#171716}
+.receipt-top .eyebrow{color:#a24728}
+.receipt-meta{background:#f7f3ee}
+.receipt-item{padding:9px 0}
+.receipt-item strong{font-size:10px}
