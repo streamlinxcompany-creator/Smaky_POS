@@ -26,8 +26,7 @@ export function printOrderComanda(order: Order, target?: Window | null) {
   const groups = groupedItems(order.items).map(group => `<div class="section">${escapeHtml(group.category)}</div>${group.items.map(commandItem).join('')}`).join('')
   return printWindow(`Comanda Pedido ${order.orderNumber}`, `
     <div class="center"><div class="brand">SMAKY</div><div class="subbrand">Comanda de cocina</div><div class="order-no">PEDIDO #${escapeHtml(order.orderNumber)}</div><div class="meta">${escapeHtml(date(order.createdAt))} · ${escapeHtml(time(order.createdAt))} · ${escapeHtml(order.userName)}</div></div>
-    <div class="line"></div>${groups}<div class="dashed"></div>
-    <div class="item-row"><strong>TOTAL UNIDADES</strong><strong>${order.items.reduce((sum, item) => sum + item.quantity, 0)}</strong></div>
+    <div class="line"></div>${groups}
     ${order.notes ? `<div class="note"><b>OBSERVACIONES</b><br>${escapeHtml(order.notes)}</div>` : ''}
     <div class="line"></div><div class="footer">Preparar pedido · verificar modificaciones</div>`, 460, target)
 }

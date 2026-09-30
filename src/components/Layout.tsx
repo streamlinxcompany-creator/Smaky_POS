@@ -6,7 +6,6 @@ import { clearSession, getSessionUser, initials } from '../lib/auth'
 const allNav = [
   { to: '/', label: 'Inicio', icon: LayoutDashboard, roles: ['manager', 'admin', 'employee'] },
   { to: '/pos', label: 'Punto de venta', icon: ShoppingCart, roles: ['manager', 'admin', 'employee'] },
-  { to: '/pedidos', label: 'Pedidos', icon: ClipboardList, roles: ['manager', 'admin', 'employee'] },
   { to: '/ventas', label: 'Ventas', icon: ClipboardList, roles: ['manager', 'admin', 'employee'] },
   { to: '/productos', label: 'Productos', icon: Package, roles: ['manager', 'admin'] },
   { to: '/reportes', label: 'Reportes', icon: BarChart3, roles: ['manager', 'admin'] },

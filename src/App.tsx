@@ -5,7 +5,6 @@ import { Dashboard } from './pages/Dashboard'
 import { POS } from './pages/POS'
 import { Products } from './pages/Products'
 import { Sales } from './pages/Sales'
-import { Orders } from './pages/Orders'
 import { Reports } from './pages/Reports'
 import { Users } from './pages/Users'
 import { Login } from './pages/Login'
@@ -21,7 +20,7 @@ export default function App() {
     <Route element={<Layout/>}>
       <Route path="/" element={<Dashboard/>}/>
       <Route path="/pos" element={<POS/>}/>
-      <Route path="/pedidos" element={<Orders/>}/>
+      <Route path="/pedidos" element={<Navigate to="/pos" replace/>}/>
       <Route path="/ventas" element={<Sales/>}/>
       <Route path="/productos" element={<AdminArea><Products/></AdminArea>}/>
       <Route path="/reportes" element={<AdminArea><Reports/></AdminArea>}/>
