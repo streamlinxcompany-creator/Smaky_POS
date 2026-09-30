@@ -245,3 +245,48 @@
 @media(max-width:1120px){.order-workspace-page .workspace-body{grid-template-columns:minmax(0,1fr) minmax(450px,.95fr)}.order-workspace-page .workspace-product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:920px){.order-workspace-page .workspace-body{grid-template-columns:1fr}.order-workspace-page .workspace-catalog{display:none}.order-workspace-page .workspace-summary{border-left:0}.order-workspace-page .workspace-final-actions{grid-template-columns:1fr 1.2fr}}
 @media(max-width:760px){.content:has(.order-workspace-page){padding:0}.order-workspace-page,.order-workspace-page .order-workspace{min-height:calc(100vh - 66px);height:calc(100vh - 66px)}.order-workspace-page .workspace-head{padding:14px 16px}.order-workspace-page .workspace-summary{padding:15px 14px}.workspace-summary-total strong{font-size:23px}.order-workspace-page .workspace-line{padding:12px}.order-workspace-page .workspace-final-actions{grid-template-columns:1fr}.workspace-modification{padding:10px}.workspace-note-head span{display:none}}
+
+/* Order workspace v0.9 — más aire en la cuenta y edición bajo demanda. */
+.order-workspace-page .workspace-head-compact{min-height:64px;padding:10px 24px}
+.order-workspace-page .workspace-head-compact .workspace-title{align-items:center;gap:10px}
+.order-workspace-page .workspace-head-compact .workspace-title .receipt-close{width:32px;height:32px;flex-basis:32px}
+.order-workspace-page .workspace-head-compact .workspace-title .eyebrow{margin:0 0 2px;font-size:8px}
+.order-workspace-page .workspace-head-compact .workspace-title h2{font-size:16px;line-height:1.15;margin:0;letter-spacing:-.35px}
+.workspace-time-meta{font-size:9px;color:#676461;white-space:nowrap}
+.order-workspace-page .workspace-body{grid-template-columns:minmax(0,1fr) minmax(520px,1.16fr)}
+.order-workspace-page .workspace-catalog{padding:18px 24px 18px}
+.order-workspace-page .workspace-summary{padding:17px 22px 16px}
+.order-workspace-page .workspace-summary-head{padding:0 2px 12px}
+.order-workspace-page .workspace-summary-head>div:first-child>span{font-size:9px;color:#625f5c}
+.order-workspace-page .workspace-lines{padding:10px 2px 9px 0;gap:7px}
+.order-workspace-page .workspace-line{padding:0;border:1px solid #2a2c2d;border-radius:11px;background:#121415;box-shadow:none;overflow:hidden}
+.order-workspace-page .workspace-line.is-expanded{border-color:#463028;background:linear-gradient(180deg,#161819,#121415)}
+.workspace-line-collapsed{width:100%;min-height:58px;display:grid;grid-template-columns:38px minmax(0,1fr) auto 20px;align-items:center;gap:10px;padding:9px 11px;background:transparent;border:0;color:#eee;text-align:left;cursor:pointer}
+.workspace-line-collapsed:hover{background:#171819}
+.workspace-line-collapsed:focus-visible{outline:2px solid #6f331f;outline-offset:-2px}
+.workspace-line-badge{width:34px;height:34px;display:grid;place-items:center;border-radius:9px;background:#241613;border:1px solid #40251d;color:#df7048;font:800 10px 'Plus Jakarta Sans'}
+.workspace-line-collapsed .workspace-line-name{min-width:0;display:block}
+.workspace-line-collapsed .workspace-line-name b{display:block;font-size:11px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.workspace-line-collapsed>strong{font:800 11px 'Plus Jakarta Sans';color:#eee;white-space:nowrap}
+.workspace-line-chevron{color:#686562;transition:transform .16s ease}
+.workspace-line.is-expanded .workspace-line-chevron{transform:rotate(180deg);color:#c96640}
+.workspace-line-editor{padding:0 12px 12px;border-top:1px solid #252728}
+.order-workspace-page .workspace-line-editor .workspace-line-controls{margin-top:0;padding-top:11px;border-top:0}
+.order-workspace-page .workspace-line-editor .workspace-modification{margin-top:10px;padding:10px;background:#0f1112}
+.order-workspace-page .workspace-line-editor .workspace-modification-head{margin-bottom:6px}
+.order-workspace-page .workspace-line-editor .workspace-modification-head span{max-width:360px}
+.order-workspace-page .workspace-line-editor .workspace-line textarea{min-height:56px}
+.order-workspace-page .workspace-total-row{padding:10px 2px}
+.order-workspace-page .workspace-payment{padding-top:10px}
+.order-workspace-page .workspace-final-actions{margin-top:8px}
+
+@media(max-width:1120px){
+  .order-workspace-page .workspace-body{grid-template-columns:minmax(0,1fr) minmax(440px,.98fr)}
+}
+@media(max-width:760px){
+  .order-workspace-page .workspace-head-compact{padding:10px 14px}
+  .workspace-time-meta{display:none}
+  .order-workspace-page .workspace-body{grid-template-columns:1fr}
+  .order-workspace-page .workspace-summary{padding:14px}
+}
+
