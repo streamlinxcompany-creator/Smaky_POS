@@ -67,13 +67,14 @@ export function Sales() {
 
     <div className="panel table-panel">
       {sales.length === 0 ? <div className="sales-empty"><FileText size={30}/><b>Aún no hay ventas</b><span>Las ventas confirmadas desde el punto de venta aparecerán aquí.</span></div> : <table>
-        <thead><tr><th>Fecha</th><th>Pedido</th><th>Usuario</th><th>Pago</th><th>Total</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Pedido</th><th>Usuario</th><th>Pago</th><th>Total</th><th>Factura</th></tr></thead>
         <tbody>{sales.map(sale => <tr key={sale.id} className="clickable-row" onClick={() => setSelectedSale(sale)}>
           <td>{date(sale.createdAt)} · {time(sale.createdAt)}</td>
           <td><b>#{sale.orderNumber ?? sale.id.slice(-6).toUpperCase()}</b><div className="sales-customer">{sale.customerName || 'Consumidor final'}</div></td>
           <td>{sale.userName}</td>
           <td><span className="badge">{paymentLabel(sale.payment)}</span></td>
           <td><b>{money(sale.total)}</b></td>
+          <td><button className="sales-print-btn" title="Imprimir factura" onClick={(event) => { event.stopPropagation(); printSaleReceipt(sale) }}><Printer size={14}/> Factura</button></td>
         </tr>)}</tbody>
       </table>}
     </div>
@@ -107,7 +108,7 @@ export function Sales() {
           <div><span>Subtotal</span><b>{money(selectedSale.subtotal)}</b></div>
           <div className="grand"><span>Total</span><strong>{money(selectedSale.total)}</strong></div>
         </div>
-        <button className="secondary receipt-print-btn" onClick={() => printSaleReceipt(selectedSale)}><Printer size={15}/> Imprimir comprobante</button>
+        <button className="secondary receipt-print-btn" onClick={() => printSaleReceipt(selectedSale)}><Printer size={15}/> Imprimir factura</button>
         {canDelete && <div className="receipt-danger">
           <button className="delete-sale-btn" onClick={() => { setConfirmDelete(true); deleteProgressRef.current = 0; setDeleteProgress(0) }}><Trash2 size={15}/> Eliminar esta venta</button>
         </div>}

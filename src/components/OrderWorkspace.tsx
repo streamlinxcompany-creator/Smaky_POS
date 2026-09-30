@@ -2,7 +2,7 @@ import { ArrowRight, Check, CreditCard, FileText, Minus, Plus, Printer, Search, 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent } from 'react'
 import { completeOrder, createOrder, getProducts, getSaleForOrder, updateOrderItems } from '../lib/store'
 import { money, time, date } from '../lib/format'
-import type { Order, PaymentMethod, Product, Sale, SaleItem, User } from '../lib/types'
+import type { Order, PaymentMethod, Product, SaleItem, User } from '../lib/types'
 import { printOrderComanda, printSaleReceipt } from '../lib/print'
 
 const categories = ['Todos', 'Hamburguesas', 'Combos', 'Acompañamientos', 'Bebidas'] as const
@@ -61,8 +61,10 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
   const [editingLineId, setEditingLineId] = useState<string | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [paymentProgress, setPaymentProgress] = useState(0)
-  const [paidSale, setPaidSale] = useState<Sale | null>(null)
   const paymentProgressRef = useRef(0)
+  const paymentSliderRef = useRef<HTMLDivElement | null>(null)
+  const paymentDraggingRef = useRef(false)
+  const paymentDragOffsetRef = useRef(0)
 
   const isLocked = order?.status === 'paid' || order?.status === 'cancelled'
   const initialItems = order?.items || []
@@ -160,29 +162,37 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
     if (!order || order.status === 'paid' || saving || !items.length) return
     paymentProgressRef.current = 0
     setPaymentProgress(0)
-    setPaidSale(null)
     setError('')
     setCheckoutOpen(true)
   }
 
   const updatePaymentSlide = (event: PointerEvent<HTMLDivElement>) => {
-    if (saving || paidSale) return
-    const bounds = event.currentTarget.getBoundingClientRect()
-    const raw = ((event.clientX - bounds.left) / bounds.width) * 100
-    const next = Math.max(0, Math.min(100, raw))
+    if (saving || !paymentDraggingRef.current || !paymentSliderRef.current) return
+    const bounds = paymentSliderRef.current.getBoundingClientRect()
+    const thumbWidth = Math.min(48, Math.max(42, bounds.height - 14))
+    const maxLeft = Math.max(1, bounds.width - thumbWidth - 14)
+    const rawLeft = event.clientX - bounds.left - paymentDragOffsetRef.current
+    const next = Math.max(0, Math.min(100, (rawLeft / maxLeft) * 100))
     paymentProgressRef.current = next
     setPaymentProgress(next)
   }
 
   const paymentSlideDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (saving || paidSale) return
-    event.currentTarget.setPointerCapture(event.pointerId)
-    updatePaymentSlide(event)
+    if (saving) return
+    const slider = paymentSliderRef.current
+    if (!slider) return
+    const thumb = event.currentTarget
+    const thumbBounds = thumb.getBoundingClientRect()
+    paymentDragOffsetRef.current = event.clientX - thumbBounds.left
+    paymentDraggingRef.current = true
+    thumb.setPointerCapture(event.pointerId)
   }
 
-  const paymentSlideUp = () => {
-    if (saving || paidSale) return
-    if (paymentProgressRef.current >= 92) void payNow()
+  const paymentSlideUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (!paymentDraggingRef.current) return
+    paymentDraggingRef.current = false
+    try { event.currentTarget.releasePointerCapture(event.pointerId) } catch {}
+    if (paymentProgressRef.current >= 96) void payNow()
     else {
       paymentProgressRef.current = 0
       setPaymentProgress(0)
@@ -190,7 +200,7 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
   }
 
   const payNow = async () => {
-    if (!order || order.status === 'paid' || saving || !items.length || paymentProgressRef.current < 92) return
+    if (!order || order.status === 'paid' || saving || !items.length || paymentProgressRef.current < 96) return
     setSaving(true)
     setError('')
     try {
@@ -204,10 +214,10 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
       const result = await completeOrder(currentOrder.id, payment, user)
       if (!result) throw new Error('No fue posible registrar el pago.')
       setCurrent(result.order)
-      setPaidSale(result.sale)
-      paymentProgressRef.current = 100
-      setPaymentProgress(100)
-      setMessage('Pago confirmado · venta registrada en Ventas')
+      setCheckoutOpen(false)
+      paymentProgressRef.current = 0
+      setPaymentProgress(0)
+      setMessage('Venta realizada')
     } catch (caught) {
       console.error('No fue posible cobrar el pedido:', caught)
       paymentProgressRef.current = 0
@@ -230,18 +240,6 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
     }
   }
 
-  const printInvoiceForSale = async (sale: Sale) => {
-    setError('')
-    const target = window.open('', '_blank', 'width=460,height=760')
-    if (!target) { setError('El navegador bloqueó la factura. Permite las ventanas emergentes para Smaky.'); return }
-    try {
-      const printed = printSaleReceipt(sale, target)
-      if (!printed) target.close()
-    } catch (caught) {
-      target.close()
-      setError(caught instanceof Error ? caught.message : 'No se pudo imprimir la factura.')
-    }
-  }
 
   return <div className="order-workspace-page">
     <section className="order-workspace" role="region" aria-label="Editor de pedido">
@@ -324,64 +322,51 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
       </div>
 
 
-      {checkoutOpen && <div className="checkout-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) { setCheckoutOpen(false); paymentProgressRef.current = 0; setPaymentProgress(0) } }}>
-        {!paidSale ? <section className="checkout-modal checkout-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
-          <button className="checkout-modal-close" disabled={saving} onClick={() => { setCheckoutOpen(false); paymentProgressRef.current = 0; setPaymentProgress(0) }} aria-label="Cerrar"><X size={18}/></button>
-          <div className="confirm-icon"><CreditCard size={20}/></div>
-          <p className="eyebrow">VERIFICAR PAGO</p>
-          <h2 id="checkout-title">Confirma el cobro</h2>
-          <p className="confirm-copy">Revisa el pedido y el medio de pago. El cobro solo se registrará cuando completes el deslizador.</p>
-          <div className="confirm-order-list">
-            {items.map(item => <div className="confirm-order-item" key={item.lineId || item.productId}>
-              <div><b>{item.quantity}× {item.name}</b><span>{item.modification || item.category || 'Producto'}</span></div>
-              <strong>{money(item.quantity * item.unitPrice)}</strong>
-            </div>)}
-          </div>
-          <div className="confirm-summary">
-            <div><span>Medio de pago</span><b>{paymentLabel(payment)}</b></div>
-            <div><span>Total a cobrar</span><strong>{money(total)}</strong></div>
-            <div><span>Pedido</span><b>#{order?.orderNumber}</b></div>
-            <div><span>Estado</span><b>{dirty ? 'Cambios por guardar' : 'Listo para cobrar'}</b></div>
-          </div>
-          <div className="confirm-slider-wrap">
-            <div className="slider-hint"><span>{saving ? 'Registrando pago…' : 'Desliza para confirmar'}</span><span className="slider-lights"><i></i><i></i><i></i></span></div>
-            <div className={`confirm-slider ${paymentProgress >= 92 ? 'ready' : ''}`} onPointerDown={paymentSlideDown} onPointerMove={updatePaymentSlide} onPointerUp={paymentSlideUp} onPointerCancel={paymentSlideUp}>
-              <div className="confirm-slider-fill" style={{ width: `${Math.max(0, paymentProgress)}%` }} />
-              <div className="confirm-slider-text">{saving ? 'Procesando pago…' : paymentProgress >= 92 ? 'Suelta para confirmar' : 'Desliza hasta la derecha'}</div>
-              <div className="confirm-slider-thumb" style={{ left: `calc(${Math.min(92, Math.max(0, paymentProgress))}% - 0px)` }}><ArrowRight size={19}/></div>
+      {checkoutOpen && <div className="item-editor-backdrop checkout-editor-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) { setCheckoutOpen(false); paymentProgressRef.current = 0; setPaymentProgress(0) } }}>
+        <section className="item-editor-modal checkout-editor-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
+          <header className="item-editor-head checkout-editor-head">
+            <div>
+              <span className="item-editor-kicker">VERIFICAR PAGO</span>
+              <h3 id="checkout-title">Confirma el cobro</h3>
+              <p>Revisa el pedido, el medio de pago y el total antes de registrar la venta.</p>
             </div>
-            <p className="slider-safe-note">Puedes soltar antes para cancelar. Nada se cobra hasta llegar al final.</p>
-          </div>
-          {error && <div className="workspace-error checkout-error" role="alert">{error}<button onClick={() => setError('')} aria-label="Cerrar">×</button></div>}
-        </section> : <section className="checkout-modal checkout-success-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-success-title">
-          <button className="checkout-modal-close" onClick={onClose} aria-label="Volver a pedidos"><X size={18}/></button>
-          <div className="payment-success-head">
-            <div className="payment-success-icon"><Check size={22}/></div>
-            <div><p className="eyebrow">PAGO CONFIRMADO</p><h2 id="checkout-success-title">Venta registrada</h2><span>Pedido #{paidSale.orderNumber ?? paidSale.id.slice(-6).toUpperCase()} · {paymentLabel(paidSale.payment)}</span></div>
-          </div>
-          <div className="checkout-receipt">
-            <div className="checkout-receipt-top">
-              <div className="checkout-receipt-mark">S</div>
-              <p className="eyebrow">FACTURA / COMPROBANTE</p>
-              <h3>Smaky Burgers</h3>
-              <span>Venta #{paidSale.id.slice(-6).toUpperCase()}</span>
+            <button className="item-editor-close" disabled={saving} onClick={() => { setCheckoutOpen(false); paymentProgressRef.current = 0; setPaymentProgress(0) }} aria-label="Cerrar"><X size={18}/></button>
+          </header>
+
+          <div className="item-editor-body checkout-editor-body">
+            <div className="checkout-summary-card">
+              <div className="checkout-summary-card-head"><div><span>Pedido</span><b>#{order?.orderNumber}</b></div><div><span>Productos</span><b>{items.length} líneas · {units} unidades</b></div></div>
+              <div className="confirm-order-list">
+                {items.map(item => <div className="confirm-order-item" key={item.lineId || item.productId}>
+                  <div><b>{item.quantity}× {item.name}</b><span>{item.modification || item.category || 'Producto'}</span></div>
+                  <strong>{money(item.quantity * item.unitPrice)}</strong>
+                </div>)}
+              </div>
             </div>
-            <div className="checkout-receipt-meta">
-              <div><span>Pedido</span><b>#{paidSale.orderNumber ?? paidSale.id.slice(-6).toUpperCase()}</b></div>
-              <div><span>Cliente</span><b>{paidSale.customerName || 'Consumidor final'}</b></div>
-              <div><span>Pago</span><b>{paymentLabel(paidSale.payment)}</b></div>
-              <div><span>Fecha</span><b>{date(paidSale.createdAt)} · {time(paidSale.createdAt)}</b></div>
+
+            <div className="item-editor-section checkout-payment-section">
+              <div className="item-editor-section-head"><div><b>Medio de pago</b><span>Selecciona cómo te están pagando</span></div><strong>{paymentLabel(payment)}</strong></div>
+              <div className="payment-grid checkout-payment-grid">{([['cash', 'Efectivo'], ['transfer', 'Transferencia'], ['card', 'Tarjeta']] as const).map(([value, label]) => <button key={value} className={payment === value ? 'selected' : ''} disabled={saving} onClick={() => setPayment(value)}>{label}</button>)}</div>
             </div>
-            <div className="checkout-receipt-items">
-              {paidSale.items.map(item => <div className="checkout-receipt-item" key={item.lineId || item.productId}><div><b>{item.quantity}× {item.name}</b><span>{item.modification || item.category || 'Producto'}</span></div><strong>{money(item.total)}</strong></div>)}
+
+            <div className="checkout-total-card"><span>Total a cobrar</span><strong>{money(total)}</strong>{dirty && <small>Los cambios pendientes se guardarán antes de cobrar.</small>}</div>
+
+            <div className="checkout-slider-section">
+              <div className="checkout-slider-head"><div><b>Desliza para confirmar</b><span>El pago solo se registra al llegar hasta el final.</span></div><span className={paymentProgress >= 96 ? 'checkout-slider-ready' : ''}>{paymentProgress >= 96 ? 'LISTO' : 'VERIFICACIÓN'}</span></div>
+              <div ref={paymentSliderRef} className={`confirm-slider ${paymentProgress >= 96 ? 'ready' : ''}`}>
+                <div className="confirm-slider-fill" style={{ width: `${Math.max(0, paymentProgress)}%` }} />
+                <div className="confirm-slider-text">{saving ? 'Procesando pago…' : paymentProgress >= 96 ? 'Suelta para confirmar' : 'Arrastra el botón →'}</div>
+                <button type="button" className="confirm-slider-thumb" style={{ left: `${Math.min(100, Math.max(0, paymentProgress))}%`, transform: `translateX(-${Math.min(100, Math.max(0, paymentProgress))}%)` }} onPointerDown={paymentSlideDown} onPointerMove={updatePaymentSlide} onPointerUp={paymentSlideUp} onPointerCancel={paymentSlideUp} disabled={saving} aria-label="Deslizar para confirmar el pago"><ArrowRight size={19}/></button>
+              </div>
             </div>
-            <div className="checkout-receipt-total"><div><span>Subtotal</span><b>{money(paidSale.subtotal)}</b></div><div><span>Total</span><strong>{money(paidSale.total)}</strong></div></div>
+            {error && <div className="workspace-error checkout-error" role="alert">{error}<button onClick={() => setError('')} aria-label="Cerrar">×</button></div>}
           </div>
-          <div className="checkout-success-actions">
-            <button className="secondary" onClick={() => void printInvoiceForSale(paidSale)}><Printer size={15}/> Imprimir factura</button>
-            <button className="primary" onClick={onClose}>Listo, volver a pedidos</button>
-          </div>
-        </section>}
+
+          <footer className="item-editor-footer checkout-editor-footer">
+            <button className="secondary" disabled={saving} onClick={() => { setCheckoutOpen(false); paymentProgressRef.current = 0; setPaymentProgress(0) }}>Cancelar</button>
+            <div className="checkout-footer-total"><span>Total</span><strong>{money(total)}</strong></div>
+          </footer>
+        </section>
       </div>}
 
       {editingItem && <div className="item-editor-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingLineId(null) }}>

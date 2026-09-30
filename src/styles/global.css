@@ -385,3 +385,26 @@
 .receipt-meta{background:#f7f3ee}
 .receipt-item{padding:9px 0}
 .receipt-item strong{font-size:10px}
+
+/* Cobro v0.12 — misma subventana del editor, sin modal de éxito */
+.checkout-editor-backdrop{z-index:145}
+.checkout-editor-modal{width:min(720px,100%)}
+.checkout-editor-head{padding-right:58px}
+.checkout-editor-body{gap:12px}
+.checkout-summary-card,.checkout-total-card{border:1px solid #2b2e2f;background:#111314;border-radius:12px;padding:12px}
+.checkout-summary-card-head{display:flex;justify-content:space-between;gap:12px;margin-bottom:9px}
+.checkout-summary-card-head span,.checkout-summary-card-head b{display:block}.checkout-summary-card-head span{font-size:8px;color:#676461;text-transform:uppercase;letter-spacing:.7px}.checkout-summary-card-head b{font-size:10px;margin-top:4px}
+.checkout-summary-card .confirm-order-list{background:#0d0f10;border:0;border-top:1px solid #26292a;border-radius:0;padding-top:2px}
+.checkout-payment-section{padding:12px!important;margin:0}
+.checkout-payment-section .payment-grid{margin-top:9px}
+.checkout-payment-grid button{min-height:42px;padding:8px 6px;font-size:9px}
+.checkout-total-card{display:flex;align-items:center;justify-content:space-between;gap:14px}.checkout-total-card span{font-size:10px;color:#777}.checkout-total-card strong{font:800 24px 'Plus Jakarta Sans';margin-left:auto}.checkout-total-card small{flex-basis:100%;color:#756e69;font-size:8px;margin-top:2px}
+.checkout-slider-section{border:1px solid #2b2e2f;background:#111314;border-radius:12px;padding:12px}
+.checkout-slider-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:9px}.checkout-slider-head b,.checkout-slider-head span{display:block}.checkout-slider-head b{font-size:10px}.checkout-slider-head div>span{margin-top:3px;color:#6f6b68;font-size:8px}.checkout-slider-head>span{padding:4px 7px;border-radius:999px;border:1px solid #3a2c26;color:#a27a67;background:#211713;font-size:7px;font-weight:800;letter-spacing:.8px;white-space:nowrap}.checkout-slider-head>span.checkout-slider-ready{color:#8fd1a0;background:#16261c;border-color:#2b5a38}
+.confirm-slider{height:58px;cursor:default}
+.confirm-slider-thumb{position:absolute;top:5px;width:48px;height:48px;border:0;border-radius:12px;background:#f2ece8;color:#171514;display:grid;place-items:center;box-shadow:0 8px 18px rgba(0,0,0,.32);transition:left .08s ease,transform .08s ease;pointer-events:auto;cursor:grab;touch-action:none;padding:0;z-index:2}
+.confirm-slider-thumb:active{cursor:grabbing}.confirm-slider-thumb:disabled{cursor:not-allowed;opacity:.7}.confirm-slider.ready .confirm-slider-thumb{background:#cbf1d5;color:#17331f}
+.confirm-slider-text{pointer-events:none}
+.checkout-editor-footer{align-items:center;justify-content:space-between}.checkout-footer-total{display:flex;align-items:baseline;gap:8px;margin-left:auto;padding-right:3px}.checkout-footer-total span{font-size:9px;color:#6e6966}.checkout-footer-total strong{font:800 18px 'Plus Jakarta Sans'}
+.sales-print-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:7px 9px;border:1px solid #343638;border-radius:8px;background:#161819;color:#aaa;font-size:9px;font-weight:800;white-space:nowrap}.sales-print-btn:hover{color:#eee;border-color:#5c3324;background:#1d1715}
+@media(max-width:560px){.checkout-editor-modal{width:100%;max-height:100%;height:100%;border-radius:0}.checkout-summary-card-head{flex-direction:column;gap:8px}.checkout-total-card{flex-wrap:wrap}.checkout-total-card strong{margin-left:auto}.checkout-total-card small{flex-basis:100%}.checkout-editor-footer{gap:10px}.checkout-footer-total{order:-1;margin-left:0}.sales-print-btn{padding:7px}.table-panel{overflow:auto}}
