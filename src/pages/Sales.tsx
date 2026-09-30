@@ -15,6 +15,10 @@ export function Sales() {
   const [deleteProgress, setDeleteProgress] = useState(0)
   const [deleting, setDeleting] = useState(false)
   const deleteProgressRef = useRef(0)
+  const deleteSliderRef = useRef<HTMLDivElement | null>(null)
+  const deleteDraggingRef = useRef(false)
+  const deleteDragStartXRef = useRef(0)
+  const deleteDragStartProgressRef = useRef(0)
   const sessionUser = getSessionUser()
   const canDelete = sessionUser?.role === 'manager' || sessionUser?.role === 'admin'
 
@@ -28,17 +32,22 @@ export function Sales() {
   }
 
   const updateDeleteSlide = (event: PointerEvent<HTMLDivElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect()
-    const raw = ((event.clientX - bounds.left) / bounds.width) * 100
-    const next = Math.max(0, Math.min(100, raw))
+    if (deleting || !deleteDraggingRef.current || !deleteSliderRef.current) return
+    const sliderBounds = deleteSliderRef.current.getBoundingClientRect()
+    const thumbWidth = event.currentTarget.getBoundingClientRect().width
+    const travel = Math.max(1, sliderBounds.width - thumbWidth - 10)
+    const delta = ((event.clientX - deleteDragStartXRef.current) / travel) * 100
+    const next = Math.max(0, Math.min(100, deleteDragStartProgressRef.current + delta))
     deleteProgressRef.current = next
     setDeleteProgress(next)
   }
 
   const slideDeleteDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (deleting) return
+    if (deleting || !deleteSliderRef.current) return
+    deleteDraggingRef.current = true
+    deleteDragStartXRef.current = event.clientX
+    deleteDragStartProgressRef.current = deleteProgressRef.current
     event.currentTarget.setPointerCapture(event.pointerId)
-    updateDeleteSlide(event)
   }
 
   const performDelete = async () => {
@@ -56,7 +65,10 @@ export function Sales() {
     }
   }
 
-  const slideDeleteUp = () => {
+  const slideDeleteUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (!deleteDraggingRef.current) return
+    deleteDraggingRef.current = false
+    try { event.currentTarget.releasePointerCapture(event.pointerId) } catch {}
     if (deleteProgressRef.current >= 92 && !deleting) void performDelete()
   }
 
@@ -122,10 +134,22 @@ export function Sales() {
         <span className="eyebrow danger-eyebrow">ELIMINAR VENTA</span>
         <h2 id="delete-sale-title">¿Seguro que quieres eliminar esta venta?</h2>
         <p className="delete-confirm-copy">Venta #{selectedSale.id.slice(-6).toUpperCase()} · {money(selectedSale.total)} · {selectedSale.userName}. Esta acción quitará la venta del historial.</p>
-        <div className={`delete-slider ${deleteProgress >= 92 ? 'ready' : ''}`} onPointerDown={slideDeleteDown} onPointerMove={updateDeleteSlide} onPointerUp={slideDeleteUp}>
+        <div ref={deleteSliderRef} className={`delete-slider ${deleteProgress >= 92 ? 'ready' : ''}`}>
           <div className="delete-slider-fill" style={{width: `${Math.max(0, deleteProgress)}%`}}/>
-          <div className="delete-slider-text">{deleting ? 'Eliminando…' : deleteProgress >= 92 ? 'Suelta para eliminar' : 'Desliza para eliminar'}</div>
-          <div className="delete-slider-thumb" style={{left: `calc(${Math.max(0, Math.min(92, deleteProgress))}% - 0px)`}}><ArrowRight size={18}/></div>
+          <div className="delete-slider-text">{deleting ? 'Eliminando…' : deleteProgress >= 92 ? 'Suelta para eliminar' : 'Arrastra el botón →'}</div>
+          <div
+            className="delete-slider-thumb"
+            style={{left: `calc(${Math.max(0, Math.min(92, deleteProgress))}% - 0px)`}}
+            onPointerDown={slideDeleteDown}
+            onPointerMove={updateDeleteSlide}
+            onPointerUp={slideDeleteUp}
+            onPointerCancel={slideDeleteUp}
+            role="slider"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(deleteProgress)}
+            aria-label="Arrastrar para confirmar la eliminación"
+          ><ArrowRight size={18}/></div>
         </div>
         <button className="cancel-delete-btn" disabled={deleting} onClick={() => { setConfirmDelete(false); deleteProgressRef.current = 0; setDeleteProgress(0) }}>Cancelar</button>
       </div>
