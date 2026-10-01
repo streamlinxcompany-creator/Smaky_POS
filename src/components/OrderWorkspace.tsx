@@ -137,10 +137,10 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
       if (!order) {
         const created = await createOrder(items, { customerName: '', phone: '', address: '', notes }, user)
         setCurrent(created)
-        const printed = printOrderComanda(created, printTarget)
+        const printed = print ? printOrderComanda(created, printTarget) : false
         if (printed) setCurrent(await updateOrderComandaStatus(created.id, 'printed'))
         if (print && !printed) setError('El pedido se registró, pero el navegador bloqueó la comanda. Permite las ventanas emergentes para Smaky.')
-        else setMessage(`Pedido #${created.orderNumber} registrado`)
+        else setMessage(print ? `Pedido #${created.orderNumber} registrado` : `Pedido #${created.orderNumber} guardado sin comanda`)
         return created
       }
       const updated = dirty ? await updateOrderItems(order.id, items, notes) : order

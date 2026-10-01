@@ -503,6 +503,15 @@
 .slx-v2-footer{width:100%;display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:15px;padding-top:11px;font-size:6.5px;letter-spacing:1px;color:#39443f;text-transform:uppercase}.slx-v2-footer span:nth-child(2){text-align:center}.slx-v2-footer span:last-child{text-align:right}.slx-v2-footer b{font-weight:800;color:#52625a}
 @media(max-width:620px){.slx-v2-stage{width:min(560px,calc(100% - 22px))}.slx-v2-topline{font-size:6px;line-height:1.5}.slx-v2-topline span:last-child{display:none}.slx-v2-logo-frame{width:88px;height:88px}.slx-v2-logo-frame img{width:62px;height:62px}.slx-v2-brand{font-size:16px;letter-spacing:5px}.slx-v2-classified{font-size:6px;letter-spacing:1.3px}.slx-v2-terminal-body{min-height:182px}.slx-v2-boot-lines p{font-size:7.5px}.slx-v2-boot-lines p em{display:none}.slx-v2-auth-row{align-items:flex-start;flex-direction:column;gap:6px}.slx-v2-auth-row input{width:78px}.slx-v2-footer{grid-template-columns:1fr 1fr}.slx-v2-footer span:nth-child(2){display:none}.slx-v2-footer span:last-child{text-align:right}}
 
+/* Piso tipográfico de legibilidad: evita etiquetas operativas demasiado pequeñas. */
+:where(.app-shell,.login-page,.order-workspace-page) small{font-size:12px!important;line-height:1.35}
+:where(.app-shell,.login-page,.order-workspace-page) .eyebrow{font-size:11px!important}
+:where(.app-shell,.login-page,.order-workspace-page) .muted{font-size:13px;line-height:1.5}
+:where(.app-shell,.login-page,.order-workspace-page) th{font-size:11px}
+:where(.app-shell,.login-page,.order-workspace-page) .badge,:where(.app-shell,.login-page,.order-workspace-page) .status-active,:where(.app-shell,.login-page,.order-workspace-page) .status-off{font-size:12px}
+:where(.streamlinx-command-center) .slx-audit-row,:where(.streamlinx-command-center) .slx-data-table td{font-size:11px}
+:where(.streamlinx-command-center) .slx-audit-row span,:where(.streamlinx-command-center) .slx-audit-row b,:where(.streamlinx-command-center) .slx-audit-row em,:where(.streamlinx-command-center) .slx-audit-row small,:where(.streamlinx-command-center) .slx-chip{font-size:10px}
+
 /* ==========================================================================\n   STREAMLINX COMMAND CORE — DATA CONTROL LAYER\n   Isolated styles: does not alter the Smaky POS surface.\n   ========================================================================== */
 .slx-command-shell{background:#050507;min-height:100vh;color:#efedf5}
 .slx-command-sidebar{background:linear-gradient(180deg,#08080b 0%,#060609 100%);border-right-color:#24232b}
