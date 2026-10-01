@@ -44,6 +44,18 @@ class SmakyDB extends Dexie {
       historyRecords: 'id, entity, recordId, version, capturedAt, eventId, [entity+recordId]',
       backups: 'id, createdAt, kind'
     })
+    // Fuerza la creación de las tablas internas en instalaciones que ya abrieron
+    // una versión previa del Command Center antes de que existieran estos stores.
+    this.version(7).stores({
+      sales: 'id, createdAt, businessDateKey, payment, userId, orderId, orderNumber, deletedAt',
+      orders: 'id, createdAt, businessDateKey, updatedAt, orderNumber, status, userId, deletedAt',
+      products: 'id, category, active, deletedAt',
+      users: 'id, name, role, active, deletedAt',
+      closures: 'id, dateKey, closedAt, userId, deletedAt',
+      auditEvents: 'id, timestamp, actorId, module, action, recordType, recordId',
+      historyRecords: 'id, entity, recordId, version, capturedAt, eventId, [entity+recordId]',
+      backups: 'id, createdAt, kind'
+    })
   }
 }
 
