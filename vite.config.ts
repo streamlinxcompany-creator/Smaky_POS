@@ -1,10 +1,31 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import fs from 'node:fs'
+import path from 'node:path'
+
+function copyRootStreamLinxLogo(): Plugin {
+  const syncLogo = (root: string) => {
+    const source = path.resolve(root, 'Streamlinx.png')
+    if (!fs.existsSync(source)) return
+    const publicDir = path.resolve(root, 'public')
+    const target = path.join(publicDir, 'Streamlinx.png')
+    fs.mkdirSync(publicDir, { recursive: true })
+    fs.copyFileSync(source, target)
+  }
+  return {
+    name: 'copy-streamlinx-logo',
+    buildStart() { syncLogo(process.cwd()) },
+    configureServer(server) {
+      syncLogo(server.config.root)
+    }
+  }
+}
 
 export default defineConfig({
   plugins: [
     react(),
+    copyRootStreamLinxLogo(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],

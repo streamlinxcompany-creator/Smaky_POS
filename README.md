@@ -46,3 +46,9 @@ El POS no debe depender de internet para cobrar. La venta entra primero a Indexe
 - Historial administrativo de cierres con consulta de las facturas conservadas en cada cierre.
 - Panel de Inicio administrativo con estado del cierre y últimos cierres.
 - Se bloquean nuevos pedidos/ventas después de cerrar el día actual.
+
+### StreamLinx Private Core
+
+Hay un módulo aislado y cargado bajo demanda desde `src/streamlinx/`. Desde la pantalla de inicio de sesión, `Ctrl + Alt + M` abre la secuencia privada de StreamLinx. La firma de acceso se configura con `VITE_STREAMLINX_KEY` en `.env.local`.
+
+El panel muestra analíticas reales de la base local de Smaky y un vault visual para futuros secretos. Las credenciales reales no se guardan en el frontend: para seguridad de producción, la autorización y el almacenamiento de secretos deben pasar a un backend/servicio seguro.
