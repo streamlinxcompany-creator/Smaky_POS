@@ -23,7 +23,7 @@ export function Login() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.shiftKey && event.altKey && event.key.toLowerCase() === 's') {
+      if (event.shiftKey && event.altKey && event.key.toLowerCase() === 'x') {
         event.preventDefault()
         setStreamlinxOpen(true)
         setStreamlinxPin('')
