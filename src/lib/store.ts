@@ -87,7 +87,7 @@ export async function getClosures() {
 }
 
 export async function resetTestData(actor: User) {
-  return db.transaction('rw', db.sales, db.orders, db.closures, db.users, async () => {
+  return db.transaction('rw', db.sales, db.orders, db.closures, async () => {
     const freshActor = await db.users.get(actor.id)
     if (!freshActor?.active || freshActor.role !== 'manager') return false
 
@@ -252,6 +252,24 @@ export async function deleteSale(targetId: string, actorId: string) {
   const sale = await db.sales.get(targetId)
   if (!sale) return false
   await db.sales.delete(targetId)
+  return true
+}
+
+export async function deleteProduct(targetId: string, actorId: string) {
+  const actor = await db.users.get(actorId)
+  if (!actor || !actor.active || actor.role !== 'manager') return false
+  const product = await db.products.get(targetId)
+  if (!product) return false
+  await db.products.delete(targetId)
+  return true
+}
+
+export async function deleteOrder(targetId: string, actorId: string) {
+  const actor = await db.users.get(actorId)
+  if (!actor || !actor.active || actor.role !== 'manager') return false
+  const order = await db.orders.get(targetId)
+  if (!order || order.status === 'paid') return false
+  await db.orders.delete(targetId)
   return true
 }
 
