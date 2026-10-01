@@ -31,11 +31,11 @@ export function printOrderComanda(order: Order, target?: Window | null) {
     <div class="line"></div><div class="footer">Preparar pedido · verificar modificaciones</div>`, 460, target)
 }
 
-export function printSaleReceipt(sale: Sale, target?: Window | null) {
+export function printSaleReceipt(sale: Sale, target?: Window | null, documentLabel = 'ORIGINAL') {
   const items = sale.items.map(item => `<div class="item"><div><b>${item.quantity}× ${escapeHtml(item.name)}</b><span>${escapeHtml(item.modification || item.category || 'Producto')}</span></div><strong>${money(item.total)}</strong></div>`).join('')
   const payment = sale.payment === 'cash' ? 'Efectivo' : sale.payment === 'transfer' ? 'Transferencia' : 'Tarjeta'
   return printWindow(`Comprobante #${sale.orderNumber ?? sale.id.slice(-6)}`, `
-    <div class="sheet"><div class="head"><div class="mark">S</div><div class="eyebrow">FACTURA / COMPROBANTE</div><div class="brand">Smaky Burgers</div><div class="ref">Venta #${escapeHtml(sale.id.slice(-6).toUpperCase())}</div></div>
+    <div class="sheet"><div class="head"><div class="mark">S</div><div class="eyebrow">FACTURA / COMPROBANTE · ${escapeHtml(documentLabel)}</div><div class="brand">Smaky Burgers</div><div class="ref">Venta #${escapeHtml(sale.id.slice(-6).toUpperCase())}</div></div>
     <div class="meta-grid"><div class="meta-cell"><span>Pedido</span><b>#${escapeHtml(sale.orderNumber ?? sale.id.slice(-6).toUpperCase())}</b></div><div class="meta-cell"><span>Cliente</span><b>${escapeHtml(sale.customerName || 'Consumidor final')}</b></div><div class="meta-cell"><span>Pago</span><b>${escapeHtml(payment)}</b></div><div class="meta-cell"><span>Fecha</span><b>${escapeHtml(date(sale.createdAt))} · ${escapeHtml(time(sale.createdAt))}</b></div></div>
     <div class="content">${items}</div>
     <div class="totals"><div class="total-row"><span>Subtotal</span><b>${money(sale.subtotal)}</b></div><div class="total-row grand"><span>Total</span><strong>${money(sale.total)}</strong></div></div>

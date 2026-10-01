@@ -1,6 +1,57 @@
 import { db } from './db'
 import { products as seedProducts } from './demoData'
-import type { CashClosure, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod } from './types'
+import { getSessionUser } from './auth'
+import type { AuditEvent, BackupSnapshot, CashClosure, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod } from './types'
+
+type Auditable = Record<string, unknown>
+const redact = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(redact)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter(([key]) => !/(pin|password|token|secret|cookie)/i.test(key))
+    .map(([key, item]) => [key, redact(item)]))
+}
+const actorFromSession = () => getSessionUser()
+async function audit(action: string, module: string, recordType: string, recordId?: string, before?: unknown, after?: unknown, actor = actorFromSession(), reason?: string) {
+  const event: AuditEvent = { id: crypto.randomUUID(), timestamp: new Date().toISOString(), actorId: actor?.id, actorName: actor?.name || 'Sistema', role: actor?.role, module, action, recordType, recordId, before: (redact(before) as Auditable | null) ?? null, after: (redact(after) as Auditable | null) ?? null, reason }
+  await db.auditEvents.add(event)
+  if (recordId && after && typeof after === 'object') {
+    const versions = await db.historyRecords.where('[entity+recordId]').equals([recordType, recordId]).count()
+    const snapshot: HistoryRecord = { id: crypto.randomUUID(), entity: recordType, recordId, version: versions + 1, capturedAt: event.timestamp, eventId: event.id, snapshot: redact(after) as Auditable, deleted: Boolean((after as { deletedAt?: string }).deletedAt) }
+    await db.historyRecords.add(snapshot)
+  }
+  return event
+}
+
+export async function getAuditEvents() { return db.auditEvents.orderBy('timestamp').reverse().toArray() }
+export async function getHistoryRecords() { return db.historyRecords.orderBy('capturedAt').reverse().toArray() }
+export async function getArchivedSales() { return db.sales.orderBy('createdAt').reverse().toArray() }
+export async function getArchivedOrders() { return db.orders.orderBy('createdAt').reverse().toArray() }
+export async function getArchivedProducts() { return db.products.toArray() }
+export async function getArchivedUsers() { return db.users.toArray() }
+export async function getArchivedClosures() { return db.closures.orderBy('closedAt').reverse().toArray() }
+
+export async function createBackupSnapshot(actor: User, kind: BackupSnapshot['kind'], label: string) {
+  const [sales, orders, products, users, closures, events, history] = await Promise.all([db.sales.toArray(), db.orders.toArray(), db.products.toArray(), db.users.toArray(), db.closures.toArray(), db.auditEvents.toArray(), db.historyRecords.toArray()])
+  const payload = redact({ sales, orders, products, users, closures, events, history }) as Record<string, unknown>
+  const contents = { sales: sales.length, orders: orders.length, products: products.length, users: users.length, closures: closures.length, audit: events.length, history: history.length }
+  const backup: BackupSnapshot = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), createdBy: actor.name, kind, label, contents, size: new Blob([JSON.stringify(payload)]).size, payload }
+  await db.backups.add(backup)
+  await audit('SYSTEM_BACKUP_CREATED', 'BACKUPS', 'backup', backup.id, null, { id: backup.id, label, contents, size: backup.size }, actor)
+  return backup
+}
+export async function getBackupSnapshots() { return db.backups.orderBy('createdAt').reverse().toArray() }
+
+export async function restoreArchivedRecord(entity: string, recordId: string, actor: User) {
+  const table = entity === 'sale' ? db.sales : entity === 'order' ? db.orders : entity === 'product' ? db.products : entity === 'user' ? db.users : db.closures
+  const record = await table.get(recordId) as (Auditable & { deletedAt?: string }) | undefined
+  if (!record?.deletedAt) return false
+  const before = { ...record }
+  const after = { ...record }; delete after.deletedAt; delete after.deletedBy
+  await table.put(after as never)
+  await audit(`${entity.toUpperCase()}_RESTORED`, 'RECOVERY', entity, recordId, before, after, actor)
+  return true
+}
 
 const seedManager: User = {
   id: 'u-owner',
@@ -39,25 +90,29 @@ export async function seed() {
 
 export async function getProducts() {
   const products = await db.products.toArray()
-  return products.filter(product => product.active)
+  return products.filter(product => product.active && !product.deletedAt)
 }
 
 export async function getAllProducts() {
   const products = await db.products.toArray()
-  return products.sort((a, b) => a.name.localeCompare(b.name, 'es'))
+  return products.filter(product => !product.deletedAt).sort((a, b) => a.name.localeCompare(b.name, 'es'))
 }
 
 export async function saveProduct(product: Product) {
+  const previous = await db.products.get(product.id)
   await db.products.put(product)
+  await audit(previous ? 'PRODUCT_UPDATED' : 'PRODUCT_CREATED', 'PRODUCTS', 'product', product.id, previous, product)
   return product
 }
 
 export async function getSales() {
-  return db.sales.orderBy('createdAt').reverse().toArray()
+  const sales = await db.sales.orderBy('createdAt').reverse().toArray()
+  return sales.filter(sale => !sale.deletedAt)
 }
 
 export async function addSale(sale: Sale) {
   await db.sales.add(sale)
+  await audit('INVOICE_CREATED', 'SALES', 'sale', sale.id, null, sale)
   return sale
 }
 
@@ -72,7 +127,7 @@ export const recordBusinessDayKey = (record: { createdAt: string; businessDateKe
 export async function getCurrentBusinessDayKey() {
   const calendarKey = businessDayKey(new Date())
   const closure = await db.closures.where('dateKey').equals(calendarKey).first()
-  return closure?.nextDateKey ?? calendarKey
+  return closure && !closure.deletedAt ? closure.nextDateKey : calendarKey
 }
 
 export const addBusinessDay = (dateKey: string, amount = 1) => {
@@ -83,28 +138,33 @@ export const addBusinessDay = (dateKey: string, amount = 1) => {
 }
 
 export async function getClosures() {
-  return db.closures.orderBy('closedAt').reverse().toArray()
+  const closures = await db.closures.orderBy('closedAt').reverse().toArray()
+  return closures.filter(closure => !closure.deletedAt)
 }
 
 export async function resetTestData(actor: User) {
-  return db.transaction('rw', db.sales, db.orders, db.closures, async () => {
+  return db.transaction('rw', db.sales, db.orders, db.closures, db.auditEvents, db.historyRecords, async () => {
     const freshActor = await db.users.get(actor.id)
     if (!freshActor?.active || freshActor.role !== 'manager') return false
 
-    await db.sales.clear()
-    await db.orders.clear()
-    await db.closures.clear()
+    const now = new Date().toISOString()
+    const [sales, orders, closures] = await Promise.all([db.sales.toArray(), db.orders.toArray(), db.closures.toArray()])
+    await Promise.all(sales.filter(x => !x.deletedAt).map(x => db.sales.put({ ...x, deletedAt: now, deletedBy: actor.id })))
+    await Promise.all(orders.filter(x => !x.deletedAt).map(x => db.orders.put({ ...x, deletedAt: now, deletedBy: actor.id })))
+    await Promise.all(closures.filter(x => !x.deletedAt).map(x => db.closures.put({ ...x, deletedAt: now, deletedBy: actor.id })))
+    await audit('SYSTEM_RESET_EXECUTED', 'SYSTEM', 'reset', 'operational-data', { sales: sales.length, orders: orders.length, closures: closures.length }, { deletedAt: now }, actor)
     return true
   })
 }
 
 
 export async function getClosureByDate(dateKey: string) {
-  return db.closures.where('dateKey').equals(dateKey).first()
+  const closure = await db.closures.where('dateKey').equals(dateKey).first()
+  return closure?.deletedAt ? undefined : closure
 }
 
 export async function deletePreviousDayClosure(closureId: string, actor: User) {
-  return db.transaction('rw', db.closures, db.users, async () => {
+  return db.transaction('rw', db.closures, db.users, db.auditEvents, db.historyRecords, async () => {
     const freshActor = await db.users.get(actor.id)
     if (!freshActor?.active || freshActor.role !== 'manager') return false
 
@@ -112,16 +172,19 @@ export async function deletePreviousDayClosure(closureId: string, actor: User) {
     const closure = await db.closures.get(closureId)
     if (!closure || closure.dateKey !== yesterdayKey) return false
 
-    await db.closures.delete(closureId)
+    const after = { ...closure, deletedAt: new Date().toISOString(), deletedBy: actor.id }
+    await db.closures.put(after)
+    await audit('CASH_CLOSE_DELETED', 'CASH', 'closure', closureId, closure, after, actor)
     return true
   })
 }
 
 export async function createDailyClosure(dateKey: string, actor: User, cashCounted: number, notes = '') {
-  return db.transaction('rw', db.closures, db.sales, db.users, async () => {
+  return db.transaction('rw', db.closures, db.sales, db.users, db.auditEvents, db.historyRecords, async () => {
     const freshActor = await db.users.get(actor.id)
     if (!freshActor?.active || !['manager', 'admin'].includes(freshActor.role)) return null
-    if (await db.closures.where('dateKey').equals(dateKey).first()) throw new Error('Este día ya tiene un cierre registrado.')
+    const existingClosure = await db.closures.where('dateKey').equals(dateKey).first()
+    if (existingClosure && !existingClosure.deletedAt) throw new Error('Este día ya tiene un cierre registrado.')
 
     const sales = (await db.sales.toArray())
       .filter(sale => recordBusinessDayKey(sale) === dateKey)
@@ -156,19 +219,21 @@ export async function createDailyClosure(dateKey: string, actor: User, cashCount
     }
 
     await db.closures.add(closure)
+    await audit('CASH_CLOSE_CREATED', 'CASH', 'closure', closure.id, null, closure, freshActor)
     return closure
   })
 }
 
 export async function getOrders() {
-  return db.orders.orderBy('createdAt').reverse().toArray()
+  const orders = await db.orders.orderBy('createdAt').reverse().toArray()
+  return orders.filter(order => !order.deletedAt)
 }
 
 export async function createOrder(items: Order['items'], delivery: DeliveryInfo, user: User) {
   const now = new Date()
   const calendarKey = businessDayKey(now)
   const closure = await db.closures.where('dateKey').equals(calendarKey).first()
-  const businessDateKey = closure?.nextDateKey ?? calendarKey
+  const businessDateKey = closure && !closure.deletedAt ? closure.nextDateKey : calendarKey
   const existing = await db.orders.toArray()
   const todayOrders = existing.filter(order => recordBusinessDayKey(order) === businessDateKey)
   const nextNumber = todayOrders.reduce((max, order) => Math.max(max, Number(order.orderNumber) || 0), 0) + 1
@@ -192,6 +257,7 @@ export async function createOrder(items: Order['items'], delivery: DeliveryInfo,
     businessDateKey
   }
   await db.orders.add(order)
+  await audit('ORDER_CREATED', 'ORDERS', 'order', order.id, null, order, user)
   return order
 }
 
@@ -200,8 +266,10 @@ export async function updateOrderItems(orderId: string, items: Order['items'], n
   if (!order || ['paid', 'cancelled'].includes(order.status) || !items.length) return order ?? null
   const cleanItems = items.map(item => ({ ...item, modification: item.modification?.trim() || undefined }))
   const subtotal = cleanItems.reduce((sum, item) => sum + item.total, 0)
-  await db.orders.update(orderId, { items: cleanItems, subtotal, total: subtotal, ...(notes !== undefined ? { notes: notes.trim() } : {}), updatedAt: new Date().toISOString() })
-  return db.orders.get(orderId)
+  const after = { ...order, items: cleanItems, subtotal, total: subtotal, ...(notes !== undefined ? { notes: notes.trim() } : {}), updatedAt: new Date().toISOString() }
+  await db.orders.put(after)
+  await audit('ORDER_UPDATED', 'ORDERS', 'order', orderId, order, after)
+  return after
 }
 
 export async function getSaleForOrder(orderId: string) {
@@ -211,16 +279,19 @@ export async function getSaleForOrder(orderId: string) {
 export async function updateOrderStatus(orderId: string, status: OrderStatus) {
   const order = await db.orders.get(orderId)
   if (!order || ['paid', 'cancelled'].includes(order.status)) return order ?? null
-  await db.orders.update(orderId, { status, updatedAt: new Date().toISOString() })
-  return db.orders.get(orderId)
+  const after = { ...order, status, updatedAt: new Date().toISOString() }
+  await db.orders.put(after)
+  await audit('ORDER_UPDATED', 'ORDERS', 'order', orderId, order, after)
+  return after
 }
 
 export async function completeOrder(orderId: string, payment: PaymentMethod, actor: User) {
-  return db.transaction('rw', db.orders, db.sales, db.users, db.closures, async () => {
+  return db.transaction('rw', [db.orders, db.sales, db.users, db.closures, db.auditEvents, db.historyRecords], async () => {
     const [order, freshActor] = await Promise.all([db.orders.get(orderId), db.users.get(actor.id)])
     if (!order || !freshActor?.active || ['paid', 'cancelled'].includes(order.status)) return null
     const businessDateKey = recordBusinessDayKey(order)
-    if (await db.closures.where('dateKey').equals(businessDateKey).first()) throw new Error(`El periodo del ${businessDateKey.split('-').reverse().join('/')} ya fue cerrado. Registra el pedido en el siguiente periodo.`)
+    const existingClosure = await db.closures.where('dateKey').equals(businessDateKey).first()
+    if (existingClosure && !existingClosure.deletedAt) throw new Error(`El periodo del ${businessDateKey.split('-').reverse().join('/')} ya fue cerrado. Registra el pedido en el siguiente periodo.`)
 
     const sale: Sale = {
       id: crypto.randomUUID(),
@@ -242,6 +313,8 @@ export async function completeOrder(orderId: string, payment: PaymentMethod, act
 
     await db.sales.add(sale)
     await db.orders.update(order.id, { status: 'paid', updatedAt: new Date().toISOString() })
+    await audit('INVOICE_CREATED', 'SALES', 'sale', sale.id, null, sale, freshActor)
+    await audit('ORDER_UPDATED', 'ORDERS', 'order', order.id, order, { ...order, status: 'paid' }, freshActor)
     return { sale, order: await db.orders.get(order.id) as Order }
   })
 }
@@ -251,7 +324,9 @@ export async function deleteSale(targetId: string, actorId: string) {
   if (!actor || !actor.active || !['manager', 'admin'].includes(actor.role)) return false
   const sale = await db.sales.get(targetId)
   if (!sale) return false
-  await db.sales.delete(targetId)
+  const after = { ...sale, deletedAt: new Date().toISOString(), deletedBy: actor.id }
+  await db.sales.put(after)
+  await audit('INVOICE_DELETED', 'SALES', 'sale', targetId, sale, after, actor)
   return true
 }
 
@@ -260,7 +335,9 @@ export async function deleteProduct(targetId: string, actorId: string) {
   if (!actor || !actor.active || actor.role !== 'manager') return false
   const product = await db.products.get(targetId)
   if (!product) return false
-  await db.products.delete(targetId)
+  const after = { ...product, deletedAt: new Date().toISOString(), deletedBy: actor.id }
+  await db.products.put(after)
+  await audit('PRODUCT_DELETED', 'PRODUCTS', 'product', targetId, product, after, actor)
   return true
 }
 
@@ -269,7 +346,9 @@ export async function deleteOrder(targetId: string, actorId: string) {
   if (!actor || !actor.active || actor.role !== 'manager') return false
   const order = await db.orders.get(targetId)
   if (!order || order.status === 'paid') return false
-  await db.orders.delete(targetId)
+  const after = { ...order, deletedAt: new Date().toISOString(), deletedBy: actor.id }
+  await db.orders.put(after)
+  await audit('ORDER_DELETED', 'ORDERS', 'order', targetId, order, after, actor)
   return true
 }
 
@@ -280,7 +359,7 @@ export async function replaceProducts(products: Product[]) {
 
 export async function getUsers() {
   const users = await db.users.toArray()
-  return users.sort((a, b) => {
+  return users.filter(user => !user.deletedAt).sort((a, b) => {
     const roleOrder: Record<Role, number> = { manager: 0, admin: 1, employee: 2 }
     return roleOrder[a.role] - roleOrder[b.role] || a.name.localeCompare(b.name, 'es')
   })
@@ -296,6 +375,7 @@ export async function createWorker(name: string, pin: string, rank: string) {
     active: true
   }
   await db.users.add(user)
+  await audit('USER_CREATED', 'USERS', 'user', user.id, null, user)
   return user
 }
 
@@ -331,7 +411,11 @@ export async function updateUserSettings(targetId: string, changes: Partial<User
   if (wantsRoleChange) safeChanges.role = changes.role
   if (wantsActiveChange) safeChanges.active = changes.active
 
-  if (Object.keys(safeChanges).length) await db.users.update(targetId, safeChanges)
+  if (Object.keys(safeChanges).length) {
+    const after = { ...target, ...safeChanges }
+    await db.users.put(after)
+    await audit(wantsActiveChange && changes.active === false ? 'USER_DISABLED' : 'USER_UPDATED', 'USERS', 'user', targetId, target, after, actor)
+  }
   return db.users.get(targetId)
 }
 
@@ -341,6 +425,8 @@ export async function deleteUserProfile(targetId: string, actorId: string) {
   if (target.id === actor.id || target.role === 'manager') return false
   if (target.role === 'admin' && actor.role !== 'manager') return false
   if (target.role === 'employee' && !['manager', 'admin'].includes(actor.role)) return false
-  await db.users.delete(targetId)
+  const after = { ...target, deletedAt: new Date().toISOString(), deletedBy: actor.id, active: false }
+  await db.users.put(after)
+  await audit('USER_DELETED', 'USERS', 'user', targetId, target, after, actor)
   return true
 }

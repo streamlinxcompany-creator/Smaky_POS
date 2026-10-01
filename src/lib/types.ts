@@ -8,6 +8,9 @@ export type Product = {
   category: 'Hamburguesas' | 'Combos' | 'Bebidas' | 'Acompañamientos'
   price: number
   active: boolean
+  /** Registro retirado de la operación; sólo StreamLinx lo consulta. */
+  deletedAt?: string
+  deletedBy?: string
 }
 
 export type SaleItem = {
@@ -41,6 +44,8 @@ export type Order = DeliveryInfo & {
   status: OrderStatus
   /** Periodo de caja al que pertenece el pedido. Mantiene la fecha operativa tras un cierre. */
   businessDateKey?: string
+  deletedAt?: string
+  deletedBy?: string
 }
 
 export type Sale = DeliveryInfo & {
@@ -56,6 +61,8 @@ export type Sale = DeliveryInfo & {
   businessDateKey?: string
   orderId?: string
   orderNumber?: number
+  deletedAt?: string
+  deletedBy?: string
 }
 
 export type CashClosure = {
@@ -75,6 +82,8 @@ export type CashClosure = {
   notes: string
   sales: Sale[]
   nextDateKey: string
+  deletedAt?: string
+  deletedBy?: string
 }
 
 export type User = {
@@ -84,4 +93,43 @@ export type User = {
   pin: string
   rank: string
   active: boolean
+  deletedAt?: string
+  deletedBy?: string
+}
+
+export type AuditEvent = {
+  id: string
+  timestamp: string
+  actorId?: string
+  actorName: string
+  role?: Role
+  module: string
+  action: string
+  recordType: string
+  recordId?: string
+  before?: Record<string, unknown> | null
+  after?: Record<string, unknown> | null
+  reason?: string
+}
+
+export type HistoryRecord = {
+  id: string
+  entity: string
+  recordId: string
+  version: number
+  capturedAt: string
+  eventId: string
+  snapshot: Record<string, unknown>
+  deleted?: boolean
+}
+
+export type BackupSnapshot = {
+  id: string
+  createdAt: string
+  createdBy: string
+  kind: 'manual' | 'pre-destructive' | 'pre-restore'
+  label: string
+  size: number
+  contents: Record<string, number>
+  payload: Record<string, unknown>
 }
