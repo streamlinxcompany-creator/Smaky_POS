@@ -24,6 +24,13 @@ class SmakyDB extends Dexie {
       users: 'id, name, role, active',
       closures: 'id, dateKey, closedAt, userId'
     })
+    this.version(5).stores({
+      sales: 'id, createdAt, businessDateKey, payment, userId, orderId, orderNumber',
+      orders: 'id, createdAt, businessDateKey, updatedAt, orderNumber, status, userId',
+      products: 'id, category, active',
+      users: 'id, name, role, active',
+      closures: 'id, dateKey, closedAt, userId'
+    })
   }
 }
 

@@ -67,6 +67,14 @@ const businessDayKey = (iso: string | Date) => new Intl.DateTimeFormat('en-CA', 
 
 export { businessDayKey }
 
+export const recordBusinessDayKey = (record: { createdAt: string; businessDateKey?: string }) => record.businessDateKey || businessDayKey(record.createdAt)
+
+export async function getCurrentBusinessDayKey() {
+  const calendarKey = businessDayKey(new Date())
+  const closure = await db.closures.where('dateKey').equals(calendarKey).first()
+  return closure?.nextDateKey ?? calendarKey
+}
+
 export const addBusinessDay = (dateKey: string, amount = 1) => {
   const [year, month, day] = dateKey.split('-').map(Number)
   const date = new Date(Date.UTC(year, month - 1, day))
@@ -89,7 +97,7 @@ export async function createDailyClosure(dateKey: string, actor: User, cashCount
     if (await db.closures.where('dateKey').equals(dateKey).first()) throw new Error('Este día ya tiene un cierre registrado.')
 
     const sales = (await db.sales.toArray())
-      .filter(sale => businessDayKey(sale.createdAt) === dateKey)
+      .filter(sale => recordBusinessDayKey(sale) === dateKey)
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 
     const totals = sales.reduce((acc, sale) => {
@@ -131,10 +139,11 @@ export async function getOrders() {
 
 export async function createOrder(items: Order['items'], delivery: DeliveryInfo, user: User) {
   const now = new Date()
-  const todayKey = businessDayKey(now)
-  if (await db.closures.where('dateKey').equals(todayKey).first()) throw new Error(`El día ${todayKey.split('-').reverse().join('/')} ya fue cerrado. El nuevo periodo comienza ${addBusinessDay(todayKey, 1).split('-').reverse().join('/')}.`)
+  const calendarKey = businessDayKey(now)
+  const closure = await db.closures.where('dateKey').equals(calendarKey).first()
+  const businessDateKey = closure?.nextDateKey ?? calendarKey
   const existing = await db.orders.toArray()
-  const todayOrders = existing.filter(order => businessDayKey(order.createdAt) === todayKey)
+  const todayOrders = existing.filter(order => recordBusinessDayKey(order) === businessDateKey)
   const nextNumber = todayOrders.reduce((max, order) => Math.max(max, Number(order.orderNumber) || 0), 0) + 1
   const cleanItems = items.map(item => ({ ...item, modification: item.modification?.trim() || undefined }))
   const total = cleanItems.reduce((sum, item) => sum + item.total, 0)
@@ -152,7 +161,8 @@ export async function createOrder(items: Order['items'], delivery: DeliveryInfo,
     items: cleanItems,
     subtotal: total,
     total,
-    status: 'pending'
+    status: 'pending',
+    businessDateKey
   }
   await db.orders.add(order)
   return order
@@ -181,8 +191,9 @@ export async function updateOrderStatus(orderId: string, status: OrderStatus) {
 export async function completeOrder(orderId: string, payment: PaymentMethod, actor: User) {
   return db.transaction('rw', db.orders, db.sales, db.users, db.closures, async () => {
     const [order, freshActor] = await Promise.all([db.orders.get(orderId), db.users.get(actor.id)])
-    if (await db.closures.where('dateKey').equals(businessDayKey(new Date())).first()) throw new Error('El día actual ya fue cerrado. No se pueden registrar nuevas ventas.')
     if (!order || !freshActor?.active || ['paid', 'cancelled'].includes(order.status)) return null
+    const businessDateKey = recordBusinessDayKey(order)
+    if (await db.closures.where('dateKey').equals(businessDateKey).first()) throw new Error(`El periodo del ${businessDateKey.split('-').reverse().join('/')} ya fue cerrado. Registra el pedido en el siguiente periodo.`)
 
     const sale: Sale = {
       id: crypto.randomUUID(),
@@ -198,7 +209,8 @@ export async function completeOrder(orderId: string, payment: PaymentMethod, act
       notes: order.notes,
       items: order.items.map(item => ({ ...item })),
       subtotal: order.subtotal,
-      total: order.total
+      total: order.total,
+      businessDateKey
     }
 
     await db.sales.add(sale)

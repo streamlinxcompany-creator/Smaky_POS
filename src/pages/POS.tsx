@@ -1,10 +1,10 @@
-import { FileText, Plus, UtensilsCrossed } from 'lucide-react'
+import { AlertTriangle, FileText, Plus, UtensilsCrossed, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { OrderWorkspace } from '../components/OrderWorkspace'
 import { getSessionUser } from '../lib/auth'
-import { getOrders } from '../lib/store'
+import { getClosureByDate, getOrders, recordBusinessDayKey } from '../lib/store'
 import { date, money, time } from '../lib/format'
-import type { Order, OrderStatus } from '../lib/types'
+import type { CashClosure, Order, OrderStatus } from '../lib/types'
 
 const statusLabel: Record<OrderStatus, string> = {
   pending: 'Pendiente',
@@ -27,19 +27,28 @@ export function POS() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [selected, setSelected] = useState<Order | null>(null)
+  const [todayClosure, setTodayClosure] = useState<CashClosure | null>(null)
+  const [closureWarning, setClosureWarning] = useState<CashClosure | null>(null)
 
-  const refresh = () => getOrders()
-    .then(all => setOrders(all
-      .filter(order => dayKey(order.createdAt) === dayKey(new Date().toISOString()) && isOpenOrder(order))
-      .sort((a, b) => b.orderNumber - a.orderNumber)))
-    .finally(() => setLoading(false))
+  const refresh = async () => {
+    const currentCalendarKey = dayKey(new Date().toISOString())
+    const closure = await getClosureByDate(currentCalendarKey)
+    setTodayClosure(closure ?? null)
+    const activeKey = closure?.nextDateKey ?? currentCalendarKey
+    const all = await getOrders()
+    setOrders(all
+      .filter(order => recordBusinessDayKey(order) === activeKey && isOpenOrder(order))
+      .sort((a, b) => b.orderNumber - a.orderNumber))
+    setLoading(false)
+  }
 
   useEffect(() => { void refresh() }, [])
 
   const todayOrders = useMemo(() => orders.slice().sort((a, b) => b.orderNumber - a.orderNumber), [orders])
 
   const updateLocalOrder = (updated: Order) => {
-    if (!isOpenOrder(updated) || dayKey(updated.createdAt) !== dayKey(new Date().toISOString())) {
+    const activeKey = todayClosure?.nextDateKey ?? dayKey(new Date().toISOString())
+    if (!isOpenOrder(updated) || recordBusinessDayKey(updated) !== activeKey) {
       setOrders(current => current.filter(item => item.id !== updated.id))
       setSelected(current => current?.id === updated.id ? null : current)
       return
@@ -50,6 +59,33 @@ export function POS() {
       return next.sort((a, b) => b.orderNumber - a.orderNumber)
     })
   }
+
+  const beginNewOrder = () => {
+    if (todayClosure) {
+      setClosureWarning(todayClosure)
+      return
+    }
+    setCreating(true)
+  }
+
+  const continueAfterClosure = () => {
+    setClosureWarning(null)
+    setCreating(true)
+  }
+
+  const closureWarningModal = closureWarning ? <div className="item-editor-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setClosureWarning(null) }}>
+    <section className="item-editor-modal pos-closure-warning-modal" role="dialog" aria-modal="true" aria-labelledby="pos-closure-warning-title">
+      <header className="item-editor-head">
+        <div><span className="item-editor-kicker danger-kicker">CIERRE REALIZADO</span><h3 id="pos-closure-warning-title">El cierre del día ya fue realizado</h3><p>Las nuevas operaciones no se bloquean: se registrarán automáticamente en el siguiente periodo.</p></div>
+        <button className="item-editor-close" onClick={() => setClosureWarning(null)} aria-label="Cerrar"><X size={18}/></button>
+      </header>
+      <div className="item-editor-body pos-closure-warning-body">
+        <div className="pos-closure-warning-box"><div className="pos-closure-warning-icon"><AlertTriangle size={21}/></div><div><b>Cierre del {closureWarning.dateKey.split('-').reverse().join('/')}</b><span>Ya existe un cierre administrativo para este día. Registrar un nuevo pedido no modificará ese cierre.</span></div></div>
+        <div className="pos-closure-next-card"><span>NUEVO PERIODO OPERATIVO</span><strong>{closureWarning.nextDateKey.split('-').reverse().join('/')}</strong><small>Todo pedido y venta que registres ahora quedará asociado al periodo del <b>{closureWarning.nextDateKey.split('-').reverse().join('/')}</b>.</small></div>
+      </div>
+      <footer className="item-editor-footer"><button className="secondary" onClick={() => setClosureWarning(null)}>Cancelar</button><button className="primary" onClick={continueAfterClosure}><Plus size={15}/> Continuar con el nuevo periodo</button></footer>
+    </section>
+  </div> : null
 
   if (!user) return null
 
@@ -74,8 +110,9 @@ export function POS() {
       <p className="eyebrow">PUNTO DE VENTA</p>
       <h1>Registrar nuevo pedido</h1>
       <p>Un solo panel para agregar productos, poner modificaciones, imprimir la comanda y cobrar cuando corresponda.</p>
-      <button className="primary landing-primary" onClick={() => setCreating(true)}><Plus size={18}/> Registrar nuevo pedido</button>
+      <button className="primary landing-primary" onClick={beginNewOrder}><Plus size={18}/> Registrar nuevo pedido</button>
     </div>
+    {closureWarningModal}
   </div>
 
   return <div className="pos-orders-page">
@@ -87,7 +124,7 @@ export function POS() {
       </div>
       <div className="pos-orders-top-actions">
         <span className="orders-count"><b>{todayOrders.length}</b> {todayOrders.length === 1 ? 'pedido abierto' : 'pedidos abiertos'}</span>
-        <button className="primary-inline add-order-btn" onClick={() => setCreating(true)}><Plus size={15}/> Registrar nuevo pedido</button>
+        <button className="primary-inline add-order-btn" onClick={beginNewOrder}><Plus size={15}/> Registrar nuevo pedido</button>
       </div>
     </div>
 
@@ -101,5 +138,7 @@ export function POS() {
         <em>{date(order.createdAt)} · {time(order.createdAt)}</em>
       </button>)}
     </div>
+
+    {closureWarningModal}
   </div>
 }

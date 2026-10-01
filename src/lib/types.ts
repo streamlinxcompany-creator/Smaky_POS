@@ -39,6 +39,8 @@ export type Order = DeliveryInfo & {
   subtotal: number
   total: number
   status: OrderStatus
+  /** Periodo de caja al que pertenece el pedido. Mantiene la fecha operativa tras un cierre. */
+  businessDateKey?: string
 }
 
 export type Sale = DeliveryInfo & {
@@ -50,6 +52,8 @@ export type Sale = DeliveryInfo & {
   items: SaleItem[]
   subtotal: number
   total: number
+  /** Periodo de caja al que pertenece la venta. Mantiene la fecha operativa tras un cierre. */
+  businessDateKey?: string
   orderId?: string
   orderNumber?: number
 }

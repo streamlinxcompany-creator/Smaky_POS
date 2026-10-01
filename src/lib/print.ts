@@ -1,4 +1,4 @@
-import type { Order, Sale, SaleItem } from './types'
+import type { CashClosure, Order, Sale, SaleItem } from './types'
 import { money, date, time } from './format'
 
 const escapeHtml = (value: string | number | undefined | null) => String(value ?? '')
@@ -41,3 +41,26 @@ export function printSaleReceipt(sale: Sale, target?: Window | null) {
     <div class="totals"><div class="total-row"><span>Subtotal</span><b>${money(sale.subtotal)}</b></div><div class="total-row grand"><span>Total</span><strong>${money(sale.total)}</strong></div></div>
     ${sale.notes ? `<div class="note"><b>OBSERVACIONES</b><br>${escapeHtml(sale.notes)}</div>` : ''}<div class="footer">Gracias por tu compra · Smaky POS</div></div>`, 460, target)
 }
+
+
+export function printCashClosure(closure: CashClosure, target?: Window | null) {
+  const invoices = closure.sales.map(sale => `<div class="item"><div><b>#${escapeHtml(sale.orderNumber ?? sale.id.slice(-6).toUpperCase())}</b><span>${escapeHtml(sale.customerName || 'Consumidor final')} · ${escapeHtml(paymentLabelForPrint(sale.payment))}</span></div><strong>${money(sale.total)}</strong></div>`).join('')
+  const difference = closure.cashDifference === 0 ? '$0' : `${closure.cashDifference > 0 ? '+' : ''}${money(closure.cashDifference)}`
+  return printWindow(`Cierre ${closure.dateKey}`, `
+    <div class="sheet"><div class="head"><div class="mark">S</div><div class="eyebrow">FACTURA DE CIERRE · RESUMEN DE CAJA</div><div class="brand">Smaky Burgers</div><div class="ref">Cierre ${escapeHtml(closure.dateKey.split('-').reverse().join('/'))}</div></div>
+    <div class="meta-grid"><div class="meta-cell"><span>Facturas</span><b>${closure.saleCount}</b></div><div class="meta-cell"><span>Total vendido</span><b>${money(closure.total)}</b></div><div class="meta-cell"><span>Cerrado por</span><b>${escapeHtml(closure.userName)}</b></div><div class="meta-cell"><span>Hora</span><b>${escapeHtml(time(closure.closedAt))}</b></div></div>
+    <div class="content">
+      <div class="item"><div><b>Efectivo</b><span>Ventas en efectivo</span></div><strong>${money(closure.cash)}</strong></div>
+      <div class="item"><div><b>Transferencias</b><span>Ventas por transferencia</span></div><strong>${money(closure.transfer)}</strong></div>
+      <div class="item"><div><b>Tarjetas</b><span>Ventas con tarjeta</span></div><strong>${money(closure.card)}</strong></div>
+      <div class="item"><div><b>Efectivo esperado</b><span>Monto calculado</span></div><strong>${money(closure.cashExpected)}</strong></div>
+      <div class="item"><div><b>Efectivo contado</b><span>Monto verificado físicamente</span></div><strong>${money(closure.cashCounted)}</strong></div>
+      <div class="item"><div><b>Diferencia</b><span>Resultado del arqueo</span></div><strong>${difference}</strong></div>
+    </div>
+    <div class="totals"><div class="total-row grand"><span>Total del cierre</span><strong>${money(closure.total)}</strong></div></div>
+    ${closure.notes ? `<div class="note"><b>OBSERVACIÓN</b><br>${escapeHtml(closure.notes)}</div>` : ''}
+    <div class="content"><div style="font-size:10px;font-weight:800;margin:5px 0 3px">FACTURAS DEL CIERRE</div>${invoices || '<div class="item"><span>Sin ventas registradas.</span></div>'}</div>
+    <div class="footer">Cierre administrativo · Smaky POS · Próximo periodo ${escapeHtml(closure.nextDateKey.split('-').reverse().join('/'))}</div></div>`, 520, target)
+}
+
+const paymentLabelForPrint = (payment: Sale['payment']) => payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : 'Tarjeta'

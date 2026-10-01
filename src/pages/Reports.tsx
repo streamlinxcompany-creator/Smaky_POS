@@ -1,6 +1,6 @@
 import { BarChart3, Banknote, CalendarDays, ChevronDown, CreditCard, Download, FileJson, FileSpreadsheet, FileText, Printer, ReceiptText, ShoppingBag, TrendingUp, Utensils, WalletCards, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { getAllProducts, getSales } from '../lib/store'
+import { getAllProducts, getSales, recordBusinessDayKey } from '../lib/store'
 import { date, money, time } from '../lib/format'
 import type { PaymentMethod, Product, Sale } from '../lib/types'
 
@@ -34,7 +34,7 @@ export function Reports() {
     const comboMatch = /\bcombo\s*([1-4])\b/i.exec(productName)
     return comboMatch ? quantity * Number(comboMatch[1]) : 0
   }
-  const filteredSales = useMemo(() => sales.filter(sale => { const key = keyFromDate(new Date(sale.createdAt)); return key >= dateFrom && key <= dateTo }), [sales, dateFrom, dateTo])
+  const filteredSales = useMemo(() => sales.filter(sale => { const key = recordBusinessDayKey(sale); return key >= dateFrom && key <= dateTo }), [sales, dateFrom, dateTo])
   const days = useMemo(() => daysBetween(dateFrom, dateTo), [dateFrom, dateTo])
 
   const report = useMemo(() => {
