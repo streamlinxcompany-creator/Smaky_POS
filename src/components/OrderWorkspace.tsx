@@ -123,11 +123,6 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
     setItems(current => current.filter(item => (item.lineId || item.productId) !== (lineId || '')))
   }
 
-  const printCurrentComanda = (target?: Window | null, currentOrder = order) => {
-    if (!currentOrder) return false
-    return printOrderComanda({ ...currentOrder, items, subtotal: total, total, notes }, target)
-  }
-
   const saveDraft = async (print = true): Promise<Order | null> => {
     const printTarget = print ? window.open('', '_blank', 'width=460,height=760') : null
     setSaving(true)
@@ -250,12 +245,25 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
   }
 
   const closeWithoutComanda = async () => {
-    const saved = await saveDraft(false)
-    if (!saved) return
-    const marked = await updateOrderComandaStatus(saved.id, 'skipped')
-    if (marked) onOrderChange?.(marked)
-    setClosePromptOpen(false)
-    onClose()
+    // Deliberadamente no usa saveDraft(): esta ruta nunca abre una ventana de impresión.
+    setSaving(true)
+    setError('')
+    try {
+      if (!items.length) throw new Error('Agrega al menos un producto para registrar el pedido.')
+      const saved = !order
+        ? await createOrder(items, { customerName: '', phone: '', address: '', notes }, user)
+        : dirty ? await updateOrderItems(order.id, items, notes) : order
+      if (!saved) throw new Error('No fue posible guardar el pedido.')
+      const marked = await updateOrderComandaStatus(saved.id, 'skipped')
+      if (!marked) throw new Error('No fue posible marcar el pedido sin comanda.')
+      setCurrent(marked)
+      onOrderChange?.(marked)
+      setMessage(`Pedido #${marked.orderNumber} guardado sin comanda`)
+      setClosePromptOpen(false)
+      onClose()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'No fue posible guardar el pedido.')
+    } finally { setSaving(false) }
   }
 
   const printAndClose = async () => {
