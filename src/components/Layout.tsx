@@ -1,5 +1,5 @@
 import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { AlertTriangle, BarChart3, CircleUserRound, ClipboardList, LayoutDashboard, LogOut, Menu, Package, ShoppingCart, ShieldCheck, Wifi, WifiOff, X } from 'lucide-react'
+import { AlertTriangle, BarChart3, CircleUserRound, ClipboardList, LayoutDashboard, LockKeyhole, LogOut, Menu, Package, ShoppingCart, ShieldCheck, Wifi, WifiOff, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { clearSession, getSessionUser, initials } from '../lib/auth'
 
@@ -9,7 +9,8 @@ const allNav = [
   { to: '/ventas', label: 'Ventas', icon: ClipboardList, roles: ['manager', 'admin', 'employee'] },
   { to: '/productos', label: 'Productos', icon: Package, roles: ['manager', 'admin'] },
   { to: '/reportes', label: 'Reportes', icon: BarChart3, roles: ['manager', 'admin'] },
-  { to: '/usuarios', label: 'Usuarios', icon: CircleUserRound, roles: ['manager', 'admin'] }
+  { to: '/usuarios', label: 'Usuarios', icon: CircleUserRound, roles: ['manager', 'admin'] },
+  { to: '/cierre-caja', label: 'Cierre de caja', icon: LockKeyhole, roles: ['manager', 'admin'] }
 ]
 
 const roleLabel = (role: string) => role === 'manager' ? 'Gerente' : role === 'admin' ? 'Administrador' : 'Trabajador'

@@ -7,6 +7,7 @@ import { Products } from './pages/Products'
 import { Sales } from './pages/Sales'
 import { Reports } from './pages/Reports'
 import { Users } from './pages/Users'
+import { CashClosing } from './pages/CashClosing'
 import { Login } from './pages/Login'
 import { getSessionUser } from './lib/auth'
 
@@ -25,6 +26,7 @@ export default function App() {
       <Route path="/productos" element={<AdminArea><Products/></AdminArea>}/>
       <Route path="/reportes" element={<AdminArea><Reports/></AdminArea>}/>
       <Route path="/usuarios" element={<AdminArea><Users/></AdminArea>}/>
+      <Route path="/cierre-caja" element={<AdminArea><CashClosing/></AdminArea>}/>
       <Route path="/inventario" element={<Navigate to="/productos" replace/>}/>
       <Route path="*" element={<Navigate to="/" replace/>}/>
     </Route>

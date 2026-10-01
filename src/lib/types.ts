@@ -54,6 +54,25 @@ export type Sale = DeliveryInfo & {
   orderNumber?: number
 }
 
+export type CashClosure = {
+  id: string
+  dateKey: string
+  closedAt: string
+  userId: string
+  userName: string
+  saleCount: number
+  total: number
+  cash: number
+  transfer: number
+  card: number
+  cashExpected: number
+  cashCounted: number
+  cashDifference: number
+  notes: string
+  sales: Sale[]
+  nextDateKey: string
+}
+
 export type User = {
   id: string
   name: string

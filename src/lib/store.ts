@@ -1,6 +1,6 @@
 import { db } from './db'
 import { products as seedProducts } from './demoData'
-import type { Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod } from './types'
+import type { CashClosure, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod } from './types'
 
 const seedManager: User = {
   id: 'u-owner',
@@ -65,6 +65,66 @@ const businessDayKey = (iso: string | Date) => new Intl.DateTimeFormat('en-CA', 
   timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit'
 }).format(new Date(iso))
 
+export { businessDayKey }
+
+export const addBusinessDay = (dateKey: string, amount = 1) => {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  date.setUTCDate(date.getUTCDate() + amount)
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date)
+}
+
+export async function getClosures() {
+  return db.closures.orderBy('closedAt').reverse().toArray()
+}
+
+export async function getClosureByDate(dateKey: string) {
+  return db.closures.where('dateKey').equals(dateKey).first()
+}
+
+export async function createDailyClosure(dateKey: string, actor: User, cashCounted: number, notes = '') {
+  return db.transaction('rw', db.closures, db.sales, db.users, async () => {
+    const freshActor = await db.users.get(actor.id)
+    if (!freshActor?.active || !['manager', 'admin'].includes(freshActor.role)) return null
+    if (await db.closures.where('dateKey').equals(dateKey).first()) throw new Error('Este día ya tiene un cierre registrado.')
+
+    const sales = (await db.sales.toArray())
+      .filter(sale => businessDayKey(sale.createdAt) === dateKey)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+
+    const totals = sales.reduce((acc, sale) => {
+      acc.total += sale.total
+      if (sale.payment === 'cash') acc.cash += sale.total
+      else if (sale.payment === 'transfer') acc.transfer += sale.total
+      else acc.card += sale.total
+      return acc
+    }, { total: 0, cash: 0, transfer: 0, card: 0 })
+
+    const counted = Number.isFinite(cashCounted) ? Math.max(0, cashCounted) : 0
+    const closure: CashClosure = {
+      id: crypto.randomUUID(),
+      dateKey,
+      closedAt: new Date().toISOString(),
+      userId: freshActor.id,
+      userName: freshActor.name,
+      saleCount: sales.length,
+      total: totals.total,
+      cash: totals.cash,
+      transfer: totals.transfer,
+      card: totals.card,
+      cashExpected: totals.cash,
+      cashCounted: counted,
+      cashDifference: counted - totals.cash,
+      notes: notes.trim(),
+      sales: sales.map(sale => ({ ...sale, items: sale.items.map(item => ({ ...item })) })),
+      nextDateKey: addBusinessDay(dateKey, 1)
+    }
+
+    await db.closures.add(closure)
+    return closure
+  })
+}
+
 export async function getOrders() {
   return db.orders.orderBy('createdAt').reverse().toArray()
 }
@@ -72,6 +132,7 @@ export async function getOrders() {
 export async function createOrder(items: Order['items'], delivery: DeliveryInfo, user: User) {
   const now = new Date()
   const todayKey = businessDayKey(now)
+  if (await db.closures.where('dateKey').equals(todayKey).first()) throw new Error(`El día ${todayKey.split('-').reverse().join('/')} ya fue cerrado. El nuevo periodo comienza ${addBusinessDay(todayKey, 1).split('-').reverse().join('/')}.`)
   const existing = await db.orders.toArray()
   const todayOrders = existing.filter(order => businessDayKey(order.createdAt) === todayKey)
   const nextNumber = todayOrders.reduce((max, order) => Math.max(max, Number(order.orderNumber) || 0), 0) + 1
@@ -118,8 +179,9 @@ export async function updateOrderStatus(orderId: string, status: OrderStatus) {
 }
 
 export async function completeOrder(orderId: string, payment: PaymentMethod, actor: User) {
-  return db.transaction('rw', db.orders, db.sales, db.users, async () => {
+  return db.transaction('rw', db.orders, db.sales, db.users, db.closures, async () => {
     const [order, freshActor] = await Promise.all([db.orders.get(orderId), db.users.get(actor.id)])
+    if (await db.closures.where('dateKey').equals(businessDayKey(new Date())).first()) throw new Error('El día actual ya fue cerrado. No se pueden registrar nuevas ventas.')
     if (!order || !freshActor?.active || ['paid', 'cancelled'].includes(order.status)) return null
 
     const sale: Sale = {

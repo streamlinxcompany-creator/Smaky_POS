@@ -35,3 +35,14 @@ El POS no debe depender de internet para cobrar. La venta entra primero a Indexe
 
 ### v0.6
 - Aviso de venta guardada con animación suave de entrada y salida.
+
+
+## v0.14 — Cierre diario administrativo
+
+- Nueva sección `Cierre de caja` para Administrador y Gerente.
+- Cierre por día con resumen de ventas, efectivo esperado, efectivo contado y diferencia.
+- Confirmación mediante slider de arrastre real.
+- Al cerrar un día, el siguiente periodo se calcula automáticamente para el día siguiente.
+- Historial administrativo de cierres con consulta de las facturas conservadas en cada cierre.
+- Panel de Inicio administrativo con estado del cierre y últimos cierres.
+- Se bloquean nuevos pedidos/ventas después de cerrar el día actual.
