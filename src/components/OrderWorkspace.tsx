@@ -1,6 +1,6 @@
 import { ArrowRight, Check, CreditCard, FileText, Minus, Plus, Printer, Search, ShoppingCart, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent } from 'react'
-import { completeOrder, createOrder, getProducts, getSaleForOrder, updateOrderItems } from '../lib/store'
+import { completeOrder, createOrder, getProducts, getSaleForOrder, updateOrderComandaStatus, updateOrderItems } from '../lib/store'
 import { money, time, date } from '../lib/format'
 import type { Order, PaymentMethod, Product, SaleItem, User } from '../lib/types'
 import { printOrderComanda, printSaleReceipt } from '../lib/print'
@@ -60,6 +60,7 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
   const [error, setError] = useState('')
   const [editingLineId, setEditingLineId] = useState<string | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
+  const [closePromptOpen, setClosePromptOpen] = useState(false)
   const [paymentProgress, setPaymentProgress] = useState(0)
   const paymentProgressRef = useRef(0)
   const paymentSliderRef = useRef<HTMLDivElement | null>(null)
@@ -137,6 +138,7 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
         const created = await createOrder(items, { customerName: '', phone: '', address: '', notes }, user)
         setCurrent(created)
         const printed = printOrderComanda(created, printTarget)
+        if (printed) setCurrent(await updateOrderComandaStatus(created.id, 'printed'))
         if (print && !printed) setError('El pedido se registró, pero el navegador bloqueó la comanda. Permite las ventanas emergentes para Smaky.')
         else setMessage(`Pedido #${created.orderNumber} registrado`)
         return created
@@ -146,6 +148,7 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
       setCurrent(updated)
       if (print) {
         const printed = printOrderComanda(updated, printTarget)
+        if (printed) setCurrent(await updateOrderComandaStatus(updated.id, 'printed'))
         if (!printed) setError('Los cambios se guardaron, pero el navegador bloqueó la comanda.')
         else setMessage('Cambios guardados y comanda actualizada')
       } else setMessage('Cambios guardados')
@@ -240,12 +243,34 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
     }
   }
 
+  const requestClose = () => {
+    if (saving || checkoutOpen) return
+    if (!items.length && !order) return onClose()
+    setClosePromptOpen(true)
+  }
+
+  const closeWithoutComanda = async () => {
+    const saved = await saveDraft(false)
+    if (!saved) return
+    const marked = await updateOrderComandaStatus(saved.id, 'skipped')
+    if (marked) onOrderChange?.(marked)
+    setClosePromptOpen(false)
+    onClose()
+  }
+
+  const printAndClose = async () => {
+    const saved = await saveDraft(true)
+    if (!saved) return
+    setClosePromptOpen(false)
+    onClose()
+  }
+
 
   return <div className="order-workspace-page">
     <section className="order-workspace" role="region" aria-label="Editor de pedido">
       <header className="workspace-head workspace-head-compact">
         <div className="workspace-title">
-          <button className="receipt-close" onClick={onClose} aria-label="Cerrar"><X size={18}/></button>
+          <button className="receipt-close" onClick={requestClose} aria-label="Cerrar"><X size={18}/></button>
           <div>
             <p className="eyebrow">CUENTA ACTUAL</p>
             <h2>{order ? `Pedido #${order.orderNumber}` : 'Nuevo pedido'}</h2>
@@ -254,6 +279,7 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
         </div>
         <div className="workspace-head-meta">
           {order && <span className={`order-status status-${order.status}`}>{order.status === 'paid' ? 'Pagado' : order.status === 'cancelled' ? 'Cancelado' : 'Pedido abierto'}</span>}
+          {order?.comandaStatus === 'skipped' && <span className="order-status status-cancelled">Sin comanda</span>}
           <span className="workspace-units"><ShoppingCart size={14}/>{units} unidades · {items.length} líneas</span>
         </div>
       </header>
@@ -402,6 +428,13 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
             <button className="secondary" onClick={() => setEditingLineId(null)}>Cerrar</button>
             <button className="primary" onClick={() => setEditingLineId(null)}>Guardar cambios</button>
           </footer>
+        </section>
+      </div>}
+      {closePromptOpen && <div className="item-editor-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !saving) setClosePromptOpen(false) }}>
+        <section className="item-editor-modal" role="dialog" aria-modal="true" aria-labelledby="close-order-title">
+          <header className="item-editor-head"><div><span className="item-editor-kicker">PEDIDO SIN COMANDA</span><h3 id="close-order-title">¿Quieres salir sin imprimir comanda?</h3><p>El pedido se guardará y seguirá disponible para cobrar. Si eliges salir, aparecerá marcado como <b>Sin comanda</b>.</p></div><button className="item-editor-close" disabled={saving} onClick={() => setClosePromptOpen(false)} aria-label="Cerrar"><X size={18}/></button></header>
+          <div className="item-editor-body"><div className="checkout-summary-card"><div className="checkout-summary-card-head"><div><span>Productos</span><b>{items.length} líneas · {units} unidades</b></div><div><span>Total</span><b>{money(total)}</b></div></div></div></div>
+          <footer className="item-editor-footer"><button className="secondary" disabled={saving} onClick={() => setClosePromptOpen(false)}>Seguir editando</button><button className="secondary" disabled={saving} onClick={() => void closeWithoutComanda()}>Salir sin comanda</button><button className="primary" disabled={saving} onClick={() => void printAndClose()}><Printer size={15}/>{saving ? 'Guardando…' : 'Imprimir comanda y salir'}</button></footer>
         </section>
       </div>}
     </section>

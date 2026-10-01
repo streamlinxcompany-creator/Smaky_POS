@@ -46,6 +46,10 @@ export type Order = DeliveryInfo & {
   businessDateKey?: string
   deletedAt?: string
   deletedBy?: string
+  /** Estado de impresión de cocina; no afecta el flujo de cobro. */
+  comandaStatus?: 'printed' | 'skipped'
+  comandaPrintedAt?: string
+  comandaSkippedAt?: string
 }
 
 export type Sale = DeliveryInfo & {

@@ -285,6 +285,21 @@ export async function updateOrderStatus(orderId: string, status: OrderStatus) {
   return after
 }
 
+export async function updateOrderComandaStatus(orderId: string, status: 'printed' | 'skipped') {
+  const order = await db.orders.get(orderId)
+  if (!order || ['paid', 'cancelled'].includes(order.status)) return order ?? null
+  const now = new Date().toISOString()
+  const after: Order = {
+    ...order,
+    comandaStatus: status,
+    ...(status === 'printed' ? { comandaPrintedAt: now, comandaSkippedAt: undefined } : { comandaSkippedAt: now }),
+    updatedAt: now,
+  }
+  await db.orders.put(after)
+  await audit(status === 'printed' ? 'ORDER_TICKET_PRINTED' : 'ORDER_TICKET_SKIPPED', 'ORDERS', 'order', orderId, order, after)
+  return after
+}
+
 export async function completeOrder(orderId: string, payment: PaymentMethod, actor: User) {
   return db.transaction('rw', [db.orders, db.sales, db.users, db.closures, db.auditEvents, db.historyRecords], async () => {
     const [order, freshActor] = await Promise.all([db.orders.get(orderId), db.users.get(actor.id)])

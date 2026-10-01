@@ -135,6 +135,7 @@ export function POS() {
         <strong>{money(order.total)}</strong>
         <span>{order.items.reduce((sum, item) => sum + item.quantity, 0)} {order.items.reduce((sum, item) => sum + item.quantity, 0) === 1 ? 'producto' : 'productos'}</span>
         <small>{statusLabel[order.status]}</small>
+        {order.comandaStatus === 'skipped' && <em>Sin comanda</em>}
         <em>{date(order.createdAt)} · {time(order.createdAt)}</em>
       </button>)}
     </div>
