@@ -86,6 +86,19 @@ export async function getClosures() {
   return db.closures.orderBy('closedAt').reverse().toArray()
 }
 
+export async function resetTestData(actor: User) {
+  return db.transaction('rw', db.sales, db.orders, db.closures, db.users, async () => {
+    const freshActor = await db.users.get(actor.id)
+    if (!freshActor?.active || freshActor.role !== 'manager') return false
+
+    await db.sales.clear()
+    await db.orders.clear()
+    await db.closures.clear()
+    return true
+  })
+}
+
+
 export async function getClosureByDate(dateKey: string) {
   return db.closures.where('dateKey').equals(dateKey).first()
 }

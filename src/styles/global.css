@@ -465,3 +465,10 @@
 .closure-delete-modal .logout-actions{margin-top:0}
 .closure-delete-modal .cancel-delete-btn{margin-top:0}
 @media(max-width:700px){.closure-history-actions{justify-content:flex-start}.closure-detail-footer{align-items:stretch;flex-direction:column}.closure-detail-footer-actions{justify-content:space-between}.closure-detail-footer>.primary{width:100%;justify-content:center}}
+
+
+/* Herramienta temporal de pruebas */
+.test-reset-btn{border-color:#5b3020!important;color:#e8b09a!important;background:#1b1412!important}
+.test-reset-btn:hover{border-color:#a44725!important;background:#241612!important}
+.test-reset-modal .delete-confirm-icon{background:#2a1c15;color:#e2a06f;border-color:#5b3825}
+.reset-warning{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #5b3825;background:#241a14;color:#dca77e;border-radius:10px;font-size:11px;margin-top:12px}

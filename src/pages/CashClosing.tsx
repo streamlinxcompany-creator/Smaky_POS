@@ -1,7 +1,7 @@
-import { AlertTriangle, ArrowRight, Banknote, CheckCircle2, ChevronRight, FileText, LockKeyhole, ReceiptText, RotateCcw, ShieldCheck, X } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Banknote, CheckCircle2, ChevronRight, DatabaseZap, FileText, LockKeyhole, ReceiptText, RotateCcw, ShieldCheck, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { getSessionUser } from '../lib/auth'
-import { addBusinessDay, businessDayKey, createDailyClosure, deletePreviousDayClosure, getClosures, getOrders, getSales, recordBusinessDayKey } from '../lib/store'
+import { addBusinessDay, businessDayKey, createDailyClosure, deletePreviousDayClosure, getClosures, getOrders, getSales, recordBusinessDayKey, resetTestData } from '../lib/store'
 import { date, money, time } from '../lib/format'
 import type { CashClosure, Order, Sale } from '../lib/types'
 import { printCashClosure, printSaleReceipt } from '../lib/print'
@@ -26,6 +26,8 @@ export function CashClosing() {
   const [detailOpen, setDetailOpen] = useState<CashClosure | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<CashClosure | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [resetOpen, setResetOpen] = useState(false)
+  const [resetting, setResetting] = useState(false)
   const [cashCounted, setCashCounted] = useState('')
   const [notes, setNotes] = useState('')
   const [progress, setProgress] = useState(0)
@@ -122,6 +124,25 @@ export function CashClosing() {
     printSaleReceipt(sale, target)
   }
 
+  const confirmResetTestData = async () => {
+    if (!user || user.role !== 'manager' || resetting) return
+    setResetting(true)
+    setError('')
+    try {
+      const reset = await resetTestData(user)
+      if (!reset) throw new Error('Solo el gerente puede restablecer los datos de prueba.')
+      setResetOpen(false)
+      setDetailOpen(null)
+      setDeleteTarget(null)
+      setMessage('Datos de prueba restablecidos. Productos y usuarios se conservaron.')
+      await load()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'No fue posible restablecer los datos de prueba.')
+    } finally {
+      setResetting(false)
+    }
+  }
+
   const confirmDeleteClosure = async () => {
     if (!deleteTarget || !user || !canDeleteClosure(deleteTarget) || deleting) return
     setDeleting(true)
@@ -153,6 +174,7 @@ export function CashClosing() {
         {activeClosure ? <CheckCircle2 size={15}/> : openOrders.length ? <AlertTriangle size={15}/> : <LockKeyhole size={15}/>} 
         {activeClosure ? 'Día cerrado' : openOrders.length ? `${openOrders.length} pedido${openOrders.length === 1 ? '' : 's'} pendiente${openOrders.length === 1 ? '' : 's'}` : 'Cierre pendiente'}
       </div>
+      {user.role === 'manager' && <button className="secondary test-reset-btn" onClick={() => { setError(''); setResetOpen(true) }}><DatabaseZap size={15}/> Restablecer pruebas</button>}
     </div>
 
     <div className="closing-grid-top">
@@ -207,6 +229,19 @@ export function CashClosing() {
           <div className="closure-detail-invoices"><div className="panel-title"><div><h2>Facturas del cierre</h2><p>Comprobantes conservados y listos para imprimir.</p></div></div>{!detailOpen.sales.length ? <div className="closing-empty compact"><FileText size={22}/><span>No hubo ventas en este cierre.</span></div> : <div className="closure-invoice-list">{detailOpen.sales.map(sale => <article key={sale.id} className="closure-invoice-row"><div className="closure-invoice-index"><b>#{sale.orderNumber ?? sale.id.slice(-6)}</b><span>{time(sale.createdAt)}</span></div><div className="closure-invoice-main"><b>{sale.customerName || 'Consumidor final'}</b><span>{sale.items.map(item => `${item.quantity}× ${item.name}`).join(', ')}</span></div><div className="closure-invoice-payment">{paymentLabel(sale.payment)}</div><strong>{money(sale.total)}</strong><button className="sales-print-btn" onClick={() => printInvoice(sale)}><FileText size={13}/> Factura</button></article>)}</div>}</div>
         </div>
         <footer className="item-editor-footer closure-detail-footer"><div className="closure-detail-footer-actions"><button className="secondary" onClick={() => setDetailOpen(null)}>Cerrar</button>{canDeleteClosure(detailOpen) && <button className="danger-inline-btn" onClick={() => setDeleteTarget(detailOpen)} disabled={deleting}><RotateCcw size={14}/> Eliminar cierre</button>}</div><button className="primary" onClick={() => { const target = window.open('', '_blank', 'width=520,height=820'); printCashClosure(detailOpen, target) }}><FileText size={15}/> Imprimir factura de cierre</button></footer>
+      </section>
+    </div>}
+
+    {resetOpen && <div className="modal-backdrop danger-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !resetting) setResetOpen(false) }}>
+      <section className="delete-confirm-modal test-reset-modal" role="dialog" aria-modal="true" aria-labelledby="test-reset-title">
+        <div className="delete-confirm-icon"><DatabaseZap size={21}/></div>
+        <span className="danger-eyebrow">MODO DE PRUEBAS · TEMPORAL</span>
+        <h2 id="test-reset-title">¿Restablecer los datos de prueba?</h2>
+        <p className="delete-confirm-copy">Se borrarán <strong>ventas, pedidos y cierres de caja</strong> de este dispositivo. Los productos, usuarios y configuración se conservarán.</p>
+        <div className="closure-delete-summary"><span>Ventas</span><strong>{sales.length}</strong><span>Pedidos</span><strong>{orders.length}</strong><span>Cierres</span><strong>{closures.length}</strong></div>
+        <div className="reset-warning"><AlertTriangle size={15}/><span>Esta acción es solo para pruebas y no se puede deshacer.</span></div>
+        {error && <div className="closing-modal-error"><AlertTriangle size={14}/>{error}</div>}
+        <div className="logout-actions"><button className="cancel-delete-btn" disabled={resetting} onClick={() => setResetOpen(false)}>Cancelar</button><button className="logout-confirm-btn" disabled={resetting} onClick={() => void confirmResetTestData()}>{resetting ? 'Restableciendo…' : 'Sí, borrar datos de prueba'}</button></div>
       </section>
     </div>}
 
