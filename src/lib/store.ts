@@ -90,6 +90,20 @@ export async function getClosureByDate(dateKey: string) {
   return db.closures.where('dateKey').equals(dateKey).first()
 }
 
+export async function deletePreviousDayClosure(closureId: string, actor: User) {
+  return db.transaction('rw', db.closures, db.users, async () => {
+    const freshActor = await db.users.get(actor.id)
+    if (!freshActor?.active || freshActor.role !== 'manager') return false
+
+    const yesterdayKey = addBusinessDay(businessDayKey(new Date()), -1)
+    const closure = await db.closures.get(closureId)
+    if (!closure || closure.dateKey !== yesterdayKey) return false
+
+    await db.closures.delete(closureId)
+    return true
+  })
+}
+
 export async function createDailyClosure(dateKey: string, actor: User, cashCounted: number, notes = '') {
   return db.transaction('rw', db.closures, db.sales, db.users, async () => {
     const freshActor = await db.users.get(actor.id)

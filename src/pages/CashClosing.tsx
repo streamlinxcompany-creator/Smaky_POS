@@ -1,7 +1,7 @@
 import { AlertTriangle, ArrowRight, Banknote, CheckCircle2, ChevronRight, FileText, LockKeyhole, ReceiptText, RotateCcw, ShieldCheck, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { getSessionUser } from '../lib/auth'
-import { addBusinessDay, businessDayKey, createDailyClosure, getClosures, getOrders, getSales, recordBusinessDayKey } from '../lib/store'
+import { addBusinessDay, businessDayKey, createDailyClosure, deletePreviousDayClosure, getClosures, getOrders, getSales, recordBusinessDayKey } from '../lib/store'
 import { date, money, time } from '../lib/format'
 import type { CashClosure, Order, Sale } from '../lib/types'
 import { printCashClosure, printSaleReceipt } from '../lib/print'
@@ -24,6 +24,8 @@ export function CashClosing() {
   const [loading, setLoading] = useState(true)
   const [closeOpen, setCloseOpen] = useState(false)
   const [detailOpen, setDetailOpen] = useState<CashClosure | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<CashClosure | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [cashCounted, setCashCounted] = useState('')
   const [notes, setNotes] = useState('')
   const [progress, setProgress] = useState(0)
@@ -62,6 +64,8 @@ export function CashClosing() {
   const counted = Number(cashCounted || 0)
   const difference = counted - todaySummary.cash
   const nextKey = activeClosure?.nextDateKey ?? addBusinessDay(activeKey, 1)
+  const yesterdayKey = addBusinessDay(calendarKey, -1)
+  const canDeleteClosure = (closure: CashClosure) => user?.role === 'manager' && closure.dateKey === yesterdayKey
   const canClose = !!user && ['manager', 'admin'].includes(user.role) && !activeClosure && openOrders.length === 0 && Number.isFinite(counted) && counted >= 0 && !saving
 
   const resetSlider = () => { draggingRef.current = false; progressRef.current = 0; setProgress(0) }
@@ -118,6 +122,25 @@ export function CashClosing() {
     printSaleReceipt(sale, target)
   }
 
+  const confirmDeleteClosure = async () => {
+    if (!deleteTarget || !user || !canDeleteClosure(deleteTarget) || deleting) return
+    setDeleting(true)
+    setError('')
+    try {
+      const deleted = await deletePreviousDayClosure(deleteTarget.id, user)
+      if (!deleted) throw new Error('Solo el gerente puede eliminar el cierre del día anterior.')
+      const deletedDate = shortDay(deleteTarget.dateKey)
+      if (detailOpen?.id === deleteTarget.id) setDetailOpen(null)
+      setDeleteTarget(null)
+      setMessage(`Cierre del ${deletedDate} eliminado. Ya puedes volver a realizar ese cierre.`)
+      await load()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'No fue posible eliminar el cierre.')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   if (!user) return null
   if (user.role === 'employee') return <div className="admin-guard panel"><ShieldCheck size={22}/><h2>Acceso administrativo</h2><p>El cierre de caja y su historial están disponibles para Administrador y Gerente.</p></div>
 
@@ -152,7 +175,7 @@ export function CashClosing() {
 
     <section className="panel closure-history-panel">
       <div className="panel-title"><div><h2>Historial de cierres</h2><p>Cada día cerrado conserva su resumen y sus facturas.</p></div><span className="closure-history-count">{closures.length} cierres</span></div>
-      {!closures.length ? <div className="closing-empty"><ReceiptText size={25}/><b>Aún no hay cierres registrados</b><span>El primer cierre aparecerá aquí cuando cierres el día.</span></div> : <div className="closure-history-list">{closures.map(closure => <article className="closure-history-row" key={closure.id}><div className="closure-history-icon"><ReceiptText size={17}/></div><div className="closure-history-main"><b>{shortDay(closure.dateKey)}</b><span>{closure.saleCount} {closure.saleCount === 1 ? 'factura' : 'facturas'} · Cerrado por {closure.userName} a las {time(closure.closedAt)}</span></div><div className="closure-history-total"><small>Total vendido</small><strong>{money(closure.total)}</strong></div><div className={`closure-difference ${closure.cashDifference === 0 ? 'ok' : closure.cashDifference > 0 ? 'surplus' : 'shortage'}`}>{closure.cashDifference === 0 ? 'Caja cuadrada' : `${closure.cashDifference > 0 ? '+' : ''}${money(closure.cashDifference)}`}</div><button className="secondary closure-view-btn" onClick={() => setDetailOpen(closure)}><FileText size={14}/> Ver cierre <ChevronRight size={14}/></button></article>)}</div>}
+      {!closures.length ? <div className="closing-empty"><ReceiptText size={25}/><b>Aún no hay cierres registrados</b><span>El primer cierre aparecerá aquí cuando cierres el día.</span></div> : <div className="closure-history-list">{closures.map(closure => <article className="closure-history-row" key={closure.id}><div className="closure-history-icon"><ReceiptText size={17}/></div><div className="closure-history-main"><b>{shortDay(closure.dateKey)}</b><span>{closure.saleCount} {closure.saleCount === 1 ? 'factura' : 'facturas'} · Cerrado por {closure.userName} a las {time(closure.closedAt)}</span></div><div className="closure-history-total"><small>Total vendido</small><strong>{money(closure.total)}</strong></div><div className={`closure-difference ${closure.cashDifference === 0 ? 'ok' : closure.cashDifference > 0 ? 'surplus' : 'shortage'}`}>{closure.cashDifference === 0 ? 'Caja cuadrada' : `${closure.cashDifference > 0 ? '+' : ''}${money(closure.cashDifference)}`}</div><div className="closure-history-actions"><button className="secondary closure-view-btn" onClick={() => setDetailOpen(closure)}><FileText size={14}/> Ver cierre <ChevronRight size={14}/></button>{canDeleteClosure(closure) && <button className="danger-inline-btn" onClick={() => setDeleteTarget(closure)} disabled={deleting}><RotateCcw size={14}/> Eliminar cierre</button>}</div></article>)}</div>}
     </section>
 
     {message && <div className="closing-toast"><CheckCircle2 size={16}/>{message}</div>}
@@ -183,7 +206,18 @@ export function CashClosing() {
           {detailOpen.notes && <div className="closure-detail-note"><FileText size={14}/><div><b>Observación</b><span>{detailOpen.notes}</span></div></div>}
           <div className="closure-detail-invoices"><div className="panel-title"><div><h2>Facturas del cierre</h2><p>Comprobantes conservados y listos para imprimir.</p></div></div>{!detailOpen.sales.length ? <div className="closing-empty compact"><FileText size={22}/><span>No hubo ventas en este cierre.</span></div> : <div className="closure-invoice-list">{detailOpen.sales.map(sale => <article key={sale.id} className="closure-invoice-row"><div className="closure-invoice-index"><b>#{sale.orderNumber ?? sale.id.slice(-6)}</b><span>{time(sale.createdAt)}</span></div><div className="closure-invoice-main"><b>{sale.customerName || 'Consumidor final'}</b><span>{sale.items.map(item => `${item.quantity}× ${item.name}`).join(', ')}</span></div><div className="closure-invoice-payment">{paymentLabel(sale.payment)}</div><strong>{money(sale.total)}</strong><button className="sales-print-btn" onClick={() => printInvoice(sale)}><FileText size={13}/> Factura</button></article>)}</div>}</div>
         </div>
-        <footer className="item-editor-footer closure-detail-footer"><button className="secondary" onClick={() => setDetailOpen(null)}>Cerrar</button><button className="primary" onClick={() => { const target = window.open('', '_blank', 'width=520,height=820'); printCashClosure(detailOpen, target) }}><FileText size={15}/> Imprimir factura de cierre</button></footer>
+        <footer className="item-editor-footer closure-detail-footer"><div className="closure-detail-footer-actions"><button className="secondary" onClick={() => setDetailOpen(null)}>Cerrar</button>{canDeleteClosure(detailOpen) && <button className="danger-inline-btn" onClick={() => setDeleteTarget(detailOpen)} disabled={deleting}><RotateCcw size={14}/> Eliminar cierre</button>}</div><button className="primary" onClick={() => { const target = window.open('', '_blank', 'width=520,height=820'); printCashClosure(detailOpen, target) }}><FileText size={15}/> Imprimir factura de cierre</button></footer>
+      </section>
+    </div>}
+
+    {deleteTarget && <div className="modal-backdrop danger-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !deleting) setDeleteTarget(null) }}>
+      <section className="delete-confirm-modal closure-delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-closure-title">
+        <div className="delete-confirm-icon"><RotateCcw size={21}/></div>
+        <span className="danger-eyebrow">ELIMINAR CIERRE DE PRUEBA</span>
+        <h2 id="delete-closure-title">¿Eliminar el cierre del {shortDay(deleteTarget.dateKey)}?</h2>
+        <p className="delete-confirm-copy">Esta opción solo está disponible para el gerente y únicamente para el día anterior. Se eliminará el registro del cierre, pero <strong>no se borrarán las facturas ni las ventas</strong> asociadas.</p>
+        <div className="closure-delete-summary"><span>Facturas conservadas</span><strong>{deleteTarget.saleCount}</strong><span>Total conservado</span><strong>{money(deleteTarget.total)}</strong></div>
+        <div className="logout-actions"><button className="cancel-delete-btn" disabled={deleting} onClick={() => setDeleteTarget(null)}>Cancelar</button><button className="logout-confirm-btn" disabled={deleting} onClick={() => void confirmDeleteClosure()}>{deleting ? 'Eliminando…' : 'Sí, eliminar cierre'}</button></div>
       </section>
     </div>}
   </div>

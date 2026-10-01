@@ -449,3 +449,19 @@
 
 @media(max-width:1000px){.closure-detail-summary-wide{grid-template-columns:repeat(3,1fr)}.closure-cash-verification{grid-template-columns:1fr}.closure-cash-verification>div{border-right:0;border-bottom:1px solid #292b2c;padding-bottom:8px}.closure-cash-verification>div:last-child{border-bottom:0}.admin-closure-mini-list button{grid-template-columns:1fr auto}}
 @media(max-width:760px){.closure-detail-summary-wide{grid-template-columns:1fr 1fr}.closure-detail-footer{flex-direction:column;align-items:stretch}.closure-detail-footer .primary{width:100%}.pos-closure-warning-modal{width:100%;height:auto;max-height:calc(100vh - 24px);border-radius:16px}.pos-closure-warning-box{padding:12px}}
+
+/* v0.15.1 — eliminación controlada del cierre del día anterior por Gerente */
+.closure-history-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}
+.danger-inline-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #6d2c25;background:#251312;color:#ef8f80;border-radius:9px;padding:9px 11px;font-size:10px;font-weight:800;cursor:pointer}
+.danger-inline-btn:hover:not(:disabled){background:#351715;border-color:#934034;color:#ffb0a3}
+.danger-inline-btn:disabled{opacity:.55;cursor:not-allowed}
+.closure-detail-footer{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.closure-detail-footer-actions{display:flex;align-items:center;gap:8px}
+.closure-delete-modal{max-width:480px}
+.closure-delete-modal .danger-eyebrow{display:block;font-size:9px;font-weight:800;letter-spacing:1.8px;margin-bottom:7px}
+.closure-delete-modal h2{margin-bottom:9px}
+.closure-delete-summary{display:grid;grid-template-columns:1fr auto;gap:8px 14px;padding:12px 13px;border:1px solid #292b2d;background:#111314;border-radius:12px;margin-bottom:12px;color:#807b78;font-size:10px}
+.closure-delete-summary strong{color:#eee;font-size:11px}
+.closure-delete-modal .logout-actions{margin-top:0}
+.closure-delete-modal .cancel-delete-btn{margin-top:0}
+@media(max-width:700px){.closure-history-actions{justify-content:flex-start}.closure-detail-footer{align-items:stretch;flex-direction:column}.closure-detail-footer-actions{justify-content:space-between}.closure-detail-footer>.primary{width:100%;justify-content:center}}
