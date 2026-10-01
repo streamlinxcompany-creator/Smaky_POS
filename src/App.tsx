@@ -10,6 +10,7 @@ import { Users } from './pages/Users'
 import { CashClosing } from './pages/CashClosing'
 import { Login } from './pages/Login'
 import { getSessionUser } from './lib/auth'
+import { StreamLinx } from './pages/StreamLinx'
 
 function AdminArea({ children }: { children: ReactNode }) {
   return getSessionUser()?.role !== 'employee' ? children : <Navigate to="/" replace />
@@ -18,6 +19,7 @@ function AdminArea({ children }: { children: ReactNode }) {
 export default function App() {
   return <BrowserRouter><Routes>
     <Route path="/login" element={<Login/>}/>
+    <Route path="/streamlinx" element={<StreamLinx/>}/>
     <Route element={<Layout/>}>
       <Route path="/" element={<Dashboard/>}/>
       <Route path="/pos" element={<POS/>}/>
