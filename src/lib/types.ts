@@ -5,7 +5,7 @@ export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'pai
 export type Product = {
   id: string
   name: string
-  category: 'Hamburguesas' | 'Combos' | 'Bebidas' | 'Acompañamientos'
+  category: string
   price: number
   active: boolean
   /** Registro retirado de la operación; sólo StreamLinx lo consulta. */
@@ -61,6 +61,9 @@ export type Sale = DeliveryInfo & {
   items: SaleItem[]
   subtotal: number
   total: number
+  discountType?: 'percent' | 'fixed'
+  discountValue?: number
+  discountAmount?: number
   /** Periodo de caja al que pertenece la venta. Mantiene la fecha operativa tras un cierre. */
   businessDateKey?: string
   orderId?: string
@@ -125,6 +128,13 @@ export type HistoryRecord = {
   eventId: string
   snapshot: Record<string, unknown>
   deleted?: boolean
+}
+
+export type SystemSetting = {
+  id: string
+  key: string
+  value: unknown
+  updatedAt: string
 }
 
 export type BackupSnapshot = {

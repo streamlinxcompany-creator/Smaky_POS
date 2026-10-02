@@ -11,6 +11,7 @@ import { CashClosing } from './pages/CashClosing'
 import { Login } from './pages/Login'
 import { getSessionUser } from './lib/auth'
 import { StreamLinx } from './pages/StreamLinx'
+import { Settings } from './pages/Settings'
 
 function AdminArea({ children }: { children: ReactNode }) {
   return getSessionUser()?.role !== 'employee' ? children : <Navigate to="/" replace />
@@ -28,7 +29,8 @@ export default function App() {
       <Route path="/productos" element={<AdminArea><Products/></AdminArea>}/>
       <Route path="/reportes" element={<AdminArea><Reports/></AdminArea>}/>
       <Route path="/usuarios" element={<AdminArea><Users/></AdminArea>}/>
-      <Route path="/cierre-caja" element={<AdminArea><CashClosing/></AdminArea>}/>
+      <Route path="/cierre-caja" element={<CashClosing/>}/>
+      <Route path="/configuraciones" element={<AdminArea><Settings/></AdminArea>}/>
       <Route path="/inventario" element={<Navigate to="/productos" replace/>}/>
       <Route path="*" element={<Navigate to="/" replace/>}/>
     </Route>

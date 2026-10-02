@@ -68,7 +68,7 @@ export function CashClosing() {
   const nextKey = activeClosure?.nextDateKey ?? addBusinessDay(activeKey, 1)
   const yesterdayKey = addBusinessDay(calendarKey, -1)
   const canDeleteClosure = (closure: CashClosure) => user?.role === 'manager' && closure.dateKey === yesterdayKey
-  const canClose = !!user && ['manager', 'admin'].includes(user.role) && !activeClosure && openOrders.length === 0 && Number.isFinite(counted) && counted >= 0 && !saving
+  const canClose = !!user && !activeClosure && openOrders.length === 0 && Number.isFinite(counted) && counted >= 0 && !saving
 
   const resetSlider = () => { draggingRef.current = false; progressRef.current = 0; setProgress(0) }
   const openCloseModal = () => {
@@ -120,8 +120,7 @@ export function CashClosing() {
   }
 
   const printInvoice = (sale: Sale) => {
-    const target = window.open('', '_blank', 'width=460,height=760')
-    printSaleReceipt(sale, target)
+    printSaleReceipt(sale)
   }
 
   const confirmResetTestData = async () => {
@@ -163,13 +162,11 @@ export function CashClosing() {
   }
 
   if (!user) return null
-  if (user.role === 'employee') return <div className="admin-guard panel"><ShieldCheck size={22}/><h2>Acceso administrativo</h2><p>El cierre de caja y su historial están disponibles para Administrador y Gerente.</p></div>
-
-  if (loading) return <div className="closing-loading">Cargando control de caja…</div>
+    if (loading) return <div className="closing-loading">Cargando control de caja…</div>
 
   return <div className="cash-closing-page">
     <div className="page-heading compact cash-closing-heading">
-      <div><p className="eyebrow">CONTROL ADMINISTRATIVO</p><h1>Cierre de caja</h1><p className="muted">Registra el cierre del día, verifica el efectivo y conserva el detalle de las facturas asociadas.</p></div>
+      <div><p className="eyebrow">CONTROL DE CAJA</p><h1>Cierre de caja</h1><p className="muted">Registra el cierre del día, verifica el efectivo y conserva el detalle de las facturas asociadas. Este proceso puede realizarlo el trabajador responsable de la caja.</p></div>
       <div className={`closing-status-pill ${activeClosure ? 'closed' : openOrders.length ? 'blocked' : 'pending'}`}>
         {activeClosure ? <CheckCircle2 size={15}/> : openOrders.length ? <AlertTriangle size={15}/> : <LockKeyhole size={15}/>} 
         {activeClosure ? 'Día cerrado' : openOrders.length ? `${openOrders.length} pedido${openOrders.length === 1 ? '' : 's'} pendiente${openOrders.length === 1 ? '' : 's'}` : 'Cierre pendiente'}
@@ -215,7 +212,7 @@ export function CashClosing() {
           <div className={`closing-slider ${progress >= 96 ? 'ready' : ''}`}><div className="closing-slider-fill" style={{ width: `${progress}%` }}/><span>Desliza para cerrar el día</span><button type="button" disabled={!canClose} className="closing-slider-thumb" style={{ left: `calc(${8 + (Math.min(100, Math.max(0, progress)) * 0.84)}% - 24px)` }} onPointerDown={startSlide} onPointerMove={moveSlide} onPointerUp={finishSlide} onPointerCancel={finishSlide}><ArrowRight size={18}/></button></div>
           {error && <div className="closing-modal-error"><AlertTriangle size={14}/>{error}</div>}
         </div>
-        <footer className="item-editor-footer closing-modal-footer"><span>Solo Administrador o Gerente</span><button className="secondary" disabled={saving} onClick={closeModal}>Cancelar</button></footer>
+        <footer className="item-editor-footer closing-modal-footer"><span>Cierre realizado por {user.name} · {user.role === 'employee' ? 'Trabajador' : user.role === 'manager' ? 'Gerente' : 'Administrador'}</span><button className="secondary" disabled={saving} onClick={closeModal}>Cancelar</button></footer>
       </section>
     </div>}
 
@@ -228,7 +225,7 @@ export function CashClosing() {
           {detailOpen.notes && <div className="closure-detail-note"><FileText size={14}/><div><b>Observación</b><span>{detailOpen.notes}</span></div></div>}
           <div className="closure-detail-invoices"><div className="panel-title"><div><h2>Facturas del cierre</h2><p>Comprobantes conservados y listos para imprimir.</p></div></div>{!detailOpen.sales.length ? <div className="closing-empty compact"><FileText size={22}/><span>No hubo ventas en este cierre.</span></div> : <div className="closure-invoice-list">{detailOpen.sales.map(sale => <article key={sale.id} className="closure-invoice-row"><div className="closure-invoice-index"><b>#{sale.orderNumber ?? sale.id.slice(-6)}</b><span>{time(sale.createdAt)}</span></div><div className="closure-invoice-main"><b>{sale.customerName || 'Consumidor final'}</b><span>{sale.items.map(item => `${item.quantity}× ${item.name}`).join(', ')}</span></div><div className="closure-invoice-payment">{paymentLabel(sale.payment)}</div><strong>{money(sale.total)}</strong><button className="sales-print-btn" onClick={() => printInvoice(sale)}><FileText size={13}/> Factura</button></article>)}</div>}</div>
         </div>
-        <footer className="item-editor-footer closure-detail-footer"><div className="closure-detail-footer-actions"><button className="secondary" onClick={() => setDetailOpen(null)}>Cerrar</button>{canDeleteClosure(detailOpen) && <button className="danger-inline-btn" onClick={() => setDeleteTarget(detailOpen)} disabled={deleting}><RotateCcw size={14}/> Eliminar cierre</button>}</div><button className="primary" onClick={() => { const target = window.open('', '_blank', 'width=520,height=820'); printCashClosure(detailOpen, target) }}><FileText size={15}/> Imprimir factura de cierre</button></footer>
+        <footer className="item-editor-footer closure-detail-footer"><div className="closure-detail-footer-actions"><button className="secondary" onClick={() => setDetailOpen(null)}>Cerrar</button>{canDeleteClosure(detailOpen) && <button className="danger-inline-btn" onClick={() => setDeleteTarget(detailOpen)} disabled={deleting}><RotateCcw size={14}/> Eliminar cierre</button>}</div><button className="primary" onClick={() => printCashClosure(detailOpen)}><FileText size={15}/> Imprimir factura de cierre</button></footer>
       </section>
     </div>}
 

@@ -1,7 +1,7 @@
 import { db } from './db'
 import { products as seedProducts } from './demoData'
 import { getSessionUser } from './auth'
-import type { AuditEvent, BackupSnapshot, CashClosure, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod } from './types'
+import type { AuditEvent, BackupSnapshot, CashClosure, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, SystemSetting } from './types'
 
 type Auditable = Record<string, unknown>
 const redact = (value: unknown): unknown => {
@@ -14,11 +14,22 @@ const redact = (value: unknown): unknown => {
 const actorFromSession = () => getSessionUser()
 async function audit(action: string, module: string, recordType: string, recordId?: string, before?: unknown, after?: unknown, actor = actorFromSession(), reason?: string) {
   const event: AuditEvent = { id: crypto.randomUUID(), timestamp: new Date().toISOString(), actorId: actor?.id, actorName: actor?.name || 'Sistema', role: actor?.role, module, action, recordType, recordId, before: (redact(before) as Auditable | null) ?? null, after: (redact(after) as Auditable | null) ?? null, reason }
-  await db.auditEvents.add(event)
-  if (recordId && after && typeof after === 'object') {
-    const versions = await db.historyRecords.where('[entity+recordId]').equals([recordType, recordId]).count()
-    const snapshot: HistoryRecord = { id: crypto.randomUUID(), entity: recordType, recordId, version: versions + 1, capturedAt: event.timestamp, eventId: event.id, snapshot: redact(after) as Auditable, deleted: Boolean((after as { deletedAt?: string }).deletedAt) }
-    await db.historyRecords.add(snapshot)
+  try {
+    await db.auditEvents.add(event)
+    if (recordId && after && typeof after === 'object') {
+      const versions = await db.historyRecords.where('[entity+recordId]').equals([recordType, recordId]).count()
+      const snapshot: HistoryRecord = { id: crypto.randomUUID(), entity: recordType, recordId, version: versions + 1, capturedAt: event.timestamp, eventId: event.id, snapshot: redact(after) as Auditable, deleted: Boolean((after as { deletedAt?: string }).deletedAt) }
+      await db.historyRecords.add(snapshot)
+    }
+  } catch (error) {
+    // Compatibilidad con una instalación local que todavía no haya aplicado la migración.
+    // La operación del POS no se revierte por no poder escribir su telemetría.
+    console.warn('StreamLinx audit pending migration:', error)
+    try {
+      const key = 'streamlinx-pending-audit'
+      const queued = JSON.parse(localStorage.getItem(key) || '[]') as AuditEvent[]
+      localStorage.setItem(key, JSON.stringify([event, ...queued].slice(0, 200)))
+    } catch { /* almacenamiento de compatibilidad no disponible */ }
   }
   return event
 }
@@ -32,9 +43,9 @@ export async function getArchivedUsers() { return db.users.toArray() }
 export async function getArchivedClosures() { return db.closures.orderBy('closedAt').reverse().toArray() }
 
 export async function createBackupSnapshot(actor: User, kind: BackupSnapshot['kind'], label: string) {
-  const [sales, orders, products, users, closures, events, history] = await Promise.all([db.sales.toArray(), db.orders.toArray(), db.products.toArray(), db.users.toArray(), db.closures.toArray(), db.auditEvents.toArray(), db.historyRecords.toArray()])
-  const payload = redact({ sales, orders, products, users, closures, events, history }) as Record<string, unknown>
-  const contents = { sales: sales.length, orders: orders.length, products: products.length, users: users.length, closures: closures.length, audit: events.length, history: history.length }
+  const [sales, orders, products, users, closures, events, history, settings] = await Promise.all([db.sales.toArray(), db.orders.toArray(), db.products.toArray(), db.users.toArray(), db.closures.toArray(), db.auditEvents.toArray(), db.historyRecords.toArray(), db.settings.toArray()])
+  const payload = redact({ sales, orders, products, users, closures, events, history, settings }) as Record<string, unknown>
+  const contents = { sales: sales.length, orders: orders.length, products: products.length, users: users.length, closures: closures.length, audit: events.length, history: history.length, settings: settings.length }
   const backup: BackupSnapshot = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), createdBy: actor.name, kind, label, contents, size: new Blob([JSON.stringify(payload)]).size, payload }
   await db.backups.add(backup)
   await audit('SYSTEM_BACKUP_CREATED', 'BACKUPS', 'backup', backup.id, null, { id: backup.id, label, contents, size: backup.size }, actor)
@@ -52,6 +63,9 @@ export async function restoreArchivedRecord(entity: string, recordId: string, ac
   await audit(`${entity.toUpperCase()}_RESTORED`, 'RECOVERY', entity, recordId, before, after, actor)
   return true
 }
+
+export const DEFAULT_PRODUCT_CATEGORIES = ['Hamburguesas', 'Combos', 'Acompañamientos', 'Bebidas']
+const CATEGORY_SETTING_KEY = 'productCategories'
 
 const seedManager: User = {
   id: 'u-owner',
@@ -84,6 +98,12 @@ export async function seed() {
 
   if (!(await db.users.get(seedManager.id))) await db.users.add(seedManager)
 
+  const categorySetting = await db.settings.get(CATEGORY_SETTING_KEY)
+  if (!categorySetting) {
+    const setting: SystemSetting = { id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: DEFAULT_PRODUCT_CATEGORIES, updatedAt: new Date().toISOString() }
+    await db.settings.put(setting)
+  }
+
   const demoSales = await db.sales.toCollection().filter(sale => sale.id.startsWith('demo-')).primaryKeys()
   if (demoSales.length) await db.sales.bulkDelete(demoSales as string[])
 }
@@ -96,6 +116,43 @@ export async function getProducts() {
 export async function getAllProducts() {
   const products = await db.products.toArray()
   return products.filter(product => !product.deletedAt).sort((a, b) => a.name.localeCompare(b.name, 'es'))
+}
+
+export async function getProductCategories() {
+  const setting = await db.settings.get(CATEGORY_SETTING_KEY)
+  const value = setting?.value
+  if (Array.isArray(value)) {
+    const cleaned = value.map(item => String(item).trim()).filter(Boolean)
+    if (cleaned.length) return cleaned
+  }
+  return [...DEFAULT_PRODUCT_CATEGORIES]
+}
+
+export async function addProductCategory(name: string, actor: User) {
+  const cleanName = name.trim().replace(/\s+/g, ' ')
+  if (cleanName.length < 2) throw new Error('La categoría debe tener al menos 2 caracteres.')
+  if (cleanName.length > 40) throw new Error('La categoría no puede superar 40 caracteres.')
+  const current = await getProductCategories()
+  if (cleanName.toLowerCase() === 'todos') throw new Error('Ese nombre está reservado para el filtro general del punto de venta.')
+  if (current.some(item => item.toLowerCase() === cleanName.toLowerCase())) throw new Error('Esa categoría ya existe.')
+  const next = [...current, cleanName]
+  await db.settings.put({ id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: next, updatedAt: new Date().toISOString() })
+  await audit('PRODUCT_CATEGORY_CREATED', 'SETTINGS', 'setting', CATEGORY_SETTING_KEY, { categories: current }, { categories: next, added: cleanName }, actor)
+  return next
+}
+
+export async function deleteProductCategory(name: string, actor: User) {
+  const current = await getProductCategories()
+  const found = current.find(item => item.toLowerCase() === name.trim().toLowerCase())
+  if (!found) return current
+  if (DEFAULT_PRODUCT_CATEGORIES.includes(found)) throw new Error('Las categorías base del sistema no se pueden eliminar.')
+  const products = await db.products.toArray()
+  const inUse = products.some(product => !product.deletedAt && product.category.toLowerCase() === found.toLowerCase())
+  if (inUse) throw new Error('No puedes eliminar una categoría que está asignada a un producto.')
+  const next = current.filter(item => item !== found)
+  await db.settings.put({ id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: next, updatedAt: new Date().toISOString() })
+  await audit('PRODUCT_CATEGORY_DELETED', 'SETTINGS', 'setting', CATEGORY_SETTING_KEY, { categories: current }, { categories: next, removed: found }, actor)
+  return next
 }
 
 export async function saveProduct(product: Product) {
@@ -143,7 +200,7 @@ export async function getClosures() {
 }
 
 export async function resetTestData(actor: User) {
-  return db.transaction('rw', db.sales, db.orders, db.closures, db.auditEvents, db.historyRecords, async () => {
+  const result = await db.transaction('rw', db.sales, db.orders, db.closures, db.users, async () => {
     const freshActor = await db.users.get(actor.id)
     if (!freshActor?.active || freshActor.role !== 'manager') return false
 
@@ -152,9 +209,11 @@ export async function resetTestData(actor: User) {
     await Promise.all(sales.filter(x => !x.deletedAt).map(x => db.sales.put({ ...x, deletedAt: now, deletedBy: actor.id })))
     await Promise.all(orders.filter(x => !x.deletedAt).map(x => db.orders.put({ ...x, deletedAt: now, deletedBy: actor.id })))
     await Promise.all(closures.filter(x => !x.deletedAt).map(x => db.closures.put({ ...x, deletedAt: now, deletedBy: actor.id })))
-    await audit('SYSTEM_RESET_EXECUTED', 'SYSTEM', 'reset', 'operational-data', { sales: sales.length, orders: orders.length, closures: closures.length }, { deletedAt: now }, actor)
-    return true
+    return { now, sales: sales.length, orders: orders.length, closures: closures.length }
   })
+  if (!result) return false
+  await audit('SYSTEM_RESET_EXECUTED', 'SYSTEM', 'reset', 'operational-data', { sales: result.sales, orders: result.orders, closures: result.closures }, { deletedAt: result.now }, actor)
+  return true
 }
 
 
@@ -182,7 +241,7 @@ export async function deletePreviousDayClosure(closureId: string, actor: User) {
 export async function createDailyClosure(dateKey: string, actor: User, cashCounted: number, notes = '') {
   return db.transaction('rw', db.closures, db.sales, db.users, db.auditEvents, db.historyRecords, async () => {
     const freshActor = await db.users.get(actor.id)
-    if (!freshActor?.active || !['manager', 'admin'].includes(freshActor.role)) return null
+    if (!freshActor?.active) return null
     const existingClosure = await db.closures.where('dateKey').equals(dateKey).first()
     if (existingClosure && !existingClosure.deletedAt) throw new Error('Este día ya tiene un cierre registrado.')
 
@@ -300,13 +359,22 @@ export async function updateOrderComandaStatus(orderId: string, status: 'printed
   return after
 }
 
-export async function completeOrder(orderId: string, payment: PaymentMethod, actor: User) {
+export async function completeOrder(orderId: string, payment: PaymentMethod, actor: User, discount?: { type: 'percent' | 'fixed'; value: number }) {
   return db.transaction('rw', [db.orders, db.sales, db.users, db.closures, db.auditEvents, db.historyRecords], async () => {
     const [order, freshActor] = await Promise.all([db.orders.get(orderId), db.users.get(actor.id)])
     if (!order || !freshActor?.active || ['paid', 'cancelled'].includes(order.status)) return null
     const businessDateKey = recordBusinessDayKey(order)
     const existingClosure = await db.closures.where('dateKey').equals(businessDateKey).first()
     if (existingClosure && !existingClosure.deletedAt) throw new Error(`El periodo del ${businessDateKey.split('-').reverse().join('/')} ya fue cerrado. Registra el pedido en el siguiente periodo.`)
+
+    const subtotal = Math.max(0, Number(order.subtotal) || 0)
+    const safeDiscountValue = discount?.type === 'percent'
+      ? Math.min(100, Math.max(0, Number(discount.value) || 0))
+      : Math.min(subtotal, Math.max(0, Number(discount?.value) || 0))
+    const discountAmount = discount?.type === 'percent'
+      ? Math.round(subtotal * safeDiscountValue / 100)
+      : Math.round(safeDiscountValue)
+    const saleTotal = Math.max(0, subtotal - discountAmount)
 
     const sale: Sale = {
       id: crypto.randomUUID(),
@@ -321,8 +389,11 @@ export async function completeOrder(orderId: string, payment: PaymentMethod, act
       address: order.address,
       notes: order.notes,
       items: order.items.map(item => ({ ...item })),
-      subtotal: order.subtotal,
-      total: order.total,
+      subtotal,
+      total: saleTotal,
+      discountType: discount && safeDiscountValue > 0 ? discount.type : undefined,
+      discountValue: discount && safeDiscountValue > 0 ? safeDiscountValue : undefined,
+      discountAmount: discountAmount > 0 ? discountAmount : undefined,
       businessDateKey
     }
 

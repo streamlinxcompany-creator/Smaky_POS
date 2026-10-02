@@ -1,18 +1,16 @@
 import { Archive, ArchiveRestore, Pencil, Plus, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { getAllProducts, saveProduct } from '../lib/store'
+import { getAllProducts, getProductCategories, saveProduct } from '../lib/store'
 import { money } from '../lib/format'
 import type { Product } from '../lib/types'
 
 type FormState = {
   name: string
-  category: Product['category']
+  category: string
   price: string
   active: boolean
 }
-
-const categories: Product['category'][] = ['Hamburguesas', 'Combos', 'Acompañamientos', 'Bebidas']
 
 const emptyForm: FormState = {
   name: '',
@@ -23,6 +21,7 @@ const emptyForm: FormState = {
 
 export function Products() {
   const [products, setProducts] = useState<Product[]>([])
+  const [categories, setCategories] = useState<string[]>([])
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<'Todos' | Product['category']>('Todos')
   const [editing, setEditing] = useState<Product | null>(null)
@@ -31,7 +30,11 @@ export function Products() {
   const [saving, setSaving] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
 
-  const load = async () => setProducts(await getAllProducts())
+  const load = async () => {
+    const [productsData, categoryData] = await Promise.all([getAllProducts(), getProductCategories()])
+    setProducts(productsData)
+    setCategories(categoryData)
+  }
 
   useEffect(() => {
     load()
@@ -49,7 +52,7 @@ export function Products() {
   const openNew = () => {
     setEditing(null)
     setModalOpen(true)
-    setForm(emptyForm)
+    setForm({ ...emptyForm, category: categories[0] || '' })
     setError('')
   }
 
@@ -83,6 +86,10 @@ export function Products() {
     }
     if (!Number.isFinite(price) || price <= 0) {
       setError('Ingresa un precio válido mayor que $0.')
+      return
+    }
+    if (!form.category) {
+      setError('Selecciona una categoría.')
       return
     }
 
@@ -122,7 +129,7 @@ export function Products() {
 
     <div className="panel products-toolbar">
       <div className="search-box"><Search size={16}/><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar producto..." /></div>
-      <div className="product-filters">
+      <div className="product-filters"><span className="settings-inline-hint">Administra categorías en Configuraciones</span>
         <button className={category === 'Todos' ? 'selected' : ''} onClick={() => setCategory('Todos')}>Todos</button>
         {categories.map(item => <button key={item} className={category === item ? 'selected' : ''} onClick={() => setCategory(item)}>{item}</button>)}
       </div>
@@ -146,7 +153,7 @@ export function Products() {
         <div className="modal-header"><div><p className="eyebrow">CATÁLOGO</p><h2 id="product-modal-title">{editing ? 'Editar producto' : 'Nuevo producto'}</h2></div><button className="icon-btn" onClick={closeModal}><X size={18}/></button></div>
         <form onSubmit={submit}>
           <label>Nombre<input autoFocus value={form.name} onChange={event => setForm(current => ({ ...current, name: event.target.value }))} placeholder="Ej. Smaky Burger" /></label>
-          <div className="form-row"><label>Categoría<select value={form.category} onChange={event => setForm(current => ({ ...current, category: event.target.value as Product['category'] }))}>{categories.map(item => <option key={item} value={item}>{item}</option>)}</select></label><label>Precio<input type="number" min="0" step="100" value={form.price} onChange={event => setForm(current => ({ ...current, price: event.target.value }))} placeholder="18900" /></label></div>
+          <div className="form-row"><label>Categoría<select value={form.category} onChange={event => setForm(current => ({ ...current, category: event.target.value }))}>{categories.map(item => <option key={item} value={item}>{item}</option>)}</select></label><label>Precio<input type="number" min="0" step="100" value={form.price} onChange={event => setForm(current => ({ ...current, price: event.target.value }))} placeholder="18900" /></label></div>
           <label className="check-row"><input type="checkbox" checked={form.active} onChange={event => setForm(current => ({ ...current, active: event.target.checked }))}/><span>Disponible en el punto de venta</span></label>
           {error && <p className="form-error">{error}</p>}
           <div className="modal-actions"><button type="button" className="secondary" onClick={closeModal}>Cancelar</button><button type="submit" className="primary" disabled={saving}>{saving ? 'Guardando...' : 'Guardar producto'}</button></div>

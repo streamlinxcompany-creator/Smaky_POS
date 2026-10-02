@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { AuditEvent, BackupSnapshot, HistoryRecord, Order, Product, Sale, User } from './types'
+import type { AuditEvent, BackupSnapshot, HistoryRecord, Order, Product, Sale, SystemSetting, User } from './types'
 
 class SmakyDB extends Dexie {
   sales!: Table<Sale, string>
@@ -10,6 +10,7 @@ class SmakyDB extends Dexie {
   auditEvents!: Table<AuditEvent, string>
   historyRecords!: Table<HistoryRecord, string>
   backups!: Table<BackupSnapshot, string>
+  settings!: Table<SystemSetting, string>
   constructor() {
     super('smaky-pos-db')
     this.version(1).stores({ sales: 'id, createdAt, payment, userId', products: 'id, category, active' })
@@ -55,6 +56,17 @@ class SmakyDB extends Dexie {
       auditEvents: 'id, timestamp, actorId, module, action, recordType, recordId',
       historyRecords: 'id, entity, recordId, version, capturedAt, eventId, [entity+recordId]',
       backups: 'id, createdAt, kind'
+    })
+    this.version(8).stores({
+      sales: 'id, createdAt, businessDateKey, payment, userId, orderId, orderNumber, deletedAt',
+      orders: 'id, createdAt, businessDateKey, updatedAt, orderNumber, status, userId, deletedAt',
+      products: 'id, category, active, deletedAt',
+      users: 'id, name, role, active, deletedAt',
+      closures: 'id, dateKey, closedAt, userId, deletedAt',
+      auditEvents: 'id, timestamp, actorId, module, action, recordType, recordId',
+      historyRecords: 'id, entity, recordId, capturedAt, eventId, [entity+recordId]',
+      backups: 'id, createdAt, kind',
+      settings: 'id, key, updatedAt'
     })
   }
 }

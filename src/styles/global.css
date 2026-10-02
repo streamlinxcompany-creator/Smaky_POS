@@ -569,3 +569,148 @@
 .slx-empty{padding:45px 16px;display:flex;flex-direction:column;align-items:center;gap:9px;color:#4c4652;text-align:center}.slx-empty b{font-size:8px;color:#625b69}.slx-empty svg{color:#574d62}
 @media(max-width:1100px){.slx-command-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.slx-command-wide{grid-column:span 2}.slx-command-strip{grid-template-columns:repeat(3,1fr)}.slx-command-head{align-items:flex-start;flex-direction:column}.slx-command-badge{width:100%}}
 @media(max-width:760px){.slx-command-sidebar nav button{justify-content:center;font-size:0}.slx-command-sidebar nav button svg{font-size:15px}.slx-command-content{padding:22px 15px 35px}.slx-command-head h1{font-size:38px}.slx-command-strip{grid-template-columns:1fr 1fr}.slx-command-strip>div:last-child{grid-column:1/-1}.slx-command-grid{grid-template-columns:1fr}.slx-command-wide,.slx-command-mini-panel{grid-column:1}.slx-exec-grid,.slx-user-card-grid,.slx-system-grid{grid-template-columns:1fr}.slx-toolbar-command{align-items:stretch;flex-direction:column}.slx-toolbar-actions{width:100%}.slx-command-search{min-width:0;flex:1}.slx-danger-zone{align-items:stretch;flex-direction:column}.slx-danger-actions{margin:0;min-width:0}.slx-audit-row{grid-template-columns:52px 1fr}.slx-audit-row em,.slx-audit-row small{display:none}.slx-form-grid{grid-template-columns:1fr}.slx-user-command-card{min-width:0}}
+
+/* ================================================================
+   v5.1 POS polish: checkout, discounts, settings and cash closing
+   ================================================================ */
+.checkout-payment-grid button,
+.workspace-payment-grid button{min-height:56px!important;padding:10px 8px!important;font-size:13px!important;font-weight:800!important;line-height:1.15!important;letter-spacing:-.15px}
+.workspace-payment-grid button{min-height:50px!important;font-size:12px!important}
+.checkout-payment-grid button.selected,
+.workspace-payment-grid button.selected{box-shadow:0 0 0 1px rgba(225,91,45,.18) inset}
+
+.checkout-total-card{display:grid!important;grid-template-columns:minmax(0,1fr) auto;gap:10px 12px!important;align-items:center}
+.checkout-total-main{min-width:0;display:flex;flex-direction:column;gap:3px}
+.checkout-total-main span{font-size:11px!important;color:#8b8784!important;font-weight:700}
+.checkout-total-main strong{font-size:25px!important;line-height:1!important;margin:0!important}
+.discount-trigger{min-width:124px;min-height:45px;display:grid;grid-template-columns:auto 1fr;align-items:center;gap:2px 7px;padding:8px 10px;border:1px solid #473027;border-radius:10px;background:#1d1411;color:#d89a80;text-align:left}
+.discount-trigger svg{grid-row:1 / span 2}
+.discount-trigger span{font-size:10px;text-transform:uppercase;letter-spacing:.6px;font-weight:900}
+.discount-trigger b{font-size:10px;color:#f0d9cf}
+.discount-trigger.active{border-color:#7b3b26;background:#281610;color:#f1a47e}
+.checkout-discount-line{grid-column:1 / -1;display:flex;justify-content:space-between;gap:12px;border-top:1px dashed #343637;padding-top:8px;color:#a9a19d}
+.checkout-discount-line span,.checkout-discount-line strong{font-size:10px!important}
+.checkout-discount-line strong{color:#e17a53!important}
+.checkout-total-card small{grid-column:1 / -1}
+
+.discount-editor{border:1px solid #343637;background:#101213;border-radius:12px;padding:12px;display:grid;gap:11px;animation:discountPanelIn .18s ease both}
+.discount-editor-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.discount-editor-head b,.discount-editor-head span{display:block}
+.discount-editor-head b{font-size:11px}
+.discount-editor-head span{font-size:8.5px;color:#77726f;margin-top:2px}
+.discount-type-switch{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.discount-type-switch button{padding:9px 8px;border:1px solid #2b2e2f;background:#151718;border-radius:8px;font-size:10px;font-weight:800;color:#8d8986}
+.discount-type-switch button.selected{border-color:#6e321f;background:#27150f;color:#efcfc2}
+.discount-input{display:grid;gap:6px}
+.discount-input>span{font-size:8px;color:#77726f;font-weight:900;letter-spacing:.7px}
+.discount-input>div{display:flex;align-items:center;border:1px solid #343637;background:#0b0d0e;border-radius:9px;padding:0 10px}
+.discount-input input{width:100%;border:0;outline:0;background:transparent;color:#f4eee9;padding:10px 0;font:800 17px 'Plus Jakarta Sans',sans-serif}
+.discount-input b{font-size:13px;color:#a9a19d}
+.discount-presets{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.discount-presets button{padding:8px 5px;border:1px solid #2e3031;background:#17191a;border-radius:8px;font-size:9px;font-weight:800;color:#aaa}
+.discount-presets button:hover{border-color:#673322;color:#eee}
+.discount-remove{border:1px dashed #633527;background:transparent;border-radius:8px;padding:8px;color:#c47b63;font-size:9px;font-weight:800}
+@keyframes discountPanelIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+
+.payment-complete-overlay{position:fixed;inset:0;z-index:180;display:grid;place-items:center;padding:24px;background:rgba(4,5,6,.76);backdrop-filter:blur(7px);animation:paymentOverlayIn .2s ease both}
+.payment-complete-card{width:min(420px,100%);padding:30px 28px 25px;border:1px solid #3b302a;border-radius:20px;background:linear-gradient(180deg,#17191a,#101213);box-shadow:0 32px 100px rgba(0,0,0,.55);text-align:center}
+.payment-complete-check{width:56px;height:56px;margin:0 auto 14px;display:grid;place-items:center;border-radius:17px;background:#173322;border:1px solid #315f42;color:#a8ebba;box-shadow:0 0 0 8px rgba(62,158,88,.06)}
+.payment-complete-kicker{font-size:8px;font-weight:900;letter-spacing:1.5px;color:#83c79a}
+.payment-complete-card h3{font:800 21px 'Plus Jakarta Sans',sans-serif;margin:7px 0 6px}
+.payment-complete-card p{margin:0;color:#8c8986;font-size:10px}
+.payment-complete-total{margin:18px 0 15px;padding:12px 0;border-top:1px solid #282a2b;border-bottom:1px solid #282a2b;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.payment-complete-total span{font-size:10px;color:#77726f}
+.payment-complete-total strong{font:900 22px 'Plus Jakarta Sans',sans-serif}
+.payment-complete-progress{height:3px;border-radius:999px;background:#2b2d2e;overflow:hidden}
+.payment-complete-progress i{display:block;height:100%;border-radius:inherit;background:#77e59a;box-shadow:0 0 12px rgba(119,229,154,.3);transition:width .1s linear}
+.payment-complete-bottom{display:flex;justify-content:space-between;align-items:center;margin-top:9px;color:#716d6a;font-size:9px}
+.payment-complete-bottom b{color:#b8d8c0;font-size:11px}
+@keyframes paymentOverlayIn{from{opacity:0}to{opacity:1}}
+
+.settings-inline-hint{align-self:center;margin-right:3px;color:#655f5a;font-size:8px;font-weight:700;letter-spacing:.25px;white-space:nowrap}
+.settings-page{display:grid;gap:18px}
+.settings-heading{align-items:flex-end}
+.settings-role-pill{display:flex;align-items:center;gap:7px;border:1px solid #3b302b;background:#1a1412;color:#d89a80;border-radius:999px;padding:8px 11px;font-size:9px;font-weight:800;white-space:nowrap}
+.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.settings-card{padding:18px!important;min-height:100%}
+.settings-card-active{border-color:#533023}
+.settings-card-muted{border-color:#252728;opacity:.96}
+.settings-card-head{display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:11px;align-items:start}
+.settings-card-icon{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:#241714;border:1px solid #4b2b20;color:#e1845f}
+.settings-kicker{display:block;font-size:8px;font-weight:900;letter-spacing:1.1px;color:#7a716d}
+.settings-card h2{font:800 15px 'Plus Jakarta Sans',sans-serif;margin:4px 0 5px}
+.settings-card-head p{margin:0;color:#77726f;font-size:9.5px;line-height:1.45}
+.settings-active-badge,.settings-soon{font-size:8px;font-weight:900;border-radius:999px;padding:5px 8px;white-space:nowrap}
+.settings-active-badge{display:flex;align-items:center;gap:4px;border:1px solid #31593e;background:#14241a;color:#9fe5ad}
+.settings-soon{border:1px solid #303233;background:#151718;color:#716d69}
+.settings-category-summary{display:flex;align-items:baseline;gap:8px;padding:15px 0 10px;border-bottom:1px solid #282a2b}
+.settings-category-summary strong{font:900 23px 'Plus Jakarta Sans',sans-serif}
+.settings-category-summary span{font-size:9px;color:#85807c}
+.settings-category-summary small{margin-left:auto;font-size:8px;color:#696562}
+.settings-add-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end;padding:13px 0}
+.settings-add-row label{display:grid;gap:6px}
+.settings-add-row label>span{font-size:8px;font-weight:900;letter-spacing:.75px;color:#6f6a67}
+.settings-add-row input{width:100%;background:#0d0f10;border:1px solid #2d3031;border-radius:9px;color:#eee;padding:10px 11px;outline:0;font-size:11px}
+.settings-add-row input:focus{border-color:#6f3422}
+.settings-add-btn{width:auto;padding:10px 13px!important}
+.settings-message{display:flex;align-items:flex-start;gap:7px;padding:9px 10px;border-radius:9px;font-size:9px;line-height:1.35;margin-bottom:10px}
+.settings-error{border:1px solid #5b3028;background:#251311;color:#e8a38e}
+.settings-success{border:1px solid #2a5b39;background:#142319;color:#a9dfb5}
+.settings-category-list{display:grid;border-top:1px solid #282a2b}
+.settings-category-row{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:9px;align-items:center;padding:9px 0;border-bottom:1px solid #222526}
+.settings-category-dot{width:30px;height:30px;border:1px solid #333637;border-radius:8px;background:#151718;color:#8b8581;display:grid;place-items:center}
+.settings-category-row b,.settings-category-row span{display:block}
+.settings-category-row b{font-size:10px}
+.settings-category-row span{font-size:8px;color:#696562;margin-top:2px}
+.settings-delete{width:28px;height:28px}
+.settings-note{display:flex;align-items:flex-start;gap:7px;margin-top:12px;color:#6f6a67;font-size:8.5px;line-height:1.4}
+.settings-note svg{flex:none;margin-top:1px}
+.settings-placeholder-list{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-top:16px}
+.settings-placeholder-list>div{padding:10px;border:1px solid #282a2b;background:#101213;border-radius:9px}
+.settings-placeholder-list b,.settings-placeholder-list span{display:block}
+.settings-placeholder-list b{font-size:9px}.settings-placeholder-list span{font-size:8px;color:#696562;margin-top:3px;line-height:1.35}
+.settings-spec-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:16px}
+.settings-spec-grid>div{padding:10px;border:1px solid #292b2c;background:#101213;border-radius:9px}
+.settings-spec-grid span,.settings-spec-grid b{display:block}.settings-spec-grid span{font-size:7px;color:#66615e;letter-spacing:.7px}.settings-spec-grid b{font-size:9px;margin-top:4px}
+.settings-future-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-top:16px}
+.settings-future-grid span{padding:10px;border:1px dashed #2b2e2f;border-radius:9px;color:#716c68;font-size:8.5px}
+
+.closing-modal-footer>span{font-size:8.5px;color:#77716d}
+.closing-action-card .primary{font-size:11px}
+
+@media(max-width:900px){
+  .settings-grid{grid-template-columns:1fr}
+}
+@media(max-width:640px){
+  .checkout-total-card{grid-template-columns:1fr}
+  .discount-trigger{width:100%}
+  .discount-presets{grid-template-columns:repeat(2,1fr)}
+  .settings-add-row{grid-template-columns:1fr}
+  .settings-add-btn{width:100%}
+  .settings-card-head{grid-template-columns:34px minmax(0,1fr)}
+  .settings-active-badge,.settings-soon{grid-column:2;justify-self:start}
+  .settings-spec-grid{grid-template-columns:repeat(2,1fr)}
+  .workspace-payment-grid button{font-size:11px!important}
+}
+
+/* Ajustes finales POS: legibilidad de cobro + confirmación post-venta + ticket térmico */
+.checkout-payment-grid button{min-height:54px;padding:10px 8px;font-size:13px;font-weight:800;letter-spacing:.05px;line-height:1.15}
+.checkout-payment-grid button.selected{font-weight:900}
+.checkout-payment-grid button:focus-visible,.discount-trigger:focus-visible,.discount-type-switch button:focus-visible,.discount-presets button:focus-visible{outline:2px solid #d36b45;outline-offset:2px}
+.discount-trigger{min-width:142px;min-height:52px;padding:9px 12px}
+.discount-trigger span{font-size:11px}
+.discount-trigger b{font-size:11px}
+.discount-input input{font-size:18px;min-height:44px}
+.discount-type-switch button{min-height:40px;font-size:11px}
+.discount-presets button{min-height:38px;font-size:10px}
+.payment-complete-topline{position:absolute;top:0;left:0;right:0;height:3px;background:rgba(255,255,255,.12);overflow:hidden}
+.payment-complete-topline i{display:block;height:100%;background:#77e59a;box-shadow:0 0 10px rgba(119,229,154,.35);transition:width .1s linear}
+.payment-complete-progress{display:none}
+.payment-complete-bottom{margin-top:11px}
+@media(max-width:640px){.checkout-payment-grid button{min-height:58px;font-size:13px}.payment-complete-card{width:min(420px,calc(100vw - 28px));padding:27px 22px 23px}}
+/* Legibilidad adicional en los controles de cobro del POS. */
+.workspace-payment-grid button{min-height:46px;padding:9px 6px;font-size:12px!important;font-weight:800;line-height:1.15}
+.checkout-editor-modal .item-editor-section-head b{font-size:12px}
+.checkout-editor-modal .item-editor-section-head span{font-size:9px}
+.checkout-slider-head b{font-size:11px}
+.checkout-slider-head div>span{font-size:9px}

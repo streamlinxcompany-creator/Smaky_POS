@@ -1,11 +1,10 @@
-import { ArrowRight, Check, CreditCard, FileText, Minus, Plus, Printer, Search, ShoppingCart, SlidersHorizontal, Trash2, X } from 'lucide-react'
+import { ArrowRight, Check, CreditCard, FileText, Minus, Plus, Printer, Search, ShoppingCart, SlidersHorizontal, Tag, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent } from 'react'
-import { completeOrder, createOrder, getProducts, getSaleForOrder, updateOrderComandaStatus, updateOrderItems } from '../lib/store'
+import { completeOrder, createOrder, getProductCategories, getProducts, updateOrderComandaStatus, updateOrderItems } from '../lib/store'
 import { money, time, date } from '../lib/format'
-import type { Order, PaymentMethod, Product, SaleItem, User } from '../lib/types'
+import type { Order, PaymentMethod, Product, Sale, SaleItem, User } from '../lib/types'
 import { printOrderComanda, printSaleReceipt } from '../lib/print'
 
-const categories = ['Todos', 'Hamburguesas', 'Combos', 'Acompañamientos', 'Bebidas'] as const
 const modificationChips = ['Sin salsas', 'Sin tomate', 'Sin lechuga', 'Sin cebolla', 'Sin queso']
 const paymentLabel = (payment: PaymentMethod) => payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : 'Tarjeta'
 
@@ -49,11 +48,15 @@ const normalizeItem = (item: SaleItem) => ({
 
 export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: Props) {
   const [products, setProducts] = useState<Product[]>([])
+  const [categories, setCategories] = useState<string[]>([])
   const [items, setItems] = useState<SaleItem[]>(initialOrder?.items.map(item => ({ ...item, lineId: item.lineId || newLineId() })) || [])
   const [order, setOrder] = useState<Order | null>(initialOrder || null)
   const [category, setCategory] = useState<(typeof categories)[number]>('Todos')
   const [search, setSearch] = useState('')
   const [payment, setPayment] = useState<PaymentMethod>('cash')
+  const [discountType, setDiscountType] = useState<'percent' | 'fixed'>('percent')
+  const [discountValue, setDiscountValue] = useState('')
+  const [discountOpen, setDiscountOpen] = useState(false)
   const [notes, setNotes] = useState(initialOrder?.notes || '')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
@@ -66,20 +69,45 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
   const paymentSliderRef = useRef<HTMLDivElement | null>(null)
   const paymentDraggingRef = useRef(false)
   const paymentDragOffsetRef = useRef(0)
+  const [completedSale, setCompletedSale] = useState<Sale | null>(null)
+  const [paymentCountdown, setPaymentCountdown] = useState(0)
 
   const isLocked = order?.status === 'paid' || order?.status === 'cancelled'
   const initialItems = order?.items || []
   const dirty = Boolean(order) && (!sameItems(items, initialItems) || notes !== (order?.notes || ''))
-  const total = useMemo(() => items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [items])
+  const subtotal = useMemo(() => items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [items])
+  const parsedDiscountValue = Number(discountValue || 0)
+  const discountAmount = useMemo(() => {
+    const safeValue = Number.isFinite(parsedDiscountValue) && parsedDiscountValue > 0 ? parsedDiscountValue : 0
+    if (discountType === 'percent') return Math.min(subtotal, Math.round(subtotal * Math.min(100, safeValue) / 100))
+    return Math.min(subtotal, Math.round(safeValue))
+  }, [discountType, parsedDiscountValue, subtotal])
+  const total = Math.max(0, subtotal - discountAmount)
   const editingItem = editingLineId ? items.find(item => (item.lineId || item.productId) === editingLineId) || null : null
   const units = useMemo(() => items.reduce((sum, item) => sum + item.quantity, 0), [items])
+  const categoryTabs = useMemo(() => ['Todos', ...categories], [categories])
   const filtered = products.filter(product => {
     const categoryMatch = category === 'Todos' || product.category === category
     const q = search.trim().toLowerCase()
     return categoryMatch && (!q || product.name.toLowerCase().includes(q))
   })
 
-  useEffect(() => { void getProducts().then(setProducts) }, [])
+  useEffect(() => { void Promise.all([getProducts(), getProductCategories()]).then(([productsData, categoryData]) => { setProducts(productsData); setCategories(categoryData) }) }, [])
+
+  useEffect(() => {
+    if (!completedSale) return
+    const deadline = Date.now() + 5000
+    setPaymentCountdown(5)
+    const timer = window.setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
+      setPaymentCountdown(remaining)
+      if (remaining <= 0) {
+        window.clearInterval(timer)
+        onClose()
+      }
+    }, 100)
+    return () => window.clearInterval(timer)
+  }, [completedSale, onClose, onOrderChange])
 
   const setCurrent = (next: Order | null) => {
     setOrder(next)
@@ -123,8 +151,16 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
     setItems(current => current.filter(item => (item.lineId || item.productId) !== (lineId || '')))
   }
 
+  const selectDiscountPreset = (value: number) => {
+    setDiscountValue(String(value))
+  }
+
+  const clearDiscount = () => {
+    setDiscountValue('')
+    setDiscountOpen(false)
+  }
+
   const saveDraft = async (print = true): Promise<Order | null> => {
-    const printTarget = print ? window.open('', '_blank', 'width=460,height=760') : null
     setSaving(true)
     setError('')
     try {
@@ -132,9 +168,9 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
       if (!order) {
         const created = await createOrder(items, { customerName: '', phone: '', address: '', notes }, user)
         setCurrent(created)
-        const printed = print ? printOrderComanda(created, printTarget) : false
+        const printed = print ? printOrderComanda(created) : false
         if (printed) setCurrent(await updateOrderComandaStatus(created.id, 'printed'))
-        if (print && !printed) setError('El pedido se registró, pero el navegador bloqueó la comanda. Permite las ventanas emergentes para Smaky.')
+        if (print && !printed) setError('El pedido se registró, pero no fue posible iniciar la impresión automática.')
         else setMessage(print ? `Pedido #${created.orderNumber} registrado` : `Pedido #${created.orderNumber} guardado sin comanda`)
         return created
       }
@@ -142,14 +178,13 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
       if (!updated) return null
       setCurrent(updated)
       if (print) {
-        const printed = printOrderComanda(updated, printTarget)
+        const printed = printOrderComanda(updated)
         if (printed) setCurrent(await updateOrderComandaStatus(updated.id, 'printed'))
-        if (!printed) setError('Los cambios se guardaron, pero el navegador bloqueó la comanda.')
+        if (!printed) setError('Los cambios se guardaron, pero no fue posible iniciar la impresión automática.')
         else setMessage('Cambios guardados y comanda actualizada')
       } else setMessage('Cambios guardados')
       return updated
     } catch (caught) {
-      printTarget?.close()
       console.error('No fue posible guardar el pedido:', caught)
       setError(caught instanceof Error ? caught.message : 'No fue posible guardar el pedido.')
       return null
@@ -209,13 +244,17 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
         currentOrder = updated
         setCurrent(updated)
       }
-      const result = await completeOrder(currentOrder.id, payment, user)
+      const discount = discountAmount > 0 ? { type: discountType, value: Number.isFinite(parsedDiscountValue) ? parsedDiscountValue : 0 } as const : undefined
+      const result = await completeOrder(currentOrder.id, payment, user, discount)
       if (!result) throw new Error('No fue posible registrar el pago.')
       setCurrent(result.order)
       setCheckoutOpen(false)
       paymentProgressRef.current = 0
       setPaymentProgress(0)
-      setMessage('Venta realizada')
+      setMessage('Venta realizada · factura enviada')
+      const printed = printSaleReceipt(result.sale, undefined, 'ORIGINAL')
+      if (!printed) setError('La venta quedó registrada, pero no fue posible iniciar la impresión automática de la factura.')
+      setCompletedSale(result.sale)
     } catch (caught) {
       console.error('No fue posible cobrar el pedido:', caught)
       paymentProgressRef.current = 0
@@ -224,19 +263,6 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
     } finally { setSaving(false) }
   }
 
-  const printInvoice = async () => {
-    if (!order || order.status !== 'paid') return
-    setError('')
-    const target = window.open('', '_blank', 'width=460,height=760')
-    try {
-      const sale = await getSaleForOrder(order.id)
-      if (!sale) throw new Error('No se encontró el comprobante de este pedido.')
-      printSaleReceipt(sale, target)
-    } catch (caught) {
-      target?.close()
-      setError(caught instanceof Error ? caught.message : 'No se pudo imprimir el comprobante.')
-    }
-  }
 
   const requestClose = () => {
     if (saving || checkoutOpen) return
@@ -295,7 +321,7 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
       <div className="workspace-body">
         <section className="workspace-catalog">
           <div className="workspace-section-head"><div><b>Productos</b><span>Selecciona para agregar</span></div><label className="workspace-search"><Search size={15}/><input value={search} onChange={(event: ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)} placeholder="Buscar producto…"/></label></div>
-          <div className="category-tabs workspace-tabs">{categories.map(item => <button className={category === item ? 'selected' : ''} onClick={() => setCategory(item)} key={item}>{item}</button>)}</div>
+          <div className="category-tabs workspace-tabs">{categoryTabs.map(item => <button className={category === item ? 'selected' : ''} onClick={() => setCategory(item)} key={item}>{item}</button>)}</div>
           <div className="workspace-product-grid">
             {filtered.map(product => <button className="workspace-product" key={product.id} disabled={isLocked} onClick={() => addProduct(product)}>
               <div className="workspace-product-icon">{product.category === 'Hamburguesas' ? '🍔' : product.category === 'Combos' ? '🍔🍟' : product.category === 'Bebidas' ? '🥤' : '🍟'}</div>
@@ -349,7 +375,6 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
             </div>
           </>}
 
-          {order?.status === 'paid' && <div className="workspace-paid"><div className="workspace-paid-icon"><Check size={18}/></div><div><b>Pedido pagado</b><span>Ya está cerrado y registrado en Ventas.</span></div><button className="secondary" onClick={() => void saveDraft(true)}><Printer size={15}/> Comanda</button><button className="secondary" onClick={() => void printInvoice()}><FileText size={15}/> Factura</button></div>}
           {message && <div className="workspace-success">{message}</div>}
           {error && <div className="workspace-error" role="alert">{error}<button onClick={() => setError('')} aria-label="Cerrar">×</button></div>}
         </aside>
@@ -380,10 +405,23 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
 
             <div className="item-editor-section checkout-payment-section">
               <div className="item-editor-section-head"><div><b>Medio de pago</b><span>Selecciona cómo te están pagando</span></div><strong>{paymentLabel(payment)}</strong></div>
-              <div className="payment-grid checkout-payment-grid">{([['cash', 'Efectivo'], ['transfer', 'Transferencia'], ['card', 'Tarjeta']] as const).map(([value, label]) => <button key={value} className={payment === value ? 'selected' : ''} disabled={saving} onClick={() => setPayment(value)}>{label}</button>)}</div>
+              <div className="payment-grid checkout-payment-grid">{([['cash', 'Efectivo'], ['transfer', 'Transferencia'], ['card', 'Tarjeta']] as const).map(([value, label]) => <button key={value} className={payment === value ? 'selected' : ''} disabled={saving} onClick={() => setPayment(value)} aria-pressed={payment === value}>{label}</button>)}</div>
             </div>
 
-            <div className="checkout-total-card"><span>Total a cobrar</span><strong>{money(total)}</strong>{dirty && <small>Los cambios pendientes se guardarán antes de cobrar.</small>}</div>
+            <div className="checkout-total-card">
+              <div className="checkout-total-main"><span>Total a cobrar</span><strong>{money(total)}</strong></div>
+              <button type="button" className={`discount-trigger ${discountAmount > 0 ? 'active' : ''}`} onClick={() => setDiscountOpen(current => !current)}><Tag size={15}/><span>Descuento</span><b>{discountAmount > 0 ? `−${money(discountAmount)}` : 'Agregar'}</b></button>
+              {discountAmount > 0 && <div className="checkout-discount-line"><span>Subtotal {money(subtotal)}</span><strong>−{money(discountAmount)}</strong></div>}
+              {dirty && <small>Los cambios pendientes se guardarán antes de cobrar.</small>}
+            </div>
+
+            {discountOpen && <div className="discount-editor">
+              <div className="discount-editor-head"><div><b>Aplicar descuento</b><span>Elige porcentaje o valor fijo.</span></div><button type="button" className="item-editor-close" onClick={() => setDiscountOpen(false)} aria-label="Cerrar descuento"><X size={16}/></button></div>
+              <div className="discount-type-switch"><button type="button" className={discountType === 'percent' ? 'selected' : ''} onClick={() => { setDiscountType('percent'); setDiscountValue('') }}>Porcentaje</button><button type="button" className={discountType === 'fixed' ? 'selected' : ''} onClick={() => { setDiscountType('fixed'); setDiscountValue('') }}>Valor fijo</button></div>
+              <label className="discount-input"><span>{discountType === 'percent' ? 'PORCENTAJE' : 'VALOR DEL DESCUENTO'}</span><div><input inputMode="decimal" type="number" min="0" max={discountType === 'percent' ? 100 : subtotal} step="1" value={discountValue} onChange={event => setDiscountValue(event.target.value)} placeholder={discountType === 'percent' ? '10' : '5000'}/><b>{discountType === 'percent' ? '%' : '$'}</b></div></label>
+              <div className="discount-presets">{(discountType === 'percent' ? [5, 10, 15, 20] : [1000, 2000, 5000, 10000]).filter(value => value <= (discountType === 'percent' ? 100 : subtotal)).map(value => <button type="button" key={value} onClick={() => selectDiscountPreset(value)}>{discountType === 'percent' ? `${value}%` : money(value)}</button>)}</div>
+              {discountAmount > 0 && <button type="button" className="discount-remove" onClick={clearDiscount}>Quitar descuento</button>}
+            </div>}
 
             <div className="checkout-slider-section">
               <div className="checkout-slider-head"><div><b>Desliza para confirmar</b><span>El pago solo se registra al llegar hasta el final.</span></div><span className={paymentProgress >= 96 ? 'checkout-slider-ready' : ''}>{paymentProgress >= 96 ? 'LISTO' : 'VERIFICACIÓN'}</span></div>
@@ -401,6 +439,18 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
             <div className="checkout-footer-total"><span>Total</span><strong>{money(total)}</strong></div>
           </footer>
         </section>
+      </div>}
+
+      {completedSale && <div className="payment-complete-overlay" role="status" aria-live="polite">
+        <div className="payment-complete-topline" aria-hidden="true"><i style={{ width: `${((5 - paymentCountdown) / 5) * 100}%` }}/></div>
+        <div className="payment-complete-card">
+          <div className="payment-complete-check"><Check size={24}/></div>
+          <span className="payment-complete-kicker">VENTA COMPLETADA</span>
+          <h3>Factura enviada a impresión</h3>
+          <p>Pedido <b>#{completedSale.orderNumber}</b> registrado correctamente.</p>
+          <div className="payment-complete-total"><span>Total cobrado</span><strong>{money(completedSale.total)}</strong></div>
+          <div className="payment-complete-bottom"><span>Regresando a pedidos</span><b>{paymentCountdown}s</b></div>
+        </div>
       </div>}
 
       {editingItem && <div className="item-editor-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingLineId(null) }}>
