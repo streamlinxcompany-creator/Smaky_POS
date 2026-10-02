@@ -316,8 +316,8 @@ export async function deletePreviousDayClosure(closureId: string, actor: User) {
   })
 }
 
-export async function createDailyClosure(dateKey: string, actor: User, cashCounted: number, notes = '') {
-  return db.transaction('rw', db.closures, db.sales, db.users, db.auditEvents, db.historyRecords, db.settings, async () => {
+export async function createDailyClosure(dateKey: string, actor: User, cashCounted: number, notes = ''): Promise<CashClosure | null> {
+  return db.transaction('rw', [db.closures, db.sales, db.users, db.auditEvents, db.historyRecords, db.settings], async () => {
     const freshActor = await db.users.get(actor.id)
     if (!freshActor?.active || !hasPermission(freshActor, 'cashClosing.access')) return null
     const existingClosure = await db.closures.where('dateKey').equals(dateKey).first()
