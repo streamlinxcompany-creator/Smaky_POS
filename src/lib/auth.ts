@@ -5,6 +5,7 @@ const SESSION_KEY = 'smaky-session'
 export const PERMISSION_DEFINITIONS: Array<{ key: PermissionKey; label: string; description: string; group: string }> = [
   { key: 'dashboard.view', label: 'Inicio', description: 'Ver el resumen y actividad del negocio.', group: 'Navegación' },
   { key: 'pos.access', label: 'Punto de venta', description: 'Registrar pedidos y realizar cobros.', group: 'Navegación' },
+  { key: 'customers.manage', label: 'Clientes', description: 'Crear, buscar y administrar clientes.', group: 'Navegación' },
   { key: 'sales.view', label: 'Ver ventas', description: 'Consultar facturas y ventas registradas.', group: 'Ventas' },
   { key: 'sales.delete', label: 'Eliminar facturas', description: 'Eliminar ventas del historial con confirmación.', group: 'Ventas' },
   { key: 'products.manage', label: 'Productos', description: 'Crear, editar y administrar productos.', group: 'Catálogo' },
@@ -17,7 +18,7 @@ const ALL_PERMISSION_KEYS = PERMISSION_DEFINITIONS.map(item => item.key)
 export function defaultPermissionsForRole(role: Role): PermissionKey[] {
   if (role === 'manager') return [...ALL_PERMISSION_KEYS]
   if (role === 'admin') return [...ALL_PERMISSION_KEYS]
-  return ['dashboard.view', 'pos.access', 'sales.view', 'cashClosing.access']
+  return ['dashboard.view', 'pos.access', 'customers.manage', 'sales.view', 'cashClosing.access']
 }
 
 export function getUserPermissions(user: User): PermissionKey[] {

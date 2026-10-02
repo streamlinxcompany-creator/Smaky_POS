@@ -59,7 +59,7 @@ export function Orders() {
       <div className="orders-day-empty-icon"><FileText size={25}/></div><p className="eyebrow">TODO AL DÍA</p><h2>No hay pedidos pendientes</h2><span>Los pedidos cobrados pasan automáticamente a Ventas.</span><button className="primary-inline" onClick={() => navigate('/pos')}><Plus size={15}/> Registrar nuevo pedido</button>
     </div> : <div className="orders-grid">
       {todayOrders.map(order => <button className={`order-square status-card-${order.status}`} key={order.id} onClick={() => setSelected(order)}>
-        <div className="order-square-top"><span>Pedido</span><b>#{order.orderNumber}</b></div>
+        <div className="order-square-top"><span>{order.customerName || 'Pedido'}</span><b>#{order.orderNumber}</b></div>
         <div className="order-square-icon">🍔</div>
         <strong>{money(order.total)}</strong>
         <span>{order.items.reduce((sum, item) => sum + item.quantity, 0)} productos</span>

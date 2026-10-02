@@ -1,5 +1,5 @@
 import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { BarChart3, ClipboardList, LayoutDashboard, LockKeyhole, LogOut, Menu, Settings, ShoppingCart, ShieldCheck, Wifi, WifiOff, X } from 'lucide-react'
+import { BarChart3, ClipboardList, ContactRound, LayoutDashboard, LockKeyhole, LogOut, Menu, Settings, ShoppingCart, ShieldCheck, Wifi, WifiOff, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { clearSession, getSessionUser, hasPermission, initials } from '../lib/auth'
 
@@ -7,6 +7,7 @@ const allNav = [
   { to: '/', label: 'Inicio', icon: LayoutDashboard, roles: ['manager', 'admin', 'employee'] },
   { to: '/pos', label: 'Punto de venta', icon: ShoppingCart, roles: ['manager', 'admin', 'employee'] },
   { to: '/ventas', label: 'Ventas', icon: ClipboardList, roles: ['manager', 'admin', 'employee'] },
+  { to: '/clientes', label: 'Clientes', icon: ContactRound, roles: ['manager', 'admin', 'employee'] },
   { to: '/reportes', label: 'Reportes', icon: BarChart3, roles: ['manager', 'admin'] },
   { to: '/cierre-caja', label: 'Cierre de caja', icon: LockKeyhole, roles: ['manager', 'admin', 'employee'] },
   { to: '/configuraciones', label: 'Configuraciones', icon: Settings, roles: ['manager', 'admin'] }
@@ -31,6 +32,7 @@ export function Layout() {
     '/': 'dashboard.view',
     '/pos': 'pos.access',
     '/ventas': 'sales.view',
+    '/clientes': 'customers.manage',
     '/reportes': 'reports.view',
     '/cierre-caja': 'cashClosing.access',
   }

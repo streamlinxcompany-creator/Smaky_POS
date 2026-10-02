@@ -1,8 +1,8 @@
-import { ArrowRight, Check, CreditCard, FileText, Minus, Plus, Printer, Search, ShoppingCart, SlidersHorizontal, Tag, Trash2, X } from 'lucide-react'
+import { ArrowRight, Check, CreditCard, FileText, Minus, Plus, Printer, Search, ShoppingCart, SlidersHorizontal, Tag, Trash2, UserRound, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent } from 'react'
 import { completeOrder, createOrder, getPaymentMethods, getProductCategories, getProducts, updateOrderComandaStatus, updateOrderItems } from '../lib/store'
 import { money, time, date } from '../lib/format'
-import type { Order, PaymentMethod, PaymentMethodConfig, Product, Sale, SaleItem, User } from '../lib/types'
+import type { Customer, Order, PaymentMethod, PaymentMethodConfig, Product, Sale, SaleItem, User } from '../lib/types'
 import { printOrderComanda, printSaleReceipt } from '../lib/print'
 
 const modificationChips = ['Sin salsas', 'Sin tomate', 'Sin lechuga', 'Sin cebolla', 'Sin queso']
@@ -11,6 +11,7 @@ const fallbackPaymentLabel = (payment: PaymentMethod) => payment === 'cash' ? 'E
 type Props = {
   user: User
   initialOrder?: Order | null
+  initialCustomer?: Customer | null
   onClose: () => void
   onOrderChange?: (order: Order) => void
 }
@@ -46,12 +47,13 @@ const normalizeItem = (item: SaleItem) => ({
   modification: item.modification?.trim() || ''
 })
 
-export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: Props) {
+export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, onOrderChange }: Props) {
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<string[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>([])
   const [items, setItems] = useState<SaleItem[]>(initialOrder?.items.map(item => ({ ...item, lineId: item.lineId || newLineId() })) || [])
   const [order, setOrder] = useState<Order | null>(initialOrder || null)
+  const [customer, setCustomer] = useState<Customer | null>(initialCustomer || null)
   const [category, setCategory] = useState<(typeof categories)[number]>('Todos')
   const [search, setSearch] = useState('')
   const [payment, setPayment] = useState<PaymentMethod>('cash')
@@ -87,6 +89,24 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
   const editingItem = editingLineId ? items.find(item => (item.lineId || item.productId) === editingLineId) || null : null
   const units = useMemo(() => items.reduce((sum, item) => sum + item.quantity, 0), [items])
   const categoryTabs = useMemo(() => ['Todos', ...categories], [categories])
+  const currentCustomer = customer || (order?.customerName ? {
+    id: order.customerId || `legacy-${order.id}`,
+    name: order.customerName,
+    phone: order.phone,
+    address: order.address,
+    notes: order.notes,
+    createdAt: order.createdAt,
+    updatedAt: order.updatedAt,
+    active: true
+  } : null)
+
+  const customerDelivery = currentCustomer ? {
+    customerName: currentCustomer.name,
+    phone: currentCustomer.phone,
+    address: currentCustomer.address,
+    notes: currentCustomer.notes
+  } : { customerName: '', phone: '', address: '', notes: '' }
+
   const filtered = products.filter(product => {
     const categoryMatch = category === 'Todos' || product.category === category
     const q = search.trim().toLowerCase()
@@ -112,6 +132,7 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
 
   const setCurrent = (next: Order | null) => {
     setOrder(next)
+    if (next?.customerName) setCustomer(current => current || { id: next.customerId || `legacy-${next.id}`, name: next.customerName, phone: next.phone, address: next.address, notes: next.notes, createdAt: next.createdAt, updatedAt: next.updatedAt, active: true })
     if (next) {
       setItems(next.items.map(item => ({ ...item, lineId: item.lineId || newLineId() })))
       setNotes(next.notes || '')
@@ -167,7 +188,7 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
     try {
       if (!items.length) throw new Error('Agrega al menos un producto para registrar el pedido.')
       if (!order) {
-        const created = await createOrder(items, { customerName: '', phone: '', address: '', notes }, user)
+        const created = await createOrder(items, { ...customerDelivery, notes: notes || customerDelivery.notes }, user, currentCustomer?.id)
         setCurrent(created)
         const printed = print ? printOrderComanda(created) : false
         if (printed) setCurrent(await updateOrderComandaStatus(created.id, 'printed'))
@@ -285,7 +306,7 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
     try {
       if (!items.length) throw new Error('Agrega al menos un producto para registrar el pedido.')
       const saved = !order
-        ? await createOrder(items, { customerName: '', phone: '', address: '', notes }, user)
+        ? await createOrder(items, { ...customerDelivery, notes: notes || customerDelivery.notes }, user, currentCustomer?.id)
         : dirty ? await updateOrderItems(order.id, items, notes) : order
       if (!saved) throw new Error('No fue posible guardar el pedido.')
       const marked = await updateOrderComandaStatus(saved.id, 'skipped')
@@ -315,8 +336,8 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
           <button className="receipt-close" onClick={requestClose} aria-label="Cerrar"><X size={18}/></button>
           <div>
             <p className="eyebrow">CUENTA ACTUAL</p>
-            <h2>{order ? `Pedido #${order.orderNumber}` : 'Nuevo pedido'}</h2>
-            {order && <span>{date(order.createdAt)} · {time(order.createdAt)} · {order.userName}</span>}
+            <h2>{order ? (currentCustomer ? `Pedido de ${currentCustomer.name}` : `Pedido #${order.orderNumber}`) : (currentCustomer ? `Pedido de ${currentCustomer.name}` : 'Nuevo pedido')}</h2>
+            {order ? <span>{date(order.createdAt)} · {time(order.createdAt)} · {order.userName}</span> : currentCustomer ? <span>{currentCustomer.phone}{currentCustomer.address ? ` · ${currentCustomer.address}` : ''}</span> : <span>Sin cliente seleccionado</span>}
           </div>
         </div>
         <div className="workspace-head-meta">
@@ -344,6 +365,7 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
           <div className="workspace-summary-head workspace-summary-head-compact">
             <div>
               <p className="workspace-summary-kicker">PEDIDO</p>
+              {currentCustomer && <div className="workspace-customer-mini"><UserRound size={13}/><span>{currentCustomer.name}</span></div>}
               <b>{order ? `#${order.orderNumber}` : 'Tu pedido'}</b>
             </div>
             <div className="workspace-summary-total">

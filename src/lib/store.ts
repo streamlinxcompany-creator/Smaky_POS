@@ -1,7 +1,7 @@
 import { db } from './db'
 import { products as seedProducts } from './demoData'
-import { getSessionUser, hasPermission } from './auth'
-import type { AuditEvent, BackupSnapshot, CashClosure, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
+import { getSessionUser, hasPermission, setSessionUser } from './auth'
+import type { AuditEvent, BackupSnapshot, CashClosure, Customer, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
 
 type Auditable = Record<string, unknown>
 const redact = (value: unknown): unknown => {
@@ -43,9 +43,9 @@ export async function getArchivedUsers() { return db.users.toArray() }
 export async function getArchivedClosures() { return db.closures.orderBy('closedAt').reverse().toArray() }
 
 export async function createBackupSnapshot(actor: User, kind: BackupSnapshot['kind'], label: string) {
-  const [sales, orders, products, users, closures, events, history, settings] = await Promise.all([db.sales.toArray(), db.orders.toArray(), db.products.toArray(), db.users.toArray(), db.closures.toArray(), db.auditEvents.toArray(), db.historyRecords.toArray(), db.settings.toArray()])
-  const payload = redact({ sales, orders, products, users, closures, events, history, settings }) as Record<string, unknown>
-  const contents = { sales: sales.length, orders: orders.length, products: products.length, users: users.length, closures: closures.length, audit: events.length, history: history.length, settings: settings.length }
+  const [sales, orders, products, users, closures, customers, events, history, settings] = await Promise.all([db.sales.toArray(), db.orders.toArray(), db.products.toArray(), db.users.toArray(), db.closures.toArray(), db.customers.toArray(), db.auditEvents.toArray(), db.historyRecords.toArray(), db.settings.toArray()])
+  const payload = redact({ sales, orders, products, users, closures, customers, events, history, settings }) as Record<string, unknown>
+  const contents = { sales: sales.length, orders: orders.length, products: products.length, users: users.length, closures: closures.length, customers: customers.length, audit: events.length, history: history.length, settings: settings.length }
   const backup: BackupSnapshot = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), createdBy: actor.name, kind, label, contents, size: new Blob([JSON.stringify(payload)]).size, payload }
   await db.backups.add(backup)
   await audit('SYSTEM_BACKUP_CREATED', 'BACKUPS', 'backup', backup.id, null, { id: backup.id, label, contents, size: backup.size }, actor)
@@ -54,7 +54,7 @@ export async function createBackupSnapshot(actor: User, kind: BackupSnapshot['ki
 export async function getBackupSnapshots() { return db.backups.orderBy('createdAt').reverse().toArray() }
 
 export async function restoreArchivedRecord(entity: string, recordId: string, actor: User) {
-  const table = entity === 'sale' ? db.sales : entity === 'order' ? db.orders : entity === 'product' ? db.products : entity === 'user' ? db.users : db.closures
+  const table = entity === 'sale' ? db.sales : entity === 'order' ? db.orders : entity === 'product' ? db.products : entity === 'user' ? db.users : entity === 'customer' ? db.customers : db.closures
   const record = await table.get(recordId) as (Auditable & { deletedAt?: string }) | undefined
   if (!record?.deletedAt) return false
   const before = { ...record }
@@ -81,7 +81,7 @@ const seedManager: User = {
   pin: '1234',
   rank: 'Gerente General',
   active: true,
-  permissions: ['dashboard.view','pos.access','sales.view','sales.delete','products.manage','reports.view','cashClosing.access']
+  permissions: ['dashboard.view','pos.access','customers.manage','sales.view','sales.delete','products.manage','reports.view','cashClosing.access']
 }
 
 export async function seed() {
@@ -107,14 +107,16 @@ export async function seed() {
   if (!(await db.users.get(seedManager.id))) await db.users.add(seedManager)
 
   const currentUsers = await db.users.toArray()
-  const allPermissionKeys: PermissionKey[] = ['dashboard.view','pos.access','sales.view','sales.delete','products.manage','reports.view','cashClosing.access']
+  const allPermissionKeys: PermissionKey[] = ['dashboard.view','pos.access','customers.manage','sales.view','sales.delete','products.manage','reports.view','cashClosing.access']
   for (const user of currentUsers) {
-    if (!user.permissions?.length) {
-      const permissions = user.role === 'employee'
-        ? ['dashboard.view','pos.access','sales.view','cashClosing.access'] as PermissionKey[]
+    const permissions = user.permissions?.length
+      ? Array.from(new Set([...user.permissions, 'customers.manage' as PermissionKey]))
+      : user.role === 'employee'
+        ? ['dashboard.view','pos.access','customers.manage','sales.view','cashClosing.access'] as PermissionKey[]
         : allPermissionKeys
-      await db.users.update(user.id, { permissions })
-    }
+    await db.users.update(user.id, { permissions })
+    const sessionUser = getSessionUser()
+    if (sessionUser?.id === user.id) setSessionUser({ ...user, permissions })
   }
 
   const categorySetting = await db.settings.get(CATEGORY_SETTING_KEY)
@@ -397,12 +399,68 @@ export async function createDailyClosure(dateKey: string, actor: User, cashCount
   })
 }
 
+const normalizePhone = (value: string) => value.replace(/\D/g, '')
+
+export async function getCustomers() {
+  const customers = await db.customers.toArray()
+  return customers.filter(customer => customer.active).sort((a, b) => a.name.localeCompare(b.name, 'es'))
+}
+
+export async function findCustomerByPhone(phone: string) {
+  const normalized = normalizePhone(phone)
+  if (!normalized) return null
+  const customer = await db.customers.where('phone').equals(normalized).first()
+  return customer && customer.active ? customer : null
+}
+
+export async function createCustomer(input: Pick<Customer, 'name' | 'phone' | 'address' | 'notes'>, actor: User) {
+  const name = input.name.trim().replace(/\s+/g, ' ')
+  const phone = normalizePhone(input.phone)
+  const address = input.address.trim()
+  const notes = input.notes.trim()
+  if (name.length < 2) throw new Error('Escribe el nombre del cliente.')
+  if (phone.length < 7 || phone.length > 15) throw new Error('Escribe un celular válido.')
+  const duplicate = await findCustomerByPhone(phone)
+  if (duplicate) throw new Error(`Ya existe un cliente con el celular ${duplicate.phone}.`)
+  const now = new Date().toISOString()
+  const customer: Customer = { id: crypto.randomUUID(), name, phone, address, notes, createdAt: now, updatedAt: now, active: true }
+  await db.customers.add(customer)
+  await audit('CUSTOMER_CREATED', 'CUSTOMERS', 'customer', customer.id, null, customer, actor)
+  return customer
+}
+
+export async function updateCustomer(id: string, input: Pick<Customer, 'name' | 'phone' | 'address' | 'notes'>, actor: User) {
+  const current = await db.customers.get(id)
+  if (!current) return null
+  const name = input.name.trim().replace(/\s+/g, ' ')
+  const phone = normalizePhone(input.phone)
+  const address = input.address.trim()
+  const notes = input.notes.trim()
+  if (name.length < 2) throw new Error('Escribe el nombre del cliente.')
+  if (phone.length < 7 || phone.length > 15) throw new Error('Escribe un celular válido.')
+  const duplicate = await db.customers.where('phone').equals(phone).first()
+  if (duplicate && duplicate.id !== id && duplicate.active) throw new Error(`Ya existe un cliente con el celular ${phone}.`)
+  const after: Customer = { ...current, name, phone, address, notes, updatedAt: new Date().toISOString() }
+  await db.customers.put(after)
+  await audit('CUSTOMER_UPDATED', 'CUSTOMERS', 'customer', id, current, after, actor)
+  return after
+}
+
+export async function deactivateCustomer(id: string, actor: User) {
+  const current = await db.customers.get(id)
+  if (!current) return false
+  const after = { ...current, active: false, updatedAt: new Date().toISOString() }
+  await db.customers.put(after)
+  await audit('CUSTOMER_DEACTIVATED', 'CUSTOMERS', 'customer', id, current, after, actor)
+  return true
+}
+
 export async function getOrders() {
   const orders = await db.orders.orderBy('createdAt').reverse().toArray()
   return orders.filter(order => !order.deletedAt)
 }
 
-export async function createOrder(items: Order['items'], delivery: DeliveryInfo, user: User) {
+export async function createOrder(items: Order['items'], delivery: DeliveryInfo, user: User, customerId?: string) {
   const now = new Date()
   const calendarKey = businessDayKey(now)
   const closure = await db.closures.where('dateKey').equals(calendarKey).first()
@@ -419,6 +477,7 @@ export async function createOrder(items: Order['items'], delivery: DeliveryInfo,
     updatedAt: now.toISOString(),
     userId: user.id,
     userName: user.name,
+    customerId: customerId || undefined,
     customerName: delivery.customerName || '',
     phone: delivery.phone || '',
     address: delivery.address || '',
@@ -495,6 +554,7 @@ export async function completeOrder(orderId: string, payment: PaymentMethod, act
       createdAt: new Date().toISOString(),
       userId: freshActor.id,
       userName: freshActor.name,
+      customerId: order.customerId,
       payment,
       paymentLabel: paymentLabel || (payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : payment === 'card' ? 'Tarjeta' : payment),
       orderId: order.id,
@@ -591,7 +651,7 @@ export async function updateUserSettings(targetId: string, changes: Partial<User
   if (typeof changes.name === 'string' && changes.name.trim().length >= 2) safeChanges.name = changes.name.trim()
   if (typeof changes.pin === 'string' && /^\d{4}$/.test(changes.pin)) safeChanges.pin = changes.pin
   if (typeof changes.rank === 'string' && changes.rank.trim().length >= 2) safeChanges.rank = changes.rank.trim()
-  if (actor.role === 'manager' && Array.isArray(changes.permissions)) safeChanges.permissions = Array.from(new Set([...changes.permissions.filter((key): key is PermissionKey => ['dashboard.view','pos.access','sales.view','sales.delete','products.manage','reports.view','cashClosing.access'].includes(key)), 'pos.access'])) as PermissionKey[]
+  if (actor.role === 'manager' && Array.isArray(changes.permissions)) safeChanges.permissions = Array.from(new Set([...changes.permissions.filter((key): key is PermissionKey => ['dashboard.view','pos.access','customers.manage','sales.view','sales.delete','products.manage','reports.view','cashClosing.access'].includes(key)), 'pos.access'])) as PermissionKey[]
 
   const wantsRoleChange = changes.role !== undefined && changes.role !== target.role
   const wantsActiveChange = changes.active !== undefined && changes.active !== target.active

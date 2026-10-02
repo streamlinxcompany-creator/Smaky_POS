@@ -135,7 +135,7 @@ export function printSaleReceipt(sale: Sale, target?: Window | null, documentLab
     <div class="receipt">
       <div class="center"><div class="brand">SMAKY</div><div class="doc-label">Factura / comprobante · ${escapeHtml(documentLabel)}</div><div class="order-no">Pedido #${escapeHtml(sale.orderNumber ?? sale.id.slice(-6).toUpperCase())}</div><div class="meta">Venta #${escapeHtml(sale.id.slice(-6).toUpperCase())} · ${escapeHtml(date(sale.createdAt))} · ${escapeHtml(time(sale.createdAt))}</div></div>
       <div class="line"></div>
-      <div class="item"><div class="item-main"><div class="item-name">Cliente</div><div class="item-sub">${escapeHtml(sale.customerName || 'Consumidor final')}</div></div><div class="item-main" style="text-align:right"><div class="item-name">Pago</div><div class="item-sub">${escapeHtml(payment)}</div></div></div>
+      <div class="item"><div class="item-main"><div class="item-name">Cliente</div><div class="item-sub">${escapeHtml(sale.customerName || 'Consumidor final')}</div>${sale.phone ? `<div class="item-sub">Cel: ${escapeHtml(sale.phone)}</div>` : ''}${sale.address ? `<div class="item-sub">Dirección: ${escapeHtml(sale.address)}</div>` : ''}</div><div class="item-main" style="text-align:right"><div class="item-name">Pago</div><div class="item-sub">${escapeHtml(payment)}</div></div></div>
       <div class="line"></div>
       ${items}
       <div class="totals"><div class="total-row"><span>Subtotal</span><b>${money(sale.subtotal)}</b></div>${discount}<div class="total-row grand"><span>Total</span><strong>${money(sale.total)}</strong></div></div>

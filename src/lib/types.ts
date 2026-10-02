@@ -1,6 +1,7 @@
 export type Role = 'manager' | 'admin' | 'employee'
 export type PermissionKey =
   | 'dashboard.view'
+  | 'customers.manage'
   | 'pos.access'
   | 'sales.view'
   | 'sales.delete'
@@ -9,6 +10,17 @@ export type PermissionKey =
   | 'cashClosing.access'
 
 export type PaymentMethod = string
+
+export type Customer = {
+  id: string
+  name: string
+  phone: string
+  address: string
+  notes: string
+  createdAt: string
+  updatedAt: string
+  active: boolean
+}
 
 export type PaymentMethodConfig = {
   id: string
@@ -54,6 +66,7 @@ export type Order = DeliveryInfo & {
   updatedAt: string
   userId: string
   userName: string
+  customerId?: string
   items: SaleItem[]
   subtotal: number
   total: number
@@ -73,6 +86,7 @@ export type Sale = DeliveryInfo & {
   createdAt: string
   userId: string
   userName: string
+  customerId?: string
   payment: PaymentMethod
   paymentLabel?: string
   items: SaleItem[]
