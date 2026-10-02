@@ -1,14 +1,14 @@
 import { Check, CircleUserRound, Eye, EyeOff, KeyRound, LockKeyhole, Plus, Save, ShieldCheck, SlidersHorizontal, UserRound, UserRoundCog, X, Power, BriefcaseBusiness, Trash2, AlertTriangle, ChevronRight } from 'lucide-react'
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
-import { getSessionUser } from '../lib/auth'
+import { defaultPermissionsForRole, getSessionUser, getUserPermissions, PERMISSION_DEFINITIONS } from '../lib/auth'
 import { createWorker, deleteUserProfile, getUsers, updateUserSettings } from '../lib/store'
-import type { Role, User } from '../lib/types'
+import type { PermissionKey, Role, User } from '../lib/types'
 
-type SettingsForm = { name: string; pin: string; rank: string; role: Role; active: boolean }
+type SettingsForm = { name: string; pin: string; rank: string; role: Role; active: boolean; permissions: PermissionKey[] }
 
 const roleLabel = (role: Role) => role === 'manager' ? 'Gerente' : role === 'admin' ? 'Administrador' : 'Trabajador'
 
-export function Users() {
+export function Users({ embedded = false }: { embedded?: boolean }) {
   const [users, setUsers] = useState<User[]>([])
   const [creating, setCreating] = useState(false)
   const [configuring, setConfiguring] = useState<User | null>(null)
@@ -88,7 +88,7 @@ export function Users() {
 
   const openConfig = (user: User) => {
     setConfiguring(user)
-    setForm({ name: user.name, pin: user.pin, rank: user.rank || (user.role === 'employee' ? 'Trabajador' : user.role === 'admin' ? 'Administrador' : 'Gerente General'), role: user.role, active: user.active })
+    setForm({ name: user.name, pin: user.pin, rank: user.rank || (user.role === 'employee' ? 'Trabajador' : user.role === 'admin' ? 'Administrador' : 'Gerente General'), role: user.role, active: user.active, permissions: getUserPermissions(user) })
     setError('')
     setShowPin(false)
   }
@@ -108,11 +108,22 @@ export function Users() {
 
   const initials = (fullName: string) => fullName.split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'S'
 
-  return <div>
-    <div className="page-heading compact">
+  const setPermission = (key: PermissionKey, enabled: boolean) => {
+    if (!form || !canManageRoles || configuring?.role === 'manager') return
+    setForm({ ...form, permissions: enabled ? Array.from(new Set([...form.permissions, key])) : form.permissions.filter(item => item !== key) })
+  }
+
+  const changeRole = (role: Role) => {
+    if (!form || !canManageRoles || configuring?.id === currentUser?.id || configuring?.role === 'manager') return
+    setForm({ ...form, role, permissions: defaultPermissionsForRole(role) })
+  }
+
+  return <div className={embedded ? 'users-embedded' : ''}>
+    {!embedded && <div className="page-heading compact">
       <div><p className="eyebrow">PERSONAL Y ACCESOS</p><h1>Usuarios</h1><p className="muted">Administra el equipo, sus rangos y los permisos de Smaky.</p></div>
       <button className="primary users-add" onClick={() => setCreating(true)}><Plus size={16}/> Agregar trabajador</button>
-    </div>
+    </div>}
+    {embedded && <div className="settings-embedded-toolbar"><div><span className="settings-kicker">PERSONAL · ACCESOS</span><h3>Usuarios y permisos</h3><p>Elige una cuenta para editar su acceso. Esta sección está disponible únicamente para el Gerente.</p></div><button className="primary settings-add-user" onClick={() => setCreating(true)}><Plus size={15}/> Agregar trabajador</button></div>}
 
     <div className="users-toolbar">
       <div><span className="toolbar-dot"></span><b>{users.filter(u => u.active).length}</b> cuentas activas <span className="toolbar-separator">·</span> {users.length} registradas</div>
@@ -122,13 +133,13 @@ export function Users() {
     <div className="users-list">
       {users.map(user => <div className={`panel user-row ${!user.active ? 'is-disabled' : ''}`} key={user.id}>
         <div className="avatar large">{initials(user.name)}</div>
-        <div className="user-info"><h2>{user.name}{user.id === currentUser?.id && <span className="you-tag">Tú</span>}</h2><p>{user.rank || roleLabel(user.role)} · {user.role === 'employee' ? 'Inicio · Punto de venta · Ventas' : 'Acceso administrativo'}</p></div>
+        <div className="user-info"><h2>{user.name}{user.id === currentUser?.id && <span className="you-tag">Tú</span>}</h2><p>{user.rank || roleLabel(user.role)} · {user.role === 'manager' ? 'Acceso total' : `${getUserPermissions(user).length} permisos habilitados`}</p></div>
         <div className="user-status-stack"><span className={`badge ${user.role === 'employee' ? 'employee-badge' : user.role === 'manager' ? 'manager-badge' : 'admin-badge'}`}>{user.role === 'employee' ? <UserRound size={14}/> : <ShieldCheck size={14}/>} {roleLabel(user.role)}</span><small className={user.active ? 'status-active' : 'status-off'}>{user.active ? 'Activo' : 'Desactivado'}</small></div>
         <button className="config-btn" onClick={() => openConfig(user)}><SlidersHorizontal size={15}/> Configuración</button>
       </div>)}
     </div>
 
-    <div className="panel users-note"><div className="stat-icon"><KeyRound size={18}/></div><div><b>Perfiles a tu medida</b><p>Desde Configuración puedes cambiar nombre, PIN, rango y estado. El Gerente además puede convertir trabajadores en Administradores o degradar Administradores a Trabajadores.</p></div></div>
+    <div className="panel users-note"><div className="stat-icon"><KeyRound size={18}/></div><div><b>Accesos a tu medida</b><p>El Gerente controla el nivel del perfil y puede activar o bloquear cada función operativa. El Punto de venta siempre permanece habilitado.</p></div></div>
 
     {creating && <div className="modal-backdrop"><div className="modal user-create-modal profile-modal">
       <div className="modal-header"><div><p className="eyebrow">NUEVO PERFIL</p><h2>Agregar trabajador</h2><p>Crea una cuenta lista para entrar a Smaky con su PIN y rango.</p></div><button className="icon-btn" onClick={closeCreate}><X size={17}/></button></div>
@@ -147,11 +158,12 @@ export function Users() {
       <form onSubmit={event => { event.preventDefault(); void saveConfig() }}>
         <div className="config-section"><div className="config-section-title"><BriefcaseBusiness size={15}/><div><b>Información</b><span>Identidad del trabajador.</span></div></div><div className="form-row config-grid"><label>Nombre<input value={form.name} onChange={event => setForm({...form, name:event.target.value})} /></label></div></div>
         <div className="config-section"><div className="config-section-title"><LockKeyhole size={15}/><div><b>Seguridad</b><span>El PIN de 4 números se usa para iniciar sesión.</span></div></div><label>Contraseña / PIN<div className="pin-field"><input inputMode="numeric" maxLength={4} type={showPin ? 'text' : 'password'} value={form.pin} onChange={event => setForm({...form, pin:event.target.value.replace(/\D/g,'').slice(0,4)})}/><button type="button" onClick={() => setShowPin(v => !v)}>{showPin ? <EyeOff size={15}/> : <Eye size={15}/>}</button></div></label></div>
-        <div className="config-section"><div className="config-section-title"><UserRoundCog size={15}/><div><b>Permisos</b><span>{canManageRoles ? 'El Gerente puede ajustar el nivel de acceso.' : 'Puedes administrar trabajadores, pero no cambiar niveles.'}</span></div></div><div className="role-choice-grid">
-          <button type="button" className={`role-choice ${form.role === 'employee' ? 'selected' : ''}`} onClick={() => canManageRoles && setForm({...form, role:'employee'})} disabled={!canManageRoles || configuring.id === currentUser?.id}><UserRound size={17}/><span><b>Trabajador</b><small>Inicio, POS y ventas</small></span><span className="choice-dot"></span></button>
-          <button type="button" className={`role-choice ${form.role === 'admin' ? 'selected' : ''}`} onClick={() => canManageRoles && setForm({...form, role:'admin'})} disabled={!canManageRoles || configuring.id === currentUser?.id}><ShieldCheck size={17}/><span><b>Administrador</b><small>Acceso administrativo</small></span><span className="choice-dot"></span></button>
+        <div className="config-section"><div className="config-section-title"><UserRoundCog size={15}/><div><b>Nivel y permisos</b><span>{configuring.role === 'manager' ? 'El Gerente principal tiene todas las funciones habilitadas.' : 'Marca exactamente qué puede ver o utilizar esta cuenta.'}</span></div></div><div className="role-choice-grid">
+          <button type="button" className={`role-choice ${form.role === 'employee' ? 'selected' : ''}`} onClick={() => changeRole('employee')} disabled={!canManageRoles || configuring.id === currentUser?.id || configuring.role === 'manager'}><UserRound size={17}/><span><b>Trabajador</b><small>Perfil operativo configurable</small></span><span className="choice-dot"></span></button>
+          <button type="button" className={`role-choice ${form.role === 'admin' ? 'selected' : ''}`} onClick={() => changeRole('admin')} disabled={!canManageRoles || configuring.id === currentUser?.id || configuring.role === 'manager'}><ShieldCheck size={17}/><span><b>Administrador</b><small>Perfil administrativo configurable</small></span><span className="choice-dot"></span></button>
           {configuring.role === 'manager' && <div className="manager-lock"><LockKeyhole size={15}/><div><b>Gerente principal</b><span>Este perfil es el máximo nivel de acceso y no puede degradarse ni desactivarse.</span></div></div>}
-        </div></div>
+        </div>
+        <div className="permission-groups">{Array.from(new Set(PERMISSION_DEFINITIONS.map(item => item.group))).map(group => <div className="permission-group" key={group}><span className="permission-group-title">{group}</span>{PERMISSION_DEFINITIONS.filter(item => item.group === group).map(permission => { const checked = form.permissions.includes(permission.key) || configuring.role === 'manager'; const forced = permission.key === 'pos.access'; return <button type="button" key={permission.key} className={`permission-choice ${checked ? 'checked' : ''} ${forced ? 'forced' : ''}`} disabled={!canManageRoles || configuring.role === 'manager' || forced} onClick={() => setPermission(permission.key, !checked)}><span className="permission-check">{checked ? <Check size={13}/> : null}</span><span className="permission-copy"><b>{permission.label}</b><small>{permission.description}</small></span>{forced && <em>Obligatorio</em>}</button> })}</div>)}</div></div>
         <div className="config-section"><div className="config-section-title"><Power size={15}/><div><b>Estado de la cuenta</b><span>Controla si puede iniciar sesión.</span></div></div><button type="button" className={`toggle-row ${form.active ? 'enabled' : ''}`} disabled={configuring.id === currentUser?.id || configuring.role === 'manager'} onClick={() => setForm({...form, active:!form.active})}><div><b>{form.active ? 'Cuenta activa' : 'Cuenta desactivada'}</b><span>{form.active ? 'Puede iniciar sesión normalmente.' : 'No podrá entrar hasta volver a activarla.'}</span></div><span className="switch"><i></i></span></button></div>
         {configuring.role !== 'manager' && configuring.id !== currentUser?.id && <div className="config-danger"><div className="config-section-title danger-title"><Trash2 size={15}/><div><b>Zona de peligro</b><span>Eliminar este perfil borrará su cuenta de Smaky.</span></div></div><button type="button" className="delete-profile-btn" onClick={openDelete}><Trash2 size={15}/> Eliminar {configuring.role === 'employee' ? 'trabajador' : 'administrador'}</button></div>}
         {error && <p className="form-error">{error}</p>}

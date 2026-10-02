@@ -129,7 +129,7 @@ export function printOrderComanda(order: Order, target?: Window | null) {
 
 export function printSaleReceipt(sale: Sale, target?: Window | null, documentLabel = 'ORIGINAL') {
   const items = sale.items.map(item => `<div class="item"><div class="item-main"><div><span class="qty">${item.quantity}×</span> <span class="item-name">${escapeHtml(item.name)}</span></div>${item.modification ? `<div class="item-sub">${escapeHtml(item.modification)}</div>` : `<div class="item-sub">${escapeHtml(item.category || 'Producto')}</div>`}</div><strong class="amount">${money(item.total)}</strong></div>`).join('')
-  const payment = sale.payment === 'cash' ? 'Efectivo' : sale.payment === 'transfer' ? 'Transferencia' : 'Tarjeta'
+  const payment = sale.paymentLabel || (sale.payment === 'cash' ? 'Efectivo' : sale.payment === 'transfer' ? 'Transferencia' : sale.payment === 'card' ? 'Tarjeta' : sale.payment)
   const discount = sale.discountAmount && sale.discountAmount > 0 ? `<div class="total-row"><span>Descuento${sale.discountType === 'percent' && sale.discountValue ? ` (${sale.discountValue}%)` : ''}</span><b>−${money(sale.discountAmount)}</b></div>` : ''
   return printWindow(`Comprobante #${sale.orderNumber ?? sale.id.slice(-6)}`, `
     <div class="receipt">
@@ -145,16 +145,14 @@ export function printSaleReceipt(sale: Sale, target?: Window | null, documentLab
 }
 
 export function printCashClosure(closure: CashClosure, target?: Window | null) {
-  const invoices = closure.sales.map(sale => `<div class="item"><div class="item-main"><div class="item-name">#${escapeHtml(sale.orderNumber ?? sale.id.slice(-6).toUpperCase())}</div><div class="item-sub">${escapeHtml(sale.customerName || 'Consumidor final')} · ${escapeHtml(paymentLabelForPrint(sale.payment))}</div></div><strong class="amount">${money(sale.total)}</strong></div>`).join('')
+  const invoices = closure.sales.map(sale => `<div class="item"><div class="item-main"><div class="item-name">#${escapeHtml(sale.orderNumber ?? sale.id.slice(-6).toUpperCase())}</div><div class="item-sub">${escapeHtml(sale.customerName || 'Consumidor final')} · ${escapeHtml(paymentLabelForPrint(sale.payment, sale.paymentLabel))}</div></div><strong class="amount">${money(sale.total)}</strong></div>`).join('')
   const difference = closure.cashDifference === 0 ? '$0' : `${closure.cashDifference > 0 ? '+' : ''}${money(closure.cashDifference)}`
   return printWindow(`Cierre ${closure.dateKey}`, `
     <div class="receipt">
       <div class="center"><div class="brand">SMAKY</div><div class="doc-label">Resumen de cierre de caja</div><div class="order-no">${escapeHtml(closure.dateKey.split('-').reverse().join('/'))}</div><div class="meta">Cerrado por ${escapeHtml(closure.userName)} · ${escapeHtml(time(closure.closedAt))}</div></div>
       <div class="line"></div>
       <div class="section">Resumen</div>
-      <div class="item"><div class="item-main"><div class="item-name">Efectivo</div></div><strong class="amount">${money(closure.cash)}</strong></div>
-      <div class="item"><div class="item-main"><div class="item-name">Transferencias</div></div><strong class="amount">${money(closure.transfer)}</strong></div>
-      <div class="item"><div class="item-main"><div class="item-name">Tarjetas</div></div><strong class="amount">${money(closure.card)}</strong></div>
+      ${Object.entries(closure.payments || { cash: closure.cash, transfer: closure.transfer, card: closure.card }).map(([id, amount]) => `<div class="item"><div class="item-main"><div class="item-name">${escapeHtml(closure.paymentLabels?.[id] || paymentLabelForPrint(id))}</div></div><strong class="amount">${money(Number(amount))}</strong></div>`).join('')}
       <div class="item"><div class="item-main"><div class="item-name">Efectivo esperado</div></div><strong class="amount">${money(closure.cashExpected)}</strong></div>
       <div class="item"><div class="item-main"><div class="item-name">Efectivo contado</div></div><strong class="amount">${money(closure.cashCounted)}</strong></div>
       <div class="item"><div class="item-main"><div class="item-name">Diferencia</div></div><strong class="amount">${difference}</strong></div>
@@ -165,4 +163,4 @@ export function printCashClosure(closure: CashClosure, target?: Window | null) {
     </div>`, 390, target)
 }
 
-const paymentLabelForPrint = (payment: Sale['payment']) => payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : 'Tarjeta'
+const paymentLabelForPrint = (payment: Sale['payment'], label?: string) => label || (payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : payment === 'card' ? 'Tarjeta' : payment)

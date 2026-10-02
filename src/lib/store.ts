@@ -1,7 +1,7 @@
 import { db } from './db'
 import { products as seedProducts } from './demoData'
-import { getSessionUser } from './auth'
-import type { AuditEvent, BackupSnapshot, CashClosure, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, SystemSetting } from './types'
+import { getSessionUser, hasPermission } from './auth'
+import type { AuditEvent, BackupSnapshot, CashClosure, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
 
 type Auditable = Record<string, unknown>
 const redact = (value: unknown): unknown => {
@@ -66,6 +66,13 @@ export async function restoreArchivedRecord(entity: string, recordId: string, ac
 
 export const DEFAULT_PRODUCT_CATEGORIES = ['Hamburguesas', 'Combos', 'Acompañamientos', 'Bebidas']
 const CATEGORY_SETTING_KEY = 'productCategories'
+const PAYMENT_METHODS_SETTING_KEY = 'paymentMethods'
+
+export const DEFAULT_PAYMENT_METHODS: PaymentMethodConfig[] = [
+  { id: 'cash', name: 'Efectivo', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+  { id: 'transfer', name: 'Transferencia', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+  { id: 'card', name: 'Tarjeta', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
+]
 
 const seedManager: User = {
   id: 'u-owner',
@@ -73,7 +80,8 @@ const seedManager: User = {
   role: 'manager',
   pin: '1234',
   rank: 'Gerente General',
-  active: true
+  active: true,
+  permissions: ['dashboard.view','pos.access','sales.view','sales.delete','products.manage','reports.view','cashClosing.access']
 }
 
 export async function seed() {
@@ -98,10 +106,25 @@ export async function seed() {
 
   if (!(await db.users.get(seedManager.id))) await db.users.add(seedManager)
 
+  const currentUsers = await db.users.toArray()
+  const allPermissionKeys: PermissionKey[] = ['dashboard.view','pos.access','sales.view','sales.delete','products.manage','reports.view','cashClosing.access']
+  for (const user of currentUsers) {
+    if (!user.permissions?.length) {
+      const permissions = user.role === 'employee'
+        ? ['dashboard.view','pos.access','sales.view','cashClosing.access'] as PermissionKey[]
+        : allPermissionKeys
+      await db.users.update(user.id, { permissions })
+    }
+  }
+
   const categorySetting = await db.settings.get(CATEGORY_SETTING_KEY)
   if (!categorySetting) {
     const setting: SystemSetting = { id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: DEFAULT_PRODUCT_CATEGORIES, updatedAt: new Date().toISOString() }
     await db.settings.put(setting)
+  }
+  const paymentSetting = await db.settings.get(PAYMENT_METHODS_SETTING_KEY)
+  if (!paymentSetting || !Array.isArray(paymentSetting.value)) {
+    await db.settings.put({ id: PAYMENT_METHODS_SETTING_KEY, key: PAYMENT_METHODS_SETTING_KEY, value: DEFAULT_PAYMENT_METHODS, updatedAt: new Date().toISOString() })
   }
 
   const demoSales = await db.sales.toCollection().filter(sale => sale.id.startsWith('demo-')).primaryKeys()
@@ -152,6 +175,61 @@ export async function deleteProductCategory(name: string, actor: User) {
   const next = current.filter(item => item !== found)
   await db.settings.put({ id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: next, updatedAt: new Date().toISOString() })
   await audit('PRODUCT_CATEGORY_DELETED', 'SETTINGS', 'setting', CATEGORY_SETTING_KEY, { categories: current }, { categories: next, removed: found }, actor)
+  return next
+}
+
+export async function getPaymentMethods(): Promise<PaymentMethodConfig[]> {
+  const setting = await db.settings.get(PAYMENT_METHODS_SETTING_KEY)
+  const value = setting?.value
+  if (Array.isArray(value)) {
+    const cleaned = value.map(item => {
+      if (!item || typeof item !== 'object') return null
+      const raw = item as Record<string, unknown>
+      const id = String(raw.id || '').trim()
+      const name = String(raw.name || '').trim()
+      if (!id || !name) return null
+      return { id, name, createdAt: String(raw.createdAt || new Date(0).toISOString()), updatedAt: String(raw.updatedAt || new Date().toISOString()) }
+    }).filter(Boolean) as PaymentMethodConfig[]
+    if (cleaned.length) return cleaned
+  }
+  return DEFAULT_PAYMENT_METHODS.map(item => ({ ...item }))
+}
+
+export async function addPaymentMethod(name: string, actor: User) {
+  const cleanName = name.trim().replace(/\s+/g, ' ')
+  if (cleanName.length < 2) throw new Error('El medio de pago debe tener al menos 2 caracteres.')
+  if (cleanName.length > 35) throw new Error('El medio de pago no puede superar 35 caracteres.')
+  const current = await getPaymentMethods()
+  if (current.some(item => item.name.toLowerCase() === cleanName.toLowerCase())) throw new Error('Ese medio de pago ya existe.')
+  const now = new Date().toISOString()
+  const next = [...current, { id: `custom-${crypto.randomUUID().slice(0, 12)}`, name: cleanName, createdAt: now, updatedAt: now }]
+  await db.settings.put({ id: PAYMENT_METHODS_SETTING_KEY, key: PAYMENT_METHODS_SETTING_KEY, value: next, updatedAt: now })
+  await audit('PAYMENT_METHOD_CREATED', 'SETTINGS', 'setting', PAYMENT_METHODS_SETTING_KEY, { paymentMethods: current }, { paymentMethods: next, added: cleanName }, actor)
+  return next
+}
+
+export async function updatePaymentMethod(id: string, name: string, actor: User) {
+  const cleanName = name.trim().replace(/\s+/g, ' ')
+  if (cleanName.length < 2) throw new Error('El medio de pago debe tener al menos 2 caracteres.')
+  const current = await getPaymentMethods()
+  if (!current.some(item => item.id === id)) throw new Error('No encontramos ese medio de pago.')
+  if (current.some(item => item.id !== id && item.name.toLowerCase() === cleanName.toLowerCase())) throw new Error('Ya existe otro medio de pago con ese nombre.')
+  const now = new Date().toISOString()
+  const next = current.map(item => item.id === id ? { ...item, name: cleanName, updatedAt: now } : item)
+  await db.settings.put({ id: PAYMENT_METHODS_SETTING_KEY, key: PAYMENT_METHODS_SETTING_KEY, value: next, updatedAt: now })
+  await audit('PAYMENT_METHOD_UPDATED', 'SETTINGS', 'setting', PAYMENT_METHODS_SETTING_KEY, { paymentMethods: current }, { paymentMethods: next, updated: id }, actor)
+  return next
+}
+
+export async function deletePaymentMethod(id: string, actor: User) {
+  const current = await getPaymentMethods()
+  if (!current.some(item => item.id === id)) return current
+  if (current.length <= 1) throw new Error('Debe existir al menos un medio de pago disponible.')
+  const removed = current.find(item => item.id === id)
+  const next = current.filter(item => item.id !== id)
+  const now = new Date().toISOString()
+  await db.settings.put({ id: PAYMENT_METHODS_SETTING_KEY, key: PAYMENT_METHODS_SETTING_KEY, value: next, updatedAt: now })
+  await audit('PAYMENT_METHOD_DELETED', 'SETTINGS', 'setting', PAYMENT_METHODS_SETTING_KEY, { paymentMethods: current }, { paymentMethods: next, removed }, actor)
   return next
 }
 
@@ -239,9 +317,9 @@ export async function deletePreviousDayClosure(closureId: string, actor: User) {
 }
 
 export async function createDailyClosure(dateKey: string, actor: User, cashCounted: number, notes = '') {
-  return db.transaction('rw', db.closures, db.sales, db.users, db.auditEvents, db.historyRecords, async () => {
+  return db.transaction('rw', db.closures, db.sales, db.users, db.auditEvents, db.historyRecords, db.settings, async () => {
     const freshActor = await db.users.get(actor.id)
-    if (!freshActor?.active) return null
+    if (!freshActor?.active || !hasPermission(freshActor, 'cashClosing.access')) return null
     const existingClosure = await db.closures.where('dateKey').equals(dateKey).first()
     if (existingClosure && !existingClosure.deletedAt) throw new Error('Este día ya tiene un cierre registrado.')
 
@@ -249,11 +327,17 @@ export async function createDailyClosure(dateKey: string, actor: User, cashCount
       .filter(sale => recordBusinessDayKey(sale) === dateKey)
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 
+    const methods = await getPaymentMethods()
+    const labels = Object.fromEntries(methods.map(item => [item.id, item.name])) as Record<string, string>
+    const payments = sales.reduce<Record<string, number>>((acc, sale) => {
+      acc[sale.payment] = (acc[sale.payment] || 0) + sale.total
+      return acc
+    }, {})
     const totals = sales.reduce((acc, sale) => {
       acc.total += sale.total
       if (sale.payment === 'cash') acc.cash += sale.total
       else if (sale.payment === 'transfer') acc.transfer += sale.total
-      else acc.card += sale.total
+      else if (sale.payment === 'card') acc.card += sale.total
       return acc
     }, { total: 0, cash: 0, transfer: 0, card: 0 })
 
@@ -269,6 +353,8 @@ export async function createDailyClosure(dateKey: string, actor: User, cashCount
       cash: totals.cash,
       transfer: totals.transfer,
       card: totals.card,
+      payments,
+      paymentLabels: labels,
       cashExpected: totals.cash,
       cashCounted: counted,
       cashDifference: counted - totals.cash,
@@ -359,10 +445,10 @@ export async function updateOrderComandaStatus(orderId: string, status: 'printed
   return after
 }
 
-export async function completeOrder(orderId: string, payment: PaymentMethod, actor: User, discount?: { type: 'percent' | 'fixed'; value: number }) {
+export async function completeOrder(orderId: string, payment: PaymentMethod, actor: User, discount?: { type: 'percent' | 'fixed'; value: number }, paymentLabel?: string) {
   return db.transaction('rw', [db.orders, db.sales, db.users, db.closures, db.auditEvents, db.historyRecords], async () => {
     const [order, freshActor] = await Promise.all([db.orders.get(orderId), db.users.get(actor.id)])
-    if (!order || !freshActor?.active || ['paid', 'cancelled'].includes(order.status)) return null
+    if (!order || !freshActor?.active || !hasPermission(freshActor, 'pos.access') || ['paid', 'cancelled'].includes(order.status)) return null
     const businessDateKey = recordBusinessDayKey(order)
     const existingClosure = await db.closures.where('dateKey').equals(businessDateKey).first()
     if (existingClosure && !existingClosure.deletedAt) throw new Error(`El periodo del ${businessDateKey.split('-').reverse().join('/')} ya fue cerrado. Registra el pedido en el siguiente periodo.`)
@@ -382,6 +468,7 @@ export async function completeOrder(orderId: string, payment: PaymentMethod, act
       userId: freshActor.id,
       userName: freshActor.name,
       payment,
+      paymentLabel: paymentLabel || (payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : payment === 'card' ? 'Tarjeta' : payment),
       orderId: order.id,
       orderNumber: order.orderNumber,
       customerName: order.customerName,
@@ -407,7 +494,7 @@ export async function completeOrder(orderId: string, payment: PaymentMethod, act
 
 export async function deleteSale(targetId: string, actorId: string) {
   const actor = await db.users.get(actorId)
-  if (!actor || !actor.active || !['manager', 'admin'].includes(actor.role)) return false
+  if (!actor || !actor.active || !hasPermission(actor, 'sales.delete')) return false
   const sale = await db.sales.get(targetId)
   if (!sale) return false
   const after = { ...sale, deletedAt: new Date().toISOString(), deletedBy: actor.id }
@@ -418,7 +505,7 @@ export async function deleteSale(targetId: string, actorId: string) {
 
 export async function deleteProduct(targetId: string, actorId: string) {
   const actor = await db.users.get(actorId)
-  if (!actor || !actor.active || actor.role !== 'manager') return false
+  if (!actor || !actor.active || !hasPermission(actor, 'products.manage')) return false
   const product = await db.products.get(targetId)
   if (!product) return false
   const after = { ...product, deletedAt: new Date().toISOString(), deletedBy: actor.id }
@@ -458,14 +545,15 @@ export async function createWorker(name: string, pin: string, rank: string) {
     role: 'employee',
     pin,
     rank: rank.trim(),
-    active: true
+    active: true,
+    permissions: ['dashboard.view','pos.access','sales.view','cashClosing.access']
   }
   await db.users.add(user)
   await audit('USER_CREATED', 'USERS', 'user', user.id, null, user)
   return user
 }
 
-export type UserSettings = Pick<User, 'name' | 'pin' | 'rank' | 'active' | 'role'>
+export type UserSettings = Pick<User, 'name' | 'pin' | 'rank' | 'active' | 'role' | 'permissions'>
 
 export async function updateUserSettings(targetId: string, changes: Partial<UserSettings>, actorId: string) {
   const [actor, target] = await Promise.all([db.users.get(actorId), db.users.get(targetId)])
@@ -475,6 +563,7 @@ export async function updateUserSettings(targetId: string, changes: Partial<User
   if (typeof changes.name === 'string' && changes.name.trim().length >= 2) safeChanges.name = changes.name.trim()
   if (typeof changes.pin === 'string' && /^\d{4}$/.test(changes.pin)) safeChanges.pin = changes.pin
   if (typeof changes.rank === 'string' && changes.rank.trim().length >= 2) safeChanges.rank = changes.rank.trim()
+  if (actor.role === 'manager' && Array.isArray(changes.permissions)) safeChanges.permissions = Array.from(new Set([...changes.permissions.filter((key): key is PermissionKey => ['dashboard.view','pos.access','sales.view','sales.delete','products.manage','reports.view','cashClosing.access'].includes(key)), 'pos.access'])) as PermissionKey[]
 
   const wantsRoleChange = changes.role !== undefined && changes.role !== target.role
   const wantsActiveChange = changes.active !== undefined && changes.active !== target.active

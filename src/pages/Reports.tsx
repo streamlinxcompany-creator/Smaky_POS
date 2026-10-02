@@ -1,11 +1,12 @@
 import { BarChart3, Banknote, CalendarDays, ChevronDown, CreditCard, Download, FileJson, FileSpreadsheet, FileText, Printer, ReceiptText, ShoppingBag, TrendingUp, Utensils, WalletCards, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { getAllProducts, getSales, recordBusinessDayKey } from '../lib/store'
+import { getAllProducts, getPaymentMethods, getSales, recordBusinessDayKey } from '../lib/store'
 import { date, money, time } from '../lib/format'
 import type { PaymentMethod, Product, Sale } from '../lib/types'
 
-const paymentLabel = (payment: PaymentMethod) => payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : 'Tarjeta'
+const fallbackPaymentLabel = (payment: PaymentMethod) => payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : payment === 'card' ? 'Tarjeta' : payment
 const paymentIcon = (payment: PaymentMethod) => payment === 'cash' ? Banknote : payment === 'transfer' ? WalletCards : CreditCard
+
 const pad = (value: number) => String(value).padStart(2, '0')
 const keyFromDate = (value: Date) => `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`
 const dateFromKey = (value: string) => { const [year, month, day] = value.split('-').map(Number); return new Date(year, month - 1, day) }
@@ -14,9 +15,11 @@ const daysBetween = (from: string, to: string) => { const days: string[] = []; f
 const dayLabel = (value: string) => new Intl.DateTimeFormat('es-CO', { weekday: 'short', day: '2-digit' }).format(dateFromKey(value)).replace('.', '')
 const dateLabel = (value: string) => new Intl.DateTimeFormat('es-CO', { day: '2-digit', month: 'short' }).format(dateFromKey(value)).replace('.', '')
 const defaultRange = () => { const today = keyFromDate(new Date()); return { from: shiftDays(today, -29), to: today } }
+const paymentName = (payment: PaymentMethod, sale?: Sale, labels: Record<string,string> = {}) => sale?.paymentLabel || labels[payment] || fallbackPaymentLabel(payment)
 
 export function Reports() {
   const [sales, setSales] = useState<Sale[]>([])
+  const [paymentLabels, setPaymentLabels] = useState<Record<string,string>>({})
   const [products, setProducts] = useState<Product[]>([])
   const initial = defaultRange()
   const [dateFrom, setDateFrom] = useState(initial.from)
@@ -26,7 +29,7 @@ export function Reports() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
 
-  useEffect(() => { Promise.all([getSales(), getAllProducts()]).then(([salesData, productData]) => { setSales(salesData); setProducts(productData) }) }, [])
+  useEffect(() => { Promise.all([getSales(), getAllProducts(), getPaymentMethods()]).then(([salesData, productData, methods]) => { setSales(salesData); setProducts(productData); setPaymentLabels(Object.fromEntries(methods.map(method => [method.id, method.name]))) }) }, [])
 
   const burgerIds = useMemo(() => new Set(products.filter(product => product.category === 'Hamburguesas').map(product => product.id)), [products])
   const burgerEquivalent = (productId: string, productName: string, quantity: number) => {
@@ -41,7 +44,7 @@ export function Reports() {
     const daily = new Map<string, { revenue: number; tickets: number; units: number; burgers: number }>()
     days.forEach(day => daily.set(day, { revenue: 0, tickets: 0, units: 0, burgers: 0 }))
     const productMap = new Map<string, { name: string; units: number; revenue: number }>()
-    const payments = new Map<PaymentMethod, number>([['cash', 0], ['transfer', 0], ['card', 0]])
+    const payments = new Map<PaymentMethod, number>()
     let revenue = 0, units = 0, burgers = 0
 
     filteredSales.forEach(sale => {
@@ -77,7 +80,7 @@ export function Reports() {
     if (!info) return null
     const daySales = filteredSales.filter(sale => keyFromDate(new Date(sale.createdAt)) === selectedDay)
     const productMap = new Map<string, { name: string; units: number; burgers: number; revenue: number }>()
-    const paymentMap = new Map<PaymentMethod, number>([['cash', 0], ['transfer', 0], ['card', 0]])
+    const paymentMap = new Map<PaymentMethod, number>()
     daySales.forEach(sale => {
       paymentMap.set(sale.payment, (paymentMap.get(sale.payment) || 0) + sale.total)
       sale.items.forEach(item => {
@@ -177,9 +180,9 @@ export function Reports() {
       </div>
       <div className="report-day-columns">
         <div className="report-day-section"><div className="panel-title"><div><h3>Productos del día</h3><p>Incluye equivalencia de hamburguesas.</p></div></div>{selectedDayDetail.products.length === 0 ? <div className="report-empty compact"><ShoppingBag size={26}/><b>No hay productos</b></div> : <div className="day-product-list">{selectedDayDetail.products.map(product => <div className="day-product-row" key={product.name}><div><b>{product.name}</b><small>{product.units} unidades · {product.burgers} hamburguesas</small></div><strong>{money(product.revenue)}</strong></div>)}</div>}</div>
-        <div className="report-day-section"><div className="panel-title"><div><h3>Medios de pago</h3><p>Recaudo del día.</p></div></div>{selectedDayDetail.payments.length === 0 ? <div className="report-empty compact"><CreditCard size={26}/><b>No hay pagos</b></div> : <div className="day-payment-list">{selectedDayDetail.payments.map(([payment, amount]) => { const Icon = paymentIcon(payment); return <div className="day-payment-row" key={payment}><span className="payment-report-icon"><Icon size={15}/></span><div><b>{paymentLabel(payment)}</b><small>{money(amount)}</small></div><strong>{selectedDayDetail.revenue ? Math.round(amount / selectedDayDetail.revenue * 100) : 0}%</strong></div> })}</div>}</div>
+        <div className="report-day-section"><div className="panel-title"><div><h3>Medios de pago</h3><p>Recaudo del día.</p></div></div>{selectedDayDetail.payments.length === 0 ? <div className="report-empty compact"><CreditCard size={26}/><b>No hay pagos</b></div> : <div className="day-payment-list">{selectedDayDetail.payments.map(([payment, amount]) => { const Icon = paymentIcon(payment); return <div className="day-payment-row" key={payment}><span className="payment-report-icon"><Icon size={15}/></span><div><b>{paymentName(payment, undefined, paymentLabels)}</b><small>{money(amount)}</small></div><strong>{selectedDayDetail.revenue ? Math.round(amount / selectedDayDetail.revenue * 100) : 0}%</strong></div> })}</div>}</div>
       </div>
-      <div className="report-day-sales"><div className="day-sales-head"><div className="panel-title"><div><span className="filter-kicker"><FileText size={13}/> DOCUMENTOS DEL DÍA</span><h3>Facturas del día</h3><p>Toca una factura para ver el comprobante completo, igual que en Ventas.</p></div></div><span className="invoice-count">{selectedDayDetail.sales.length} {selectedDayDetail.sales.length === 1 ? 'factura' : 'facturas'}</span></div>{selectedDayDetail.sales.length === 0 ? <div className="report-empty compact"><ReceiptText size={26}/><b>No hay facturas</b></div> : <div className="day-sales-list">{selectedDayDetail.sales.map(sale => <button className="day-sale-row" key={sale.id} onClick={() => setSelectedSale(sale)}><div className="day-sale-time">{time(sale.createdAt)}</div><div className="day-sale-main"><b>Factura #{sale.id.slice(-6).toUpperCase()}</b><small>{sale.items.map(item => `${item.quantity}× ${item.name}`).join(' · ')}</small></div><div className="day-sale-user"><span>Atendió</span><b>{sale.userName}</b></div><span className="day-sale-payment">{paymentLabel(sale.payment)}</span><strong>{money(sale.total)}</strong><span className="day-sale-arrow">›</span></button>)}</div>}</div>
+      <div className="report-day-sales"><div className="day-sales-head"><div className="panel-title"><div><span className="filter-kicker"><FileText size={13}/> DOCUMENTOS DEL DÍA</span><h3>Facturas del día</h3><p>Toca una factura para ver el comprobante completo, igual que en Ventas.</p></div></div><span className="invoice-count">{selectedDayDetail.sales.length} {selectedDayDetail.sales.length === 1 ? 'factura' : 'facturas'}</span></div>{selectedDayDetail.sales.length === 0 ? <div className="report-empty compact"><ReceiptText size={26}/><b>No hay facturas</b></div> : <div className="day-sales-list">{selectedDayDetail.sales.map(sale => <button className="day-sale-row" key={sale.id} onClick={() => setSelectedSale(sale)}><div className="day-sale-time">{time(sale.createdAt)}</div><div className="day-sale-main"><b>Factura #{sale.id.slice(-6).toUpperCase()}</b><small>{sale.items.map(item => `${item.quantity}× ${item.name}`).join(' · ')}</small></div><div className="day-sale-user"><span>Atendió</span><b>{sale.userName}</b></div><span className="day-sale-payment">{paymentName(sale.payment, sale, paymentLabels)}</span><strong>{money(sale.total)}</strong><span className="day-sale-arrow">›</span></button>)}</div>}</div>
     </div>}
 
 
@@ -195,7 +198,7 @@ export function Reports() {
         <div className="receipt-meta">
           <div><span>Fecha</span><b>{date(selectedSale.createdAt)} · {time(selectedSale.createdAt)}</b></div>
           <div><span>Atendido por</span><b>{selectedSale.userName}</b></div>
-          <div><span>Pago</span><b>{paymentLabel(selectedSale.payment)}</b></div>
+          <div><span>Pago</span><b>{paymentName(selectedSale.payment, selectedSale, paymentLabels)}</b></div>
         </div>
         <div className="receipt-section-title">Productos</div>
         <div className="receipt-items">{selectedSale.items.map(item => <div className="receipt-item" key={item.productId}>
@@ -218,7 +221,7 @@ export function Reports() {
 
       <div className="panel">
         <div className="panel-title"><div><h2>Medios de pago</h2><p>Cómo se está cobrando.</p></div></div>
-        {report.payments.length === 0 ? <div className="report-empty compact"><CreditCard size={28}/><b>No hay pagos para mostrar</b></div> : <div className="payment-report-list">{report.payments.map(([payment, amount]) => { const Icon = paymentIcon(payment); return <div className="payment-report-row" key={payment}><span className="payment-report-icon"><Icon size={15}/></span><div><b>{paymentLabel(payment)}</b><small>{money(amount)}</small></div><strong>{Math.round(amount / report.revenue * 100)}%</strong></div> })}</div>}
+        {report.payments.length === 0 ? <div className="report-empty compact"><CreditCard size={28}/><b>No hay pagos para mostrar</b></div> : <div className="payment-report-list">{report.payments.map(([payment, amount]) => { const Icon = paymentIcon(payment); return <div className="payment-report-row" key={payment}><span className="payment-report-icon"><Icon size={15}/></span><div><b>{paymentName(payment, undefined, paymentLabels)}</b><small>{money(amount)}</small></div><strong>{Math.round(amount / report.revenue * 100)}%</strong></div> })}</div>}
       </div>
     </div>
   </div>

@@ -1,103 +1,125 @@
-import { Check, CircleHelp, Plus, Settings as SettingsIcon, Tag, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Banknote, Check, CircleHelp, CreditCard, LockKeyhole, Pencil, Plus, ReceiptText, Settings as SettingsIcon, ShieldCheck, Tag, Trash2, WalletCards } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { getSessionUser } from '../lib/auth'
-import { DEFAULT_PRODUCT_CATEGORIES, addProductCategory, deleteProductCategory, getAllProducts, getProductCategories } from '../lib/store'
+import { addPaymentMethod, addProductCategory, DEFAULT_PRODUCT_CATEGORIES, deletePaymentMethod, deleteProductCategory, getAllProducts, getPaymentMethods, getProductCategories, updatePaymentMethod } from '../lib/store'
+import type { PaymentMethodConfig } from '../lib/types'
+import { Users } from './Users'
+
+const paymentIcon = (id: string) => id === 'cash' ? Banknote : id === 'transfer' ? WalletCards : CreditCard
 
 export function Settings() {
   const user = getSessionUser()
   const [categories, setCategories] = useState<string[]>([])
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>([])
   const [productCount, setProductCount] = useState(0)
   const [categoryName, setCategoryName] = useState('')
+  const [paymentName, setPaymentName] = useState('')
+  const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null)
+  const [editingPaymentName, setEditingPaymentName] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
 
+  const canManage = !!user && ['manager', 'admin'].includes(user.role)
+  const isManager = user?.role === 'manager'
+
   const load = async () => {
-    const [nextCategories, products] = await Promise.all([getProductCategories(), getAllProducts()])
+    const [nextCategories, products, methods] = await Promise.all([getProductCategories(), getAllProducts(), getPaymentMethods()])
     setCategories(nextCategories)
     setProductCount(products.length)
+    setPaymentMethods(methods)
   }
 
   useEffect(() => { void load() }, [])
 
+  const flashError = (caught: unknown) => setError(caught instanceof Error ? caught.message : 'No fue posible guardar el cambio.')
+  const clearFeedback = () => { setError(''); setMessage('') }
+
   const addCategory = async () => {
-    if (!user || !['manager', 'admin'].includes(user.role) || saving) return
-    setSaving(true)
-    setError('')
-    setMessage('')
+    if (!user || !canManage || saving) return
+    setSaving(true); clearFeedback()
     try {
-      const next = await addProductCategory(categoryName, user)
-      setCategories(next)
-      setCategoryName('')
-      setMessage('Categoría agregada correctamente.')
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'No fue posible agregar la categoría.')
-    } finally {
-      setSaving(false)
-    }
+      setCategories(await addProductCategory(categoryName, user)); setCategoryName(''); setMessage('Categoría agregada correctamente.')
+    } catch (caught) { flashError(caught) } finally { setSaving(false) }
   }
 
   const removeCategory = async (name: string) => {
-    if (!user || !['manager', 'admin'].includes(user.role) || saving) return
-    setSaving(true)
-    setError('')
-    setMessage('')
-    try {
-      const next = await deleteProductCategory(name, user)
-      setCategories(next)
-      setMessage(`Categoría “${name}” eliminada.`)
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'No fue posible eliminar la categoría.')
-    } finally {
-      setSaving(false)
-    }
+    if (!user || !canManage || saving) return
+    setSaving(true); clearFeedback()
+    try { setCategories(await deleteProductCategory(name, user)); setMessage(`Categoría “${name}” eliminada.`) }
+    catch (caught) { flashError(caught) } finally { setSaving(false) }
   }
 
-  if (!user || !['manager', 'admin'].includes(user.role)) return null
+  const addPayment = async () => {
+    if (!user || !canManage || saving) return
+    setSaving(true); clearFeedback()
+    try { setPaymentMethods(await addPaymentMethod(paymentName, user)); setPaymentName(''); setMessage('Medio de pago agregado.') }
+    catch (caught) { flashError(caught) } finally { setSaving(false) }
+  }
 
-  return <div className="settings-page">
-    <div className="page-heading compact settings-heading">
-      <div>
-        <p className="eyebrow">ADMINISTRACIÓN</p>
+  const savePayment = async (method: PaymentMethodConfig) => {
+    if (!user || !canManage || saving) return
+    setSaving(true); clearFeedback()
+    try { setPaymentMethods(await updatePaymentMethod(method.id, editingPaymentName, user)); setEditingPaymentId(null); setEditingPaymentName(''); setMessage('Medio de pago actualizado.') }
+    catch (caught) { flashError(caught) } finally { setSaving(false) }
+  }
+
+  const removePayment = async (method: PaymentMethodConfig) => {
+    if (!user || !canManage || saving) return
+    if (!window.confirm(`¿Quitar “${method.name}” de los medios disponibles? Las ventas históricas se conservarán.`)) return
+    setSaving(true); clearFeedback()
+    try { setPaymentMethods(await deletePaymentMethod(method.id, user)); setMessage(`“${method.name}” ya no estará disponible para nuevos cobros.`) }
+    catch (caught) { flashError(caught) } finally { setSaving(false) }
+  }
+
+  const categoryPreview = useMemo(() => categories.slice(0, 9), [categories])
+
+  if (!user || !canManage) return null
+
+  return <div className="settings-shell">
+    <div className="settings-hero">
+      <div className="settings-hero-copy">
+        <p className="eyebrow">CENTRO DE CONFIGURACIÓN</p>
         <h1>Configuraciones</h1>
-        <p className="muted">Un solo lugar para controlar los ajustes generales de Smaky. Este apartado crecerá con el sistema.</p>
+        <p className="muted">Un solo centro para ajustar el catálogo, la forma de cobro y el acceso de cada cuenta. Diseñado para que una modificación aquí se refleje en todo Smaky.</p>
       </div>
-      <div className="settings-role-pill"><SettingsIcon size={15}/> {user.role === 'manager' ? 'Gerente' : 'Administrador'}</div>
+      <div className="settings-hero-chip"><SettingsIcon size={14}/> {isManager ? 'Gerente · Control maestro' : 'Administrador · Configuración operativa'}</div>
     </div>
 
-    <section className="settings-grid">
-      <article className="panel settings-card settings-card-active">
-        <div className="settings-card-head"><div className="settings-card-icon"><Tag size={18}/></div><div><span className="settings-kicker">CATÁLOGO</span><h2>Categorías de productos</h2><p>Las categorías que agregues aquí aparecerán automáticamente al crear productos y en el punto de venta.</p></div><span className="settings-active-badge"><Check size={12}/> Activo</span></div>
-        <div className="settings-category-summary"><strong>{categories.length}</strong><span>categorías disponibles</span><small>{productCount} productos registrados</small></div>
-        <div className="settings-add-row">
-          <label><span>NUEVA CATEGORÍA</span><input value={categoryName} onChange={event => setCategoryName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void addCategory() }} placeholder="Ej. Promociones" maxLength={40}/></label>
-          <button className="primary settings-add-btn" disabled={saving || !categoryName.trim()} onClick={() => void addCategory()}><Plus size={16}/> Agregar</button>
+    {(error || message) && <div className={`settings-message ${error ? 'settings-error' : 'settings-success'}`}><CircleHelp size={14}/><span>{error || message}</span></div>}
+
+    <div className="settings-command-grid">
+      <article className="panel settings-command-card">
+        <div className="settings-command-head"><div className="settings-command-icon"><CreditCard size={19}/></div><div className="settings-counter"><strong>{paymentMethods.length}</strong><span>medios</span></div></div>
+        <div className="settings-command-copy"><span className="settings-kicker">COBROS · GENERAL</span><h2>Medios de pago</h2><p>Define qué opciones aparecen al cobrar. Puedes agregar, renombrar o retirar medios sin tocar el código del POS.</p></div>
+        <div className="settings-payment-list">
+          {paymentMethods.map(method => { const Icon = paymentIcon(method.id); return <div className="settings-payment-row" key={method.id}>
+            <div className="settings-payment-mark"><Icon size={15}/></div>
+            {editingPaymentId === method.id ? <input className="settings-edit-input" autoFocus value={editingPaymentName} onChange={event => setEditingPaymentName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void savePayment(method); if (event.key === 'Escape') setEditingPaymentId(null) }}/> : <div className="settings-payment-main"><b>{method.name}</b><span>{method.id.startsWith('custom-') ? 'Personalizado' : 'Medio base del sistema'}</span></div>}
+            {editingPaymentId === method.id ? <div className="settings-payment-actions"><button className="settings-inline-btn" disabled={saving} onClick={() => void savePayment(method)}><Check size={13}/> Guardar</button><button className="settings-inline-btn" disabled={saving} onClick={() => setEditingPaymentId(null)}>Cancelar</button></div> : <div className="settings-payment-actions"><button className="settings-inline-btn" disabled={saving} onClick={() => { setEditingPaymentId(method.id); setEditingPaymentName(method.name) }} title="Renombrar"><Pencil size={13}/></button><button className="settings-inline-btn danger" disabled={saving} onClick={() => void removePayment(method)} title="Quitar"><Trash2 size={13}/></button></div>}
+          </div> })}
         </div>
-        {error && <div className="settings-message settings-error"><CircleHelp size={15}/>{error}</div>}
-        {message && <div className="settings-message settings-success"><Check size={15}/>{message}</div>}
-        <div className="settings-category-list">
-          {categories.map((item, index) => {
-            const base = DEFAULT_PRODUCT_CATEGORIES.includes(item)
-            return <div className="settings-category-row" key={item}><div className="settings-category-dot"><Tag size={13}/></div><div><b>{item}</b><span>{base ? 'Categoría base del sistema' : 'Categoría personalizada'}</span></div>{!base && <button className="icon-action settings-delete" disabled={saving} onClick={() => void removeCategory(item)} title={`Eliminar ${item}`} aria-label={`Eliminar ${item}`}><Trash2 size={15}/></button>}</div>
-          })}
+        <div className="settings-add-payment"><input value={paymentName} onChange={event => setPaymentName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void addPayment() }} placeholder="Ej. Nequi, Daviplata, QR, Crédito…" maxLength={35}/><button className="primary" disabled={saving || !paymentName.trim()} onClick={() => void addPayment()}><Plus size={14}/> Agregar medio</button></div>
+        <div className="settings-payments-note"><CircleHelp size={13}/><span>Los medios retirados dejan de aparecer para nuevos cobros, pero las facturas antiguas mantienen su información original.</span></div>
+      </article>
+
+      <article className="panel settings-command-card">
+        <div className="settings-command-head"><div className="settings-command-icon"><Tag size={19}/></div><div className="settings-counter"><strong>{categories.length}</strong><span>categorías</span></div></div>
+        <div className="settings-command-copy"><span className="settings-kicker">CATÁLOGO · PRODUCTOS</span><h2>Categorías</h2><p>El catálogo se alimenta desde aquí. Lo que agregues aparecerá en Productos y en el filtro del punto de venta.</p></div>
+        <div className="settings-catalog-inner">
+          <div className="settings-category-mini"><label><span>NUEVA CATEGORÍA</span><input value={categoryName} onChange={event => setCategoryName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void addCategory() }} placeholder="Ej. Desayunos" maxLength={40}/></label><button className="primary" disabled={saving || !categoryName.trim()} onClick={() => void addCategory()}><Plus size={14}/> Agregar</button></div>
+          <div className="settings-category-pills">{categoryPreview.map(item => <span className="settings-category-pill" key={item}><Tag size={11}/>{item}{!DEFAULT_PRODUCT_CATEGORIES.includes(item) && <button title={`Quitar ${item}`} disabled={saving} onClick={() => void removeCategory(item)}>×</button>}</span>)}</div>
+          {categories.length > categoryPreview.length && <span className="settings-module-note">+ {categories.length - categoryPreview.length} categorías más disponibles en Productos.</span>}
+          <div className="settings-module-note"><ReceiptText size={13}/><span>{productCount} productos registrados actualmente.</span></div>
         </div>
-        <div className="settings-note"><CircleHelp size={14}/><span>No puedes eliminar las categorías base ni una categoría que ya esté asignada a un producto. Esto evita romper el catálogo existente.</span></div>
       </article>
 
-      <article className="panel settings-card settings-card-muted">
-        <div className="settings-card-head"><div className="settings-card-icon"><SettingsIcon size={18}/></div><div><span className="settings-kicker">PUNTO DE VENTA</span><h2>Configuración del POS</h2><p>Este módulo queda preparado para centralizar ajustes de operación, cobro y experiencia de caja.</p></div><span className="settings-soon">Próximamente</span></div>
-        <div className="settings-placeholder-list"><div><b>Medios de pago</b><span>Efectivo · Transferencia · Tarjeta</span></div><div><b>Descuentos</b><span>Reglas y límites de descuento</span></div><div><b>Comportamiento después del cobro</b><span>Factura automática y retorno a pedidos</span></div></div>
-      </article>
-
-      <article className="panel settings-card settings-card-muted">
-        <div className="settings-card-head"><div className="settings-card-icon"><Tag size={18}/></div><div><span className="settings-kicker">FACTURACIÓN</span><h2>Impresión térmica</h2><p>La factura ya queda preparada para papel térmico de 88 mm, alto automático y texto de alto contraste.</p></div><span className="settings-soon">En el sistema</span></div>
-        <div className="settings-spec-grid"><div><span>ANCHO</span><b>88 mm</b></div><div><span>COLOR</span><b>Blanco y negro</b></div><div><span>MARGEN</span><b>Reducido</b></div><div><span>ALTO</span><b>Automático</b></div></div>
-      </article>
-
-      <article className="panel settings-card settings-card-muted">
-        <div className="settings-card-head"><div className="settings-card-icon"><SettingsIcon size={18}/></div><div><span className="settings-kicker">SISTEMA</span><h2>Más configuraciones</h2><p>Seguridad, usuarios, cierres, respaldos, apariencia y comportamiento general se incorporarán aquí sin dispersar opciones por todo el POS.</p></div><span className="settings-soon">Próximamente</span></div>
-        <div className="settings-future-grid"><span>Seguridad y permisos</span><span>Respaldos</span><span>Apariencia</span><span>Datos del negocio</span></div>
-      </article>
-    </section>
+      {isManager && <article className="panel settings-command-card settings-manager-card">
+        <div className="settings-command-head"><div className="settings-command-icon"><ShieldCheck size={19}/></div><div className="settings-counter"><LockKeyhole size={17}/><span>gerente</span></div></div>
+        <div className="settings-command-copy"><span className="settings-kicker">CONTROL DE ACCESO · SOLO GERENTE</span><h2>Usuarios y permisos</h2><p>Crea cuentas y decide función por función qué puede utilizar cada trabajador o administrador. El Punto de venta siempre queda habilitado.</p></div>
+        <div className="settings-manager-lock"><ShieldCheck size={16}/><div><b>Panel protegido del Gerente</b><span>Los cambios de permisos quedan guardados en el perfil del usuario y se aplican al menú y a las rutas del sistema.</span></div></div>
+        <div className="settings-users-container"><Users embedded /></div>
+      </article>}
+    </div>
   </div>
 }

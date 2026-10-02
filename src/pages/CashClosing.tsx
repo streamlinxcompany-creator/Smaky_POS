@@ -1,12 +1,12 @@
 import { AlertTriangle, ArrowRight, Banknote, CheckCircle2, ChevronRight, DatabaseZap, FileText, LockKeyhole, ReceiptText, RotateCcw, ShieldCheck, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { getSessionUser } from '../lib/auth'
-import { addBusinessDay, businessDayKey, createDailyClosure, deletePreviousDayClosure, getClosures, getOrders, getSales, recordBusinessDayKey, resetTestData } from '../lib/store'
+import { addBusinessDay, businessDayKey, createDailyClosure, deletePreviousDayClosure, getClosures, getOrders, getPaymentMethods, getSales, recordBusinessDayKey, resetTestData } from '../lib/store'
 import { date, money, time } from '../lib/format'
 import type { CashClosure, Order, Sale } from '../lib/types'
 import { printCashClosure, printSaleReceipt } from '../lib/print'
 
-const paymentLabel = (payment: Sale['payment']) => payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : 'Tarjeta'
+const fallbackPaymentLabel = (payment: Sale['payment']) => payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : payment === 'card' ? 'Tarjeta' : payment
 const displayDay = (key: string) => {
   const [year, month, day] = key.split('-').map(Number)
   return new Intl.DateTimeFormat('es-CO', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Bogota' }).format(new Date(Date.UTC(year, month - 1, day, 12))).replace('.', '')
@@ -19,6 +19,7 @@ const shortDay = (key: string) => {
 export function CashClosing() {
   const user = getSessionUser()
   const [sales, setSales] = useState<Sale[]>([])
+  const [paymentLabels, setPaymentLabels] = useState<Record<string,string>>({})
   const [orders, setOrders] = useState<Order[]>([])
   const [closures, setClosures] = useState<CashClosure[]>([])
   const [loading, setLoading] = useState(true)
@@ -45,10 +46,11 @@ export function CashClosing() {
 
   const load = async () => {
     setLoading(true)
-    const [salesData, ordersData, closureData] = await Promise.all([getSales(), getOrders(), getClosures()])
+    const [salesData, ordersData, closureData, methods] = await Promise.all([getSales(), getOrders(), getClosures(), getPaymentMethods()])
     setSales(salesData)
     setOrders(ordersData)
     setClosures(closureData)
+    setPaymentLabels(Object.fromEntries(methods.map(method => [method.id, method.name])))
     setLoading(false)
   }
 
@@ -58,11 +60,12 @@ export function CashClosing() {
   const openOrders = useMemo(() => orders.filter(order => recordBusinessDayKey(order) === activeKey && !['paid', 'cancelled'].includes(order.status)), [orders, activeKey])
   const todaySummary = useMemo(() => todaySales.reduce((acc, sale) => {
     acc.total += sale.total
+    acc.payments[sale.payment] = (acc.payments[sale.payment] || 0) + sale.total
     if (sale.payment === 'cash') acc.cash += sale.total
     else if (sale.payment === 'transfer') acc.transfer += sale.total
-    else acc.card += sale.total
+    else if (sale.payment === 'card') acc.card += sale.total
     return acc
-  }, { total: 0, cash: 0, transfer: 0, card: 0 }), [todaySales])
+  }, { total: 0, cash: 0, transfer: 0, card: 0, payments: {} as Record<string,number> }), [todaySales])
   const counted = Number(cashCounted || 0)
   const difference = counted - todaySummary.cash
   const nextKey = activeClosure?.nextDateKey ?? addBusinessDay(activeKey, 1)
@@ -180,7 +183,7 @@ export function CashClosing() {
         {activeClosure ? <div className="closing-closed-banner"><CheckCircle2 size={19}/><div><b>El día ya fue cerrado</b><span>El próximo cierre se calculará para el <strong>{shortDay(activeClosure?.nextDateKey ?? nextKey)}</strong>.</span></div><button className="secondary" onClick={() => setDetailOpen(activeClosure)}><FileText size={15}/> Ver facturas</button></div>
           : <>
             {openOrders.length > 0 && <div className="closing-warning"><AlertTriangle size={18}/><div><b>No puedes cerrar todavía</b><span>Hay {openOrders.length} pedido{openOrders.length === 1 ? '' : 's'} abierto{openOrders.length === 1 ? '' : 's'}. Cobra o resuelve los pedidos antes de cerrar el día.</span></div></div>}
-            <div className="closing-stats"><div><span>Ventas</span><strong>{todaySales.length}</strong></div><div><span>Total vendido</span><strong>{money(todaySummary.total)}</strong></div><div><span>Efectivo</span><strong>{money(todaySummary.cash)}</strong></div><div><span>Transferencias</span><strong>{money(todaySummary.transfer)}</strong></div><div><span>Tarjetas</span><strong>{money(todaySummary.card)}</strong></div></div>
+            <div className="closing-stats"><div><span>Ventas</span><strong>{todaySales.length}</strong></div><div><span>Total vendido</span><strong>{money(todaySummary.total)}</strong></div>{Object.entries(todaySummary.payments).map(([id, amount]) => <div key={id}><span>{paymentLabels[id] || fallbackPaymentLabel(id)}</span><strong>{money(amount)}</strong></div>)}</div>
             <div className="closing-action-card"><div><span>EFECTIVO A VERIFICAR</span><b>{money(todaySummary.cash)}</b><small>El sistema espera este monto según las ventas en efectivo del día.</small></div><button className="primary" disabled={!!openOrders.length} onClick={openCloseModal}><LockKeyhole size={16}/> Preparar cierre</button></div>
           </>}
       </section>
@@ -204,7 +207,7 @@ export function CashClosing() {
         <header className="item-editor-head"><div><span className="item-editor-kicker">CONFIRMAR CIERRE</span><h3 id="closing-title">Cerrar caja del {shortDay(activeKey)}</h3><p>Revisa el resumen y confirma cuánto efectivo hay físicamente en caja.</p></div><button className="item-editor-close" disabled={saving} onClick={closeModal}><X size={18}/></button></header>
         <div className="item-editor-body closing-modal-body">
           <div className="closing-modal-summary"><div><span>Ventas</span><b>{todaySales.length}</b></div><div><span>Total vendido</span><b>{money(todaySummary.total)}</b></div><div><span>Efectivo esperado</span><b>{money(todaySummary.cash)}</b></div></div>
-          <div className="closing-method-grid"><div><span>Efectivo</span><strong>{money(todaySummary.cash)}</strong></div><div><span>Transferencias</span><strong>{money(todaySummary.transfer)}</strong></div><div><span>Tarjetas</span><strong>{money(todaySummary.card)}</strong></div></div>
+          <div className="closing-method-grid">{Object.entries(todaySummary.payments).length ? Object.entries(todaySummary.payments).map(([id, amount]) => <div key={id}><span>{paymentLabels[id] || fallbackPaymentLabel(id)}</span><strong>{money(amount)}</strong></div>) : <div><span>Medios de pago</span><strong>$0</strong></div>}</div>
           <label className="closing-cash-input"><span>EFECTIVO CONTADO</span><input inputMode="numeric" value={cashCounted} onChange={event => setCashCounted(event.target.value.replace(/[^\d]/g, ''))} placeholder="0"/><small>El efectivo contado se compara con el monto esperado.</small></label>
           <div className={`cash-difference-box ${difference === 0 ? 'ok' : difference > 0 ? 'surplus' : 'shortage'}`}><div>{difference === 0 ? <CheckCircle2 size={17}/> : <AlertTriangle size={17}/>}<span>{difference === 0 ? 'Caja cuadrada' : difference > 0 ? 'Hay un excedente' : 'Hay un faltante'}</span></div><strong>{difference === 0 ? '$0' : `${difference > 0 ? '+' : ''}${money(difference)}`}</strong></div>
           <label className="closing-note-input"><span>OBSERVACIÓN <em>OPCIONAL</em></span><textarea value={notes} onChange={event => setNotes(event.target.value)} placeholder="Ej. Se retiraron $50.000 para compra de insumos…" /></label>
@@ -223,7 +226,7 @@ export function CashClosing() {
           <div className="closure-detail-summary closure-detail-summary-wide"><div><span>Facturas</span><strong>{detailOpen.saleCount}</strong></div><div><span>Total vendido</span><strong>{money(detailOpen.total)}</strong></div><div><span>Efectivo</span><strong>{money(detailOpen.cash)}</strong></div><div><span>Transferencias</span><strong>{money(detailOpen.transfer)}</strong></div><div><span>Tarjetas</span><strong>{money(detailOpen.card)}</strong></div><div><span>Diferencia</span><strong className={detailOpen.cashDifference === 0 ? 'closure-diff-zero' : ''}>{detailOpen.cashDifference === 0 ? '$0' : `${detailOpen.cashDifference > 0 ? '+' : ''}${money(detailOpen.cashDifference)}`}</strong></div></div>
           <div className="closure-cash-verification"><div><span>EFECTIVO ESPERADO</span><strong>{money(detailOpen.cashExpected)}</strong></div><div><span>EFECTIVO CONTADO</span><strong>{money(detailOpen.cashCounted)}</strong></div><div><span>ESTADO</span><b>{detailOpen.cashDifference === 0 ? 'Caja cuadrada' : detailOpen.cashDifference > 0 ? 'Excedente' : 'Faltante'}</b></div></div>
           {detailOpen.notes && <div className="closure-detail-note"><FileText size={14}/><div><b>Observación</b><span>{detailOpen.notes}</span></div></div>}
-          <div className="closure-detail-invoices"><div className="panel-title"><div><h2>Facturas del cierre</h2><p>Comprobantes conservados y listos para imprimir.</p></div></div>{!detailOpen.sales.length ? <div className="closing-empty compact"><FileText size={22}/><span>No hubo ventas en este cierre.</span></div> : <div className="closure-invoice-list">{detailOpen.sales.map(sale => <article key={sale.id} className="closure-invoice-row"><div className="closure-invoice-index"><b>#{sale.orderNumber ?? sale.id.slice(-6)}</b><span>{time(sale.createdAt)}</span></div><div className="closure-invoice-main"><b>{sale.customerName || 'Consumidor final'}</b><span>{sale.items.map(item => `${item.quantity}× ${item.name}`).join(', ')}</span></div><div className="closure-invoice-payment">{paymentLabel(sale.payment)}</div><strong>{money(sale.total)}</strong><button className="sales-print-btn" onClick={() => printInvoice(sale)}><FileText size={13}/> Factura</button></article>)}</div>}</div>
+          <div className="closure-detail-invoices"><div className="panel-title"><div><h2>Facturas del cierre</h2><p>Comprobantes conservados y listos para imprimir.</p></div></div>{!detailOpen.sales.length ? <div className="closing-empty compact"><FileText size={22}/><span>No hubo ventas en este cierre.</span></div> : <div className="closure-invoice-list">{detailOpen.sales.map(sale => <article key={sale.id} className="closure-invoice-row"><div className="closure-invoice-index"><b>#{sale.orderNumber ?? sale.id.slice(-6)}</b><span>{time(sale.createdAt)}</span></div><div className="closure-invoice-main"><b>{sale.customerName || 'Consumidor final'}</b><span>{sale.items.map(item => `${item.quantity}× ${item.name}`).join(', ')}</span></div><div className="closure-invoice-payment">{(sale.paymentLabel || paymentLabels[sale.payment] || fallbackPaymentLabel(sale.payment))}</div><strong>{money(sale.total)}</strong><button className="sales-print-btn" onClick={() => printInvoice(sale)}><FileText size={13}/> Factura</button></article>)}</div>}</div>
         </div>
         <footer className="item-editor-footer closure-detail-footer"><div className="closure-detail-footer-actions"><button className="secondary" onClick={() => setDetailOpen(null)}>Cerrar</button>{canDeleteClosure(detailOpen) && <button className="danger-inline-btn" onClick={() => setDeleteTarget(detailOpen)} disabled={deleting}><RotateCcw size={14}/> Eliminar cierre</button>}</div><button className="primary" onClick={() => printCashClosure(detailOpen)}><FileText size={15}/> Imprimir factura de cierre</button></footer>
       </section>

@@ -1,12 +1,12 @@
 import { ArrowRight, Check, CreditCard, FileText, Minus, Plus, Printer, Search, ShoppingCart, SlidersHorizontal, Tag, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent } from 'react'
-import { completeOrder, createOrder, getProductCategories, getProducts, updateOrderComandaStatus, updateOrderItems } from '../lib/store'
+import { completeOrder, createOrder, getPaymentMethods, getProductCategories, getProducts, updateOrderComandaStatus, updateOrderItems } from '../lib/store'
 import { money, time, date } from '../lib/format'
-import type { Order, PaymentMethod, Product, Sale, SaleItem, User } from '../lib/types'
+import type { Order, PaymentMethod, PaymentMethodConfig, Product, Sale, SaleItem, User } from '../lib/types'
 import { printOrderComanda, printSaleReceipt } from '../lib/print'
 
 const modificationChips = ['Sin salsas', 'Sin tomate', 'Sin lechuga', 'Sin cebolla', 'Sin queso']
-const paymentLabel = (payment: PaymentMethod) => payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : 'Tarjeta'
+const fallbackPaymentLabel = (payment: PaymentMethod) => payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : payment === 'card' ? 'Tarjeta' : payment
 
 type Props = {
   user: User
@@ -49,6 +49,7 @@ const normalizeItem = (item: SaleItem) => ({
 export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: Props) {
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<string[]>([])
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>([])
   const [items, setItems] = useState<SaleItem[]>(initialOrder?.items.map(item => ({ ...item, lineId: item.lineId || newLineId() })) || [])
   const [order, setOrder] = useState<Order | null>(initialOrder || null)
   const [category, setCategory] = useState<(typeof categories)[number]>('Todos')
@@ -92,7 +93,7 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
     return categoryMatch && (!q || product.name.toLowerCase().includes(q))
   })
 
-  useEffect(() => { void Promise.all([getProducts(), getProductCategories()]).then(([productsData, categoryData]) => { setProducts(productsData); setCategories(categoryData) }) }, [])
+  useEffect(() => { void Promise.all([getProducts(), getProductCategories(), getPaymentMethods()]).then(([productsData, categoryData, paymentMethodData]) => { setProducts(productsData); setCategories(categoryData); setPaymentMethods(paymentMethodData); if (paymentMethodData.length) setPayment(paymentMethodData[0].id) }) }, [])
 
   useEffect(() => {
     if (!completedSale) return
@@ -245,7 +246,8 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
         setCurrent(updated)
       }
       const discount = discountAmount > 0 ? { type: discountType, value: Number.isFinite(parsedDiscountValue) ? parsedDiscountValue : 0 } as const : undefined
-      const result = await completeOrder(currentOrder.id, payment, user, discount)
+      const selectedPayment = paymentMethods.find(method => method.id === payment)
+      const result = await completeOrder(currentOrder.id, payment, user, discount, selectedPayment?.name || fallbackPaymentLabel(payment))
       if (!result) throw new Error('No fue posible registrar el pago.')
       setCurrent(result.order)
       setCheckoutOpen(false)
@@ -263,6 +265,12 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
     } finally { setSaving(false) }
   }
 
+
+  const exitCompletedSale = () => {
+    setCompletedSale(null)
+    setPaymentCountdown(0)
+    onClose()
+  }
 
   const requestClose = () => {
     if (saving || checkoutOpen) return
@@ -367,7 +375,7 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
           {order && !isLocked && <>
             <div className="workspace-payment">
               <div className="workspace-payment-title"><div><b>Pago</b><span>Selecciona cómo te pagan</span></div><CreditCard size={17}/></div>
-              <div className="payment-grid workspace-payment-grid">{([['cash', 'Efectivo'], ['transfer', 'Transferencia'], ['card', 'Tarjeta']] as const).map(([value, label]) => <button key={value} className={payment === value ? 'selected' : ''} onClick={() => setPayment(value)}>{label}</button>)}</div>
+              <div className="payment-grid workspace-payment-grid">{paymentMethods.map(method => <button key={method.id} className={payment === method.id ? 'selected' : ''} onClick={() => setPayment(method.id)}>{method.name}</button>)}</div>
             </div>
             <div className="workspace-final-actions">
               <button className="secondary" disabled={saving} onClick={() => void saveDraft(true)}><Printer size={15}/>{saving ? 'Guardando…' : dirty ? 'Guardar cambios + imprimir' : 'Imprimir comanda'}</button>
@@ -404,8 +412,8 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
             </div>
 
             <div className="item-editor-section checkout-payment-section">
-              <div className="item-editor-section-head"><div><b>Medio de pago</b><span>Selecciona cómo te están pagando</span></div><strong>{paymentLabel(payment)}</strong></div>
-              <div className="payment-grid checkout-payment-grid">{([['cash', 'Efectivo'], ['transfer', 'Transferencia'], ['card', 'Tarjeta']] as const).map(([value, label]) => <button key={value} className={payment === value ? 'selected' : ''} disabled={saving} onClick={() => setPayment(value)} aria-pressed={payment === value}>{label}</button>)}</div>
+              <div className="item-editor-section-head"><div><b>Medio de pago</b><span>Selecciona cómo te están pagando</span></div><strong>{paymentMethods.find(method => method.id === payment)?.name || fallbackPaymentLabel(payment)}</strong></div>
+              <div className="payment-grid checkout-payment-grid">{paymentMethods.map(method => <button key={method.id} className={payment === method.id ? 'selected' : ''} disabled={saving} onClick={() => setPayment(method.id)} aria-pressed={payment === method.id}>{method.name}</button>)}</div>
             </div>
 
             <div className="checkout-total-card">
@@ -449,7 +457,7 @@ export function OrderWorkspace({ user, initialOrder, onClose, onOrderChange }: P
           <h3>Factura enviada a impresión</h3>
           <p>Pedido <b>#{completedSale.orderNumber}</b> registrado correctamente.</p>
           <div className="payment-complete-total"><span>Total cobrado</span><strong>{money(completedSale.total)}</strong></div>
-          <div className="payment-complete-bottom"><span>Regresando a pedidos</span><b>{paymentCountdown}s</b></div>
+          <div className="payment-complete-actions"><button type="button" className="secondary payment-complete-exit" onClick={exitCompletedSale}><X size={14}/> Salir</button><div className="payment-complete-bottom"><span>Regresando a pedidos</span><b>{paymentCountdown}s</b></div></div>
         </div>
       </div>}
 

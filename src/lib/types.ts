@@ -1,5 +1,21 @@
 export type Role = 'manager' | 'admin' | 'employee'
-export type PaymentMethod = 'cash' | 'transfer' | 'card'
+export type PermissionKey =
+  | 'dashboard.view'
+  | 'pos.access'
+  | 'sales.view'
+  | 'sales.delete'
+  | 'products.manage'
+  | 'reports.view'
+  | 'cashClosing.access'
+
+export type PaymentMethod = string
+
+export type PaymentMethodConfig = {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+}
 export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'paid' | 'cancelled'
 
 export type Product = {
@@ -58,6 +74,7 @@ export type Sale = DeliveryInfo & {
   userId: string
   userName: string
   payment: PaymentMethod
+  paymentLabel?: string
   items: SaleItem[]
   subtotal: number
   total: number
@@ -83,6 +100,9 @@ export type CashClosure = {
   cash: number
   transfer: number
   card: number
+  /** Desglose completo de cualquier medio de pago, incluyendo los personalizados. */
+  payments?: Record<string, number>
+  paymentLabels?: Record<string, string>
   cashExpected: number
   cashCounted: number
   cashDifference: number
@@ -100,6 +120,7 @@ export type User = {
   pin: string
   rank: string
   active: boolean
+  permissions?: PermissionKey[]
   deletedAt?: string
   deletedBy?: string
 }

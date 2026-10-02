@@ -1,15 +1,16 @@
 import { ArrowRight, FileText, Printer, ShieldAlert, Trash2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
-import { deleteSale, getSales } from '../lib/store'
+import { deleteSale, getPaymentMethods, getSales } from '../lib/store'
 import { money, time, date } from '../lib/format'
 import type { PaymentMethod, Sale } from '../lib/types'
-import { getSessionUser } from '../lib/auth'
+import { getSessionUser, hasPermission } from '../lib/auth'
 import { printSaleReceipt } from '../lib/print'
 
-const paymentLabel = (payment: PaymentMethod) => payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : 'Tarjeta'
+const fallbackPaymentLabel = (payment: PaymentMethod) => payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : payment === 'card' ? 'Tarjeta' : payment
 
 export function Sales() {
   const [sales, setSales] = useState<Sale[]>([])
+  const [paymentLabels, setPaymentLabels] = useState<Record<string,string>>({})
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteProgress, setDeleteProgress] = useState(0)
@@ -20,9 +21,10 @@ export function Sales() {
   const deleteDragStartXRef = useRef(0)
   const deleteDragStartProgressRef = useRef(0)
   const sessionUser = getSessionUser()
-  const canDelete = sessionUser?.role === 'manager' || sessionUser?.role === 'admin'
+  const canDelete = hasPermission(sessionUser, 'sales.delete')
+  const paymentLabel = (payment: PaymentMethod, sale?: Sale) => sale?.paymentLabel || paymentLabels[payment] || fallbackPaymentLabel(payment)
 
-  useEffect(() => { getSales().then(setSales) }, [])
+  useEffect(() => { Promise.all([getSales(), getPaymentMethods()]).then(([salesData, methods]) => { setSales(salesData); setPaymentLabels(Object.fromEntries(methods.map(method => [method.id, method.name]))) }) }, [])
 
   const closeReceipt = () => {
     setSelectedSale(null)
@@ -84,7 +86,7 @@ export function Sales() {
           <td>{date(sale.createdAt)} · {time(sale.createdAt)}</td>
           <td><b>#{sale.orderNumber ?? sale.id.slice(-6).toUpperCase()}</b><div className="sales-customer">{sale.customerName || 'Consumidor final'}</div></td>
           <td>{sale.userName}</td>
-          <td><span className="badge">{paymentLabel(sale.payment)}</span></td>
+          <td><span className="badge">{paymentLabel(sale.payment, sale)}</span></td>
           <td><b>{money(sale.total)}</b></td>
           <td><button className="sales-print-btn" title="Imprimir factura" onClick={(event) => { event.stopPropagation(); printSaleReceipt(sale) }}><Printer size={14}/> Factura</button></td>
         </tr>)}</tbody>
@@ -104,7 +106,7 @@ export function Sales() {
         <div className="receipt-meta">
           <div><span>Pedido</span><b>#{selectedSale.orderNumber ?? selectedSale.id.slice(-6).toUpperCase()}</b></div>
           <div><span>Cliente</span><b>{selectedSale.customerName || 'Consumidor final'}</b></div>
-          <div><span>Pago</span><b>{paymentLabel(selectedSale.payment)}</b></div>
+          <div><span>Pago</span><b>{paymentLabel(selectedSale.payment, selectedSale)}</b></div>
           <div><span>Fecha</span><b>{date(selectedSale.createdAt)} · {time(selectedSale.createdAt)}</b></div>
           <div><span>Atendido por</span><b>{selectedSale.userName}</b></div>
           <div><span>Dirección</span><b>{selectedSale.address || '—'}</b></div>

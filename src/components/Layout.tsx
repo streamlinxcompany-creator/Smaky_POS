@@ -1,7 +1,7 @@
 import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { AlertTriangle, BarChart3, CircleUserRound, ClipboardList, LayoutDashboard, LockKeyhole, LogOut, Menu, Package, Settings, ShoppingCart, ShieldCheck, Wifi, WifiOff, X } from 'lucide-react'
+import { AlertTriangle, BarChart3, ClipboardList, LayoutDashboard, LockKeyhole, LogOut, Menu, Package, Settings, ShoppingCart, ShieldCheck, Wifi, WifiOff, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { clearSession, getSessionUser, initials } from '../lib/auth'
+import { clearSession, getSessionUser, hasPermission, initials } from '../lib/auth'
 
 const allNav = [
   { to: '/', label: 'Inicio', icon: LayoutDashboard, roles: ['manager', 'admin', 'employee'] },
@@ -9,7 +9,6 @@ const allNav = [
   { to: '/ventas', label: 'Ventas', icon: ClipboardList, roles: ['manager', 'admin', 'employee'] },
   { to: '/productos', label: 'Productos', icon: Package, roles: ['manager', 'admin'] },
   { to: '/reportes', label: 'Reportes', icon: BarChart3, roles: ['manager', 'admin'] },
-  { to: '/usuarios', label: 'Usuarios', icon: CircleUserRound, roles: ['manager', 'admin'] },
   { to: '/cierre-caja', label: 'Cierre de caja', icon: LockKeyhole, roles: ['manager', 'admin', 'employee'] },
   { to: '/configuraciones', label: 'Configuraciones', icon: Settings, roles: ['manager', 'admin'] }
 ]
@@ -29,7 +28,15 @@ export function Layout() {
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); window.removeEventListener('smaky-auth-change', sync) }
   }, [])
   if (!user) return <Navigate to="/login" replace />
-  const nav = allNav.filter(item => item.roles.includes(user.role))
+  const permissionForRoute: Record<string, Parameters<typeof hasPermission>[1] | null> = {
+    '/': 'dashboard.view',
+    '/pos': 'pos.access',
+    '/ventas': 'sales.view',
+    '/productos': 'products.manage',
+    '/reportes': 'reports.view',
+    '/cierre-caja': 'cashClosing.access',
+  }
+  const nav = allNav.filter(item => item.roles.includes(user.role) && (item.to === '/configuraciones' ? ['manager', 'admin'].includes(user.role) : hasPermission(user, permissionForRoute[item.to]!)))
   const isAdminArea = user.role !== 'employee'
   const logout = () => setConfirmLogout(true)
   const confirmLogoutNow = () => {
