@@ -123,7 +123,7 @@ export function Users({ embedded = false }: { embedded?: boolean }) {
       <div><p className="eyebrow">PERSONAL Y ACCESOS</p><h1>Usuarios</h1><p className="muted">Administra el equipo, sus rangos y los permisos de Smaky.</p></div>
       <button className="primary users-add" onClick={() => setCreating(true)}><Plus size={16}/> Agregar trabajador</button>
     </div>}
-    {embedded && <div className="settings-embedded-toolbar"><div><span className="settings-kicker">PERSONAL · ACCESOS</span><h3>Usuarios y permisos</h3><p>Elige una cuenta para editar su acceso. Esta sección está disponible únicamente para el Gerente.</p></div><button className="primary settings-add-user" onClick={() => setCreating(true)}><Plus size={15}/> Agregar trabajador</button></div>}
+    {embedded && <div className="settings-embedded-toolbar"><div><h3>Usuarios</h3><span>{users.length} cuentas</span></div><button className="primary settings-add-user" onClick={() => setCreating(true)}><Plus size={15}/> Agregar</button></div>}
 
     <div className="users-toolbar">
       <div><span className="toolbar-dot"></span><b>{users.filter(u => u.active).length}</b> cuentas activas <span className="toolbar-separator">·</span> {users.length} registradas</div>

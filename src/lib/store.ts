@@ -178,6 +178,34 @@ export async function deleteProductCategory(name: string, actor: User) {
   return next
 }
 
+export async function updateProductCategory(oldName: string, newName: string, actor: User) {
+  const oldClean = oldName.trim().replace(/\s+/g, ' ')
+  const cleanName = newName.trim().replace(/\s+/g, ' ')
+  if (cleanName.length < 2) throw new Error('La categoría debe tener al menos 2 caracteres.')
+  if (cleanName.length > 40) throw new Error('La categoría no puede superar 40 caracteres.')
+  if (cleanName.toLowerCase() === 'todos') throw new Error('Ese nombre está reservado para el filtro general del punto de venta.')
+
+  const current = await getProductCategories()
+  const found = current.find(item => item.toLowerCase() === oldClean.toLowerCase())
+  if (!found) throw new Error('No encontramos esa categoría.')
+  if (found === cleanName) return current
+  if (current.some(item => item.toLowerCase() === cleanName.toLowerCase() && item !== found)) throw new Error('Ya existe una categoría con ese nombre.')
+
+  const next = current.map(item => item === found ? cleanName : item)
+  const products = await db.products.toArray()
+  let updatedProducts = 0
+  for (const product of products) {
+    if (product.category.toLowerCase() === found.toLowerCase()) {
+      await db.products.put({ ...product, category: cleanName })
+      updatedProducts += 1
+    }
+  }
+  const now = new Date().toISOString()
+  await db.settings.put({ id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: next, updatedAt: now })
+  await audit('PRODUCT_CATEGORY_UPDATED', 'SETTINGS', 'setting', CATEGORY_SETTING_KEY, { categories: current }, { categories: next, renamedFrom: found, renamedTo: cleanName, updatedProducts }, actor)
+  return next
+}
+
 export async function getPaymentMethods(): Promise<PaymentMethodConfig[]> {
   const setting = await db.settings.get(PAYMENT_METHODS_SETTING_KEY)
   const value = setting?.value
