@@ -1,11 +1,12 @@
-import { Banknote, Check, ChevronRight, CreditCard, Pencil, Plus, Settings2, ShieldCheck, Tag, Trash2, WalletCards, Users as UsersIcon } from 'lucide-react'
+import { Banknote, Check, ChevronRight, CreditCard, Pencil, Plus, Settings2, Tag, Trash2, WalletCards, Users as UsersIcon, Package } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { getSessionUser } from '../lib/auth'
+import { getSessionUser, hasPermission } from '../lib/auth'
 import { addPaymentMethod, addProductCategory, DEFAULT_PRODUCT_CATEGORIES, deletePaymentMethod, deleteProductCategory, getAllProducts, getPaymentMethods, getProductCategories, updatePaymentMethod, updateProductCategory } from '../lib/store'
 import type { PaymentMethodConfig } from '../lib/types'
 import { Users } from './Users'
+import { Products } from './Products'
 
-type SettingsSection = 'general' | 'payments' | 'categories' | 'users'
+type SettingsSection = 'general' | 'payments' | 'categories' | 'products' | 'users'
 
 const paymentIcon = (id: string) => id === 'cash' ? Banknote : id === 'transfer' ? WalletCards : CreditCard
 
@@ -13,6 +14,7 @@ const sectionMeta: Array<{ id: SettingsSection; label: string; description: stri
   { id: 'general', label: 'General', description: 'Resumen' },
   { id: 'payments', label: 'Medios de pago', description: 'Cobros' },
   { id: 'categories', label: 'Categorías', description: 'Productos' },
+  { id: 'products', label: 'Productos', description: 'Catálogo' },
 ]
 
 export function Settings() {
@@ -33,6 +35,7 @@ export function Settings() {
 
   const canManage = !!user && ['manager', 'admin'].includes(user.role)
   const isManager = user?.role === 'manager'
+  const canManageProducts = !!user && hasPermission(user, 'products.manage')
 
   const load = async () => {
     const [nextCategories, nextProducts, methods] = await Promise.all([getProductCategories(), getAllProducts(), getPaymentMethods()])
@@ -109,13 +112,13 @@ export function Settings() {
   if (!user || !canManage) return null
 
   const activeSection = isManager || section !== 'users' ? section : 'general'
-  const contentTitle = activeSection === 'general' ? 'General' : activeSection === 'payments' ? 'Medios de pago' : activeSection === 'categories' ? 'Categorías' : 'Usuarios'
+  const contentTitle = activeSection === 'general' ? 'General' : activeSection === 'payments' ? 'Medios de pago' : activeSection === 'categories' ? 'Categorías' : activeSection === 'products' ? 'Productos' : 'Usuarios'
 
   return <div className="settings-page">
     <aside className="settings-sidebar">
       <div className="settings-brand-row"><div className="settings-brand-icon"><Settings2 size={16}/></div><div><h1>Configuraciones</h1><span>Smaky POS</span></div></div>
       <div className="settings-nav">
-        {sectionMeta.map(item => <button key={item.id} className={`settings-nav-item ${activeSection === item.id ? 'active' : ''}`} onClick={() => { setSection(item.id); clearFeedback() }}>
+        {sectionMeta.filter(item => item.id !== 'products' || canManageProducts).map(item => <button key={item.id} className={`settings-nav-item ${activeSection === item.id ? 'active' : ''}`} onClick={() => { setSection(item.id); clearFeedback() }}>
           <div><b>{item.label}</b><small>{item.description}</small></div><ChevronRight size={14}/>
         </button>)}
         {isManager && <button className={`settings-nav-item ${activeSection === 'users' ? 'active' : ''}`} onClick={() => { setSection('users'); clearFeedback() }}>
@@ -126,13 +129,14 @@ export function Settings() {
     </aside>
 
     <main className="settings-content">
-      <header className="settings-content-head"><div><span className="settings-overline">CONFIGURACIÓN</span><h2>{contentTitle}</h2></div><div className="settings-head-count">{activeSection === 'payments' ? `${paymentMethods.length} medios` : activeSection === 'categories' ? `${categories.length} categorías` : activeSection === 'users' ? 'Accesos' : 'Preferencias'}</div></header>
+      <header className="settings-content-head"><div><span className="settings-overline">CONFIGURACIÓN</span><h2>{contentTitle}</h2></div><div className="settings-head-count">{activeSection === 'payments' ? `${paymentMethods.length} medios` : activeSection === 'categories' ? `${categories.length} categorías` : activeSection === 'products' ? `${products.length} productos` : activeSection === 'users' ? 'Accesos' : 'Preferencias'}</div></header>
 
       {(error || message) && <div className={`settings-feedback ${error ? 'error' : 'success'}`}>{error || message}</div>}
 
       {activeSection === 'general' && <div className="settings-list-card">
         <div className="settings-list-row settings-list-row-click" onClick={() => setSection('payments')}><div className="settings-row-icon"><CreditCard size={16}/></div><div className="settings-row-copy"><b>Medios de pago</b><span>{paymentMethods.length} disponibles en el cobro</span></div><ChevronRight size={15}/></div>
         <div className="settings-list-row settings-list-row-click" onClick={() => setSection('categories')}><div className="settings-row-icon"><Tag size={16}/></div><div className="settings-row-copy"><b>Categorías</b><span>{categories.length} categorías · {products.length} productos</span></div><ChevronRight size={15}/></div>
+        {canManageProducts && <div className="settings-list-row settings-list-row-click" onClick={() => setSection('products')}><div className="settings-row-icon"><Package size={16}/></div><div className="settings-row-copy"><b>Productos</b><span>{products.length} en el catálogo</span></div><ChevronRight size={15}/></div>}
         {isManager && <div className="settings-list-row settings-list-row-click" onClick={() => setSection('users')}><div className="settings-row-icon"><UsersIcon size={16}/></div><div className="settings-row-copy"><b>Usuarios y permisos</b><span>Control de acceso por usuario</span></div><ChevronRight size={15}/></div>}
       </div>}
 
@@ -155,6 +159,8 @@ export function Settings() {
         </div>)}</div>
         <div className="settings-add-row"><input value={categoryName} onChange={event => setCategoryName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void addCategory() }} placeholder="Nueva categoría" maxLength={40}/><button className="primary" disabled={saving || !categoryName.trim()} onClick={() => void addCategory()}><Plus size={14}/> Agregar</button></div>
       </div>}
+
+      {activeSection === 'products' && canManageProducts && <div className="settings-products-pane"><Products embedded /></div>}
 
       {activeSection === 'users' && isManager && <div className="settings-users-pane"><Users embedded /></div>}
     </main>

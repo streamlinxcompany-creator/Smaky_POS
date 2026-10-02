@@ -19,7 +19,7 @@ const emptyForm: FormState = {
   active: true,
 }
 
-export function Products() {
+export function Products({ embedded = false }: { embedded?: boolean }) {
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<string[]>([])
   const [query, setQuery] = useState('')
@@ -117,15 +117,23 @@ export function Products() {
     await load()
   }
 
-  return <div>
-    <div className="page-heading compact">
+  return <div className={embedded ? 'products-page embedded' : 'products-page'}>
+    {!embedded && <div className="page-heading compact">
       <div>
         <p className="eyebrow">CATÁLOGO</p>
         <h1>Productos</h1>
         <p className="muted">Aquí administras lo que aparece en el punto de venta.</p>
       </div>
       <button className="primary product-new-btn" onClick={openNew}><Plus size={17}/> Nuevo producto</button>
-    </div>
+    </div>}
+
+    {embedded && <div className="settings-products-head">
+      <div>
+        <b>Catálogo de productos</b>
+        <span>Gestiona nombres, categorías, precios y disponibilidad.</span>
+      </div>
+      <button className="primary product-new-btn" onClick={openNew}><Plus size={16}/> Nuevo producto</button>
+    </div>}
 
     <div className="panel products-toolbar">
       <div className="search-box"><Search size={16}/><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar producto..." /></div>

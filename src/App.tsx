@@ -3,7 +3,6 @@ import type { ReactNode } from 'react'
 import { Layout } from './components/Layout'
 import { Dashboard } from './pages/Dashboard'
 import { POS } from './pages/POS'
-import { Products } from './pages/Products'
 import { Sales } from './pages/Sales'
 import { Reports } from './pages/Reports'
 import { CashClosing } from './pages/CashClosing'
@@ -32,7 +31,7 @@ export default function App() {
       <Route path="/pos" element={<PermissionArea permission="pos.access"><POS/></PermissionArea>}/>
       <Route path="/pedidos" element={<Navigate to="/pos" replace/>}/>
       <Route path="/ventas" element={<PermissionArea permission="sales.view"><Sales/></PermissionArea>}/>
-      <Route path="/productos" element={<PermissionArea permission="products.manage"><Products/></PermissionArea>}/>
+      <Route path="/productos" element={<Navigate to="/configuraciones" replace/>}/>
       <Route path="/reportes" element={<PermissionArea permission="reports.view"><Reports/></PermissionArea>}/>
       <Route path="/usuarios" element={<Navigate to="/configuraciones" replace/>}/>
       <Route path="/cierre-caja" element={<PermissionArea permission="cashClosing.access"><CashClosing/></PermissionArea>}/>
