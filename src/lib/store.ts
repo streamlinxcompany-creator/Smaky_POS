@@ -67,6 +67,15 @@ export async function restoreArchivedRecord(entity: string, recordId: string, ac
 export const DEFAULT_PRODUCT_CATEGORIES = ['Hamburguesas', 'Combos', 'Acompañamientos', 'Bebidas']
 const CATEGORY_SETTING_KEY = 'productCategories'
 const PAYMENT_METHODS_SETTING_KEY = 'paymentMethods'
+const POS_PREFERENCES_SETTING_KEY = 'posPreferences'
+
+export type PosPreferences = {
+  showFinalConsumerOption: boolean
+}
+
+export const DEFAULT_POS_PREFERENCES: PosPreferences = {
+  showFinalConsumerOption: false
+}
 
 export const DEFAULT_PAYMENT_METHODS: PaymentMethodConfig[] = [
   { id: 'cash', name: 'Efectivo', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' },
@@ -124,6 +133,11 @@ export async function seed() {
     const setting: SystemSetting = { id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: DEFAULT_PRODUCT_CATEGORIES, updatedAt: new Date().toISOString() }
     await db.settings.put(setting)
   }
+  const preferencesSetting = await db.settings.get(POS_PREFERENCES_SETTING_KEY)
+  if (!preferencesSetting || !preferencesSetting.value || typeof preferencesSetting.value !== 'object') {
+    await db.settings.put({ id: POS_PREFERENCES_SETTING_KEY, key: POS_PREFERENCES_SETTING_KEY, value: DEFAULT_POS_PREFERENCES, updatedAt: new Date().toISOString() })
+  }
+
   const paymentSetting = await db.settings.get(PAYMENT_METHODS_SETTING_KEY)
   if (!paymentSetting || !Array.isArray(paymentSetting.value)) {
     await db.settings.put({ id: PAYMENT_METHODS_SETTING_KEY, key: PAYMENT_METHODS_SETTING_KEY, value: DEFAULT_PAYMENT_METHODS, updatedAt: new Date().toISOString() })
@@ -206,6 +220,27 @@ export async function updateProductCategory(oldName: string, newName: string, ac
   await db.settings.put({ id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: next, updatedAt: now })
   await audit('PRODUCT_CATEGORY_UPDATED', 'SETTINGS', 'setting', CATEGORY_SETTING_KEY, { categories: current }, { categories: next, renamedFrom: found, renamedTo: cleanName, updatedProducts }, actor)
   return next
+}
+
+export async function getPosPreferences(): Promise<PosPreferences> {
+  const setting = await db.settings.get(POS_PREFERENCES_SETTING_KEY)
+  const value = setting?.value
+  if (value && typeof value === 'object') {
+    const raw = value as Record<string, unknown>
+    return {
+      showFinalConsumerOption: raw.showFinalConsumerOption === true
+    }
+  }
+  return { ...DEFAULT_POS_PREFERENCES }
+}
+
+export async function updatePosPreferences(next: PosPreferences, actor: User) {
+  const before = await getPosPreferences()
+  const value: PosPreferences = { showFinalConsumerOption: Boolean(next.showFinalConsumerOption) }
+  const now = new Date().toISOString()
+  await db.settings.put({ id: POS_PREFERENCES_SETTING_KEY, key: POS_PREFERENCES_SETTING_KEY, value, updatedAt: now })
+  await audit('POS_PREFERENCES_UPDATED', 'SETTINGS', 'setting', POS_PREFERENCES_SETTING_KEY, before, value, actor)
+  return value
 }
 
 export async function getPaymentMethods(): Promise<PaymentMethodConfig[]> {

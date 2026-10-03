@@ -2,7 +2,7 @@ import { AlertTriangle, Check, FileText, MapPin, Phone, Plus, Search, UserPlus, 
 import { useEffect, useMemo, useState } from 'react'
 import { OrderWorkspace } from '../components/OrderWorkspace'
 import { getSessionUser } from '../lib/auth'
-import { createCustomer, getClosureByDate, getCustomers, getOrders, recordBusinessDayKey } from '../lib/store'
+import { createCustomer, getClosureByDate, getCustomers, getOrders, getPosPreferences, recordBusinessDayKey } from '../lib/store'
 import { date, money, time } from '../lib/format'
 import type { CashClosure, Customer, Order, OrderStatus } from '../lib/types'
 
@@ -34,6 +34,7 @@ export function POS() {
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', address: '', notes: '' })
   const [customerSaving, setCustomerSaving] = useState(false)
   const [customerError, setCustomerError] = useState('')
+  const [showFinalConsumerOption, setShowFinalConsumerOption] = useState(false)
   const [selected, setSelected] = useState<Order | null>(null)
   const [todayClosure, setTodayClosure] = useState<CashClosure | null>(null)
   const [closureWarning, setClosureWarning] = useState<CashClosure | null>(null)
@@ -50,7 +51,7 @@ export function POS() {
     setLoading(false)
   }
 
-  useEffect(() => { void refresh() }, [])
+  useEffect(() => { void refresh(); void getPosPreferences().then(preferences => setShowFinalConsumerOption(preferences.showFinalConsumerOption)) }, [])
 
   const todayOrders = useMemo(() => orders.slice().sort((a, b) => b.orderNumber - a.orderNumber), [orders])
 
@@ -133,7 +134,7 @@ export function POS() {
       {!customerFormOpen ? <><header className="customer-picker-head"><div className="customer-picker-title"><div className="customer-picker-icon"><UsersRound size={19}/></div><div><span className="eyebrow">NUEVO PEDIDO</span><h2 id="customer-picker-title">¿Para quién es el pedido?</h2><p>Busca el celular o selecciona un cliente.</p></div></div><button className="item-editor-close" onClick={() => setCustomerPickerOpen(false)} aria-label="Cerrar"><X size={18}/></button></header>
         <div className="customer-picker-toolbar"><label className="customer-picker-search"><Search size={17}/><input autoFocus value={customerSearch} onChange={event => setCustomerSearch(event.target.value)} placeholder="Buscar por celular o nombre…" inputMode="search"/></label><button className="customer-add-btn" onClick={openCustomerForm}><UserPlus size={16}/> Agregar cliente</button></div>
         <div className="customer-picker-list">
-          <button className="customer-picker-row guest" onClick={() => chooseCustomer(null)}><div className="customer-picker-avatar guest"><UserRound size={17}/></div><div><b>Consumidor final</b><span>Continuar sin guardar cliente</span></div><Check size={16}/></button>
+          {showFinalConsumerOption && <button className="customer-picker-row guest" onClick={() => chooseCustomer(null)}><div className="customer-picker-avatar guest"><UserRound size={17}/></div><div><b>Consumidor final</b><span>Continuar sin guardar cliente</span></div><Check size={16}/></button>}
           {filteredCustomers.map(customer => <button className="customer-picker-row" key={customer.id} onClick={() => chooseCustomer(customer)}><div className="customer-picker-avatar"><UserRound size={17}/></div><div><b>{customer.name}</b><span><Phone size={12}/> {customer.phone}{customer.address ? <> · <MapPin size={12}/> {customer.address}</> : null}</span></div><span className="customer-picker-arrow">→</span></button>)}
           {!filteredCustomers.length && <div className="customer-picker-empty"><UserRound size={24}/><b>No hay coincidencias</b><span>Agrega este número como cliente nuevo.</span><button className="primary-inline" onClick={openCustomerForm}><UserPlus size={15}/> Agregar cliente</button></div>}
         </div>

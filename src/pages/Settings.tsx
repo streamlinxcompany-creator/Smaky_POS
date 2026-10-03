@@ -1,7 +1,7 @@
-import { Banknote, Check, ChevronRight, CreditCard, Pencil, Plus, Settings2, Tag, Trash2, WalletCards, Users as UsersIcon, Package } from 'lucide-react'
+import { Banknote, Check, ChevronRight, CreditCard, Pencil, Plus, Settings2, Tag, Trash2, WalletCards, Users as UsersIcon, Package, UserRound, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { getSessionUser, hasPermission } from '../lib/auth'
-import { addPaymentMethod, addProductCategory, DEFAULT_PRODUCT_CATEGORIES, deletePaymentMethod, deleteProductCategory, getAllProducts, getPaymentMethods, getProductCategories, updatePaymentMethod, updateProductCategory } from '../lib/store'
+import { addPaymentMethod, addProductCategory, DEFAULT_PRODUCT_CATEGORIES, deletePaymentMethod, deleteProductCategory, getAllProducts, getPaymentMethods, getProductCategories, getPosPreferences, updatePaymentMethod, updatePosPreferences, updateProductCategory } from '../lib/store'
 import type { PaymentMethodConfig } from '../lib/types'
 import { Users } from './Users'
 import { Products } from './Products'
@@ -22,6 +22,7 @@ export function Settings() {
   const [section, setSection] = useState<SettingsSection>('general')
   const [categories, setCategories] = useState<string[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>([])
+  const [showFinalConsumerOption, setShowFinalConsumerOption] = useState(false)
   const [products, setProducts] = useState<Awaited<ReturnType<typeof getAllProducts>>>([])
   const [categoryName, setCategoryName] = useState('')
   const [editingCategory, setEditingCategory] = useState<string | null>(null)
@@ -38,10 +39,11 @@ export function Settings() {
   const canManageProducts = !!user && hasPermission(user, 'products.manage')
 
   const load = async () => {
-    const [nextCategories, nextProducts, methods] = await Promise.all([getProductCategories(), getAllProducts(), getPaymentMethods()])
+    const [nextCategories, nextProducts, methods, preferences] = await Promise.all([getProductCategories(), getAllProducts(), getPaymentMethods(), getPosPreferences()])
     setCategories(nextCategories)
     setProducts(nextProducts)
     setPaymentMethods(methods)
+    setShowFinalConsumerOption(preferences.showFinalConsumerOption)
   }
 
   useEffect(() => { void load() }, [])
@@ -103,6 +105,16 @@ export function Settings() {
     catch (caught) { flashError(caught) } finally { setSaving(false) }
   }
 
+  const toggleFinalConsumerOption = async () => {
+    if (!user || !canManage || saving) return
+    setSaving(true); clearFeedback()
+    try {
+      const next = await updatePosPreferences({ showFinalConsumerOption: !showFinalConsumerOption }, user)
+      setShowFinalConsumerOption(next.showFinalConsumerOption)
+      setMessage(next.showFinalConsumerOption ? 'Opción “Consumidor final” activada.' : 'Opción “Consumidor final” ocultada.')
+    } catch (caught) { flashError(caught) } finally { setSaving(false) }
+  }
+
   const categoryCounts = useMemo(() => products.reduce<Record<string, number>>((acc, product) => {
     const key = product.category
     acc[key] = (acc[key] || 0) + 1
@@ -133,11 +145,21 @@ export function Settings() {
 
       {(error || message) && <div className={`settings-feedback ${error ? 'error' : 'success'}`}>{error || message}</div>}
 
-      {activeSection === 'general' && <div className="settings-list-card">
+      {activeSection === 'general' && <div className="settings-general-stack">
+        <section className="settings-preferences-card">
+          <div className="settings-section-toolbar"><div><span className="settings-overline">EXPERIENCIA DEL POS</span><b>Preferencias del pedido</b><span>Controla qué opciones aparecen durante la creación de pedidos.</span></div><div className="settings-preferences-icon"><SlidersHorizontal size={18}/></div></div>
+          <div className="settings-preference-row">
+            <div className="settings-preference-icon"><UserRound size={17}/></div>
+            <div className="settings-row-copy"><b>Permitir “Consumidor final”</b><span>Mostrar una opción para continuar un pedido sin asociarlo a un cliente guardado.</span></div>
+            <button type="button" className={`settings-toggle ${showFinalConsumerOption ? 'active' : ''}`} onClick={() => void toggleFinalConsumerOption()} disabled={saving} aria-pressed={showFinalConsumerOption} aria-label="Permitir Consumidor final"><span></span></button>
+          </div>
+        </section>
+        <div className="settings-list-card">
         <div className="settings-list-row settings-list-row-click" onClick={() => setSection('payments')}><div className="settings-row-icon"><CreditCard size={16}/></div><div className="settings-row-copy"><b>Medios de pago</b><span>{paymentMethods.length} disponibles en el cobro</span></div><ChevronRight size={15}/></div>
         <div className="settings-list-row settings-list-row-click" onClick={() => setSection('categories')}><div className="settings-row-icon"><Tag size={16}/></div><div className="settings-row-copy"><b>Categorías</b><span>{categories.length} categorías · {products.length} productos</span></div><ChevronRight size={15}/></div>
         {canManageProducts && <div className="settings-list-row settings-list-row-click" onClick={() => setSection('products')}><div className="settings-row-icon"><Package size={16}/></div><div className="settings-row-copy"><b>Productos</b><span>{products.length} en el catálogo</span></div><ChevronRight size={15}/></div>}
         {isManager && <div className="settings-list-row settings-list-row-click" onClick={() => setSection('users')}><div className="settings-row-icon"><UsersIcon size={16}/></div><div className="settings-row-copy"><b>Usuarios y permisos</b><span>Control de acceso por usuario</span></div><ChevronRight size={15}/></div>}
+        </div>
       </div>}
 
       {activeSection === 'payments' && <div className="settings-list-card">
