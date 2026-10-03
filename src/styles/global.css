@@ -816,220 +816,798 @@
 @media(max-width:700px){.settings-theme-grid{grid-template-columns:1fr}.settings-theme-times{grid-template-columns:1fr}.settings-custom-field-form{grid-template-columns:1fr}.settings-custom-field-form .primary{width:100%}.settings-order-field{grid-template-columns:20px minmax(0,1fr)}.settings-order-controls{grid-column:2;justify-content:flex-start;margin-top:5px}}
 
 /* Tema claro: mantiene la jerarquía de Smaky, cambiando superficies y contraste. */
-html[data-theme='light']{color-scheme:light}
-html[data-theme='light'] body{background:radial-gradient(circle at 80% -10%,rgba(185,78,28,.08),transparent 32%),#f4f3f0;color:#1b1c1d}
-html[data-theme='light'] .sidebar,html[data-theme='light'] .topbar{background:rgba(255,255,255,.94);border-color:#dedbd7;color:#202224}
-html[data-theme='light'] .main,html[data-theme='light'] .content{color:#202224}
-html[data-theme='light'] .brand-mark{background:#191a1b;color:#fff}.theme-light-placeholder{display:none}
-html[data-theme='light'] .business,html[data-theme='light'] .panel,html[data-theme='light'] .stat-card,html[data-theme='light'] .cart,html[data-theme='light'] .settings-sidebar,html[data-theme='light'] .settings-list-card,html[data-theme='light'] .customers-panel,html[data-theme='light'] .customer-modal,html[data-theme='light'] .customer-picker,html[data-theme='light'] .item-editor-modal,html[data-theme='light'] .order-workspace{background:#fff;border-color:#ddd9d5;box-shadow:0 18px 50px rgba(35,30,25,.10)}
-html[data-theme='light'] .nav-item{color:#6f716f}html[data-theme='light'] .nav-item.active{background:#f7eee9;color:#302522;box-shadow:inset 2px 0 #c75a34}
-html[data-theme='light'] .muted,html[data-theme='light'] .business small,html[data-theme='light'] .live-status,html[data-theme='light'] .topbar-title small{color:#777773}
-html[data-theme='light'] .settings-list-row,html[data-theme='light'] .settings-order-field,html[data-theme='light'] .settings-section-toolbar,html[data-theme='light'] .settings-content-head,html[data-theme='light'] .customer-modal-head,html[data-theme='light'] .customer-picker-head,html[data-theme='light'] .customer-picker-toolbar,html[data-theme='light'] .customer-picker-foot,html[data-theme='light'] .workspace-head,html[data-theme='light'] .workspace-summary,html[data-theme='light'] .workspace-lines,html[data-theme='light'] .workspace-total-row,html[data-theme='light'] .workspace-bottom-actions,html[data-theme='light'] .workspace-payment{border-color:#e5e1dc}
-html[data-theme='light'] .settings-row-icon,html[data-theme='light'] .settings-feature-icon,html[data-theme='light'] .customer-picker-icon,html[data-theme='light'] .customer-picker-avatar,html[data-theme='light'] .customer-avatar,html[data-theme='light'] .stat-icon,html[data-theme='light'] .order-square-icon{background:#f6f3f0;border-color:#ded8d2;color:#a04c2d}
-html[data-theme='light'] .settings-row-copy b,html[data-theme='light'] .settings-content-head h2,html[data-theme='light'] .settings-order-field .settings-row-copy b,html[data-theme='light'] .customer-main>b,html[data-theme='light'] .customer-picker-row b,html[data-theme='light'] .workspace-line-name b,html[data-theme='light'] .workspace-product b,html[data-theme='light'] .workspace-title h2,html[data-theme='light'] .workspace-section-head>b{color:#202224}
-html[data-theme='light'] .settings-row-copy span,html[data-theme='light'] .settings-order-field .settings-row-copy span,html[data-theme='light'] .customer-picker-row span,html[data-theme='light'] .customer-main>span,html[data-theme='light'] .workspace-section-head>div>span,html[data-theme='light'] .workspace-summary-head span,html[data-theme='light'] .workspace-line-name small{color:#7b7772}
-html[data-theme='light'] .settings-theme-option,html[data-theme='light'] .settings-orders-intro,html[data-theme='light'] .customer-picker-row,html[data-theme='light'] .workspace-product,html[data-theme='light'] .workspace-product-icon,html[data-theme='light'] .workspace-units,html[data-theme='light'] .secondary{background:#faf9f7;border-color:#dfdbd6;color:#5f5b57}
-html[data-theme='light'] .settings-theme-option.active{background:#f7eee9;border-color:#c97758;color:#5a2f22}
-html[data-theme='light'] .customer-picker-search,html[data-theme='light'] .customer-picker-form input,html[data-theme='light'] .customer-picker-form textarea,html[data-theme='light'] .customer-picker-form select,html[data-theme='light'] .customer-form input,html[data-theme='light'] .customer-form textarea,html[data-theme='light'] .customer-form select,html[data-theme='light'] .settings-add-row input,html[data-theme='light'] .settings-custom-field-form input,html[data-theme='light'] .settings-custom-field-form select,html[data-theme='light'] .settings-theme-times input{background:#fff;border-color:#d7d2cd;color:#262827}
-html[data-theme='light'] .customer-picker-search input,html[data-theme='light'] .workspace-search input{color:#262827}
-html[data-theme='light'] .workspace-catalog,html[data-theme='light'] .workspace-summary{background:#fff}
-html[data-theme='light'] .workspace-product{background:#fcfbfa}.workspace-product:hover:not(:disabled){background:#f8f1ed}
-html[data-theme='light'] .workspace-search{background:#fff;border-color:#d7d2cd;color:#817a74}
-html[data-theme='light'] .workspace-tabs button,html[data-theme='light'] .category-tabs button{background:#faf9f7;border-color:#dfdbd6;color:#6c6864}html[data-theme='light'] .workspace-tabs button.selected,html[data-theme='light'] .category-tabs button.selected{background:#f7eee9;border-color:#ce7858;color:#703d2c}
-html[data-theme='light'] .settings-feature-head,html[data-theme='light'] .settings-custom-field-add,html[data-theme='light'] .settings-list-row{border-color:#e5e1dc}html[data-theme='light'] .settings-custom-field-form input,html[data-theme='light'] .settings-custom-field-form select,html[data-theme='light'] .settings-field-editor-label input,html[data-theme='light'] .settings-field-editor-label select{background:#fff;border-color:#d7d2cd;color:#262827}
-html[data-theme='light'] .settings-theme-auto-note,html[data-theme='light'] .settings-field-editor-required{background:#faf9f7;border-color:#dfdbd6;color:#625d58}
-
-html[data-theme='light'] .settings-toggle span{background:#ece9e5;border-color:#cbc6c0}html[data-theme='light'] .settings-toggle span::after{background:#88817a}html[data-theme='light'] .settings-toggle input:checked + span{background:#f2e2db;border-color:#c87558}html[data-theme='light'] .settings-toggle input:checked + span::after{background:#a84a28}
-
-/* --------------------------------------------------------------------------
-   Tema claro v2 — contraste y legibilidad global de Smaky POS
-   Mantiene la identidad naranja de Smaky, pero reemplaza las superficies
-   oscuras y textos grises heredados que quedaban ilegibles en modo claro.
-   -------------------------------------------------------------------------- */
+/* =========================================================
+   SMAKY LIGHT BRAND SYSTEM v2
+   Crema + espresso + naranja tostado.
+   El naranja se reserva para acciones y acentos; no se usa
+   como superficie dominante con texto negro.
+   ========================================================= */
 html[data-theme='light']{
-  --bg:#f4f3f0;
-  --panel:#ffffff;
-  --panel2:#faf9f7;
-  --line:#dedbd6;
-  --cream:#202224;
-  --muted:#6f6b67;
-  --soft:#f7eee9;
   color-scheme:light;
+  --bg:#f4efe8;
+  --panel:#fffdf9;
+  --panel2:#f7f1e9;
+  --line:#ded4c8;
+  --cream:#241914;
+  --muted:#756a61;
+  --accent:#c84d1f;
+  --accent2:#e47630;
+  --soft:#f7e5d7;
+  --brand-espresso:#251915;
+  --brand-cream:#fffaf2;
+  --brand-honey:#d9912e;
+  --brand-border:#e3d7ca;
+  --brand-hover:#fbf3eb;
+  --brand-pressed:#f5e4d7;
+  --success:#2f7c49;
+  --success-bg:#edf7f0;
+  --warning:#9a6322;
+  --warning-bg:#fff5df;
+  --danger:#ad3e30;
+  --danger-bg:#fff0ed;
 }
-html[data-theme='light'] body{background:radial-gradient(circle at 80% -10%,rgba(185,78,28,.07),transparent 32%),var(--bg);color:#202224}
-html[data-theme='light'] ::selection{background:#f1d8cc;color:#3a2118}
-html[data-theme='light'] .sidebar{background:rgba(255,255,255,.97);border-color:#dedbd6}
-html[data-theme='light'] .topbar{background:rgba(255,255,255,.94);border-color:#dedbd6}
-html[data-theme='light'] .business{background:#faf9f7;border-color:#dedbd6}
-html[data-theme='light'] .connection{color:#66625e}
-html[data-theme='light'] .profile-mini{border-color:#e5e1dc}
-html[data-theme='light'] .avatar{background:#eeeae6;color:#49443f}
-html[data-theme='light'] .nav-item{color:#66635f}
-html[data-theme='light'] .nav-item:hover{background:#f6f3f0;color:#282a2b}
-html[data-theme='light'] .nav-item.active{background:#f7eee9;color:#3b2922;box-shadow:inset 2px 0 #c75a34}
-html[data-theme='light'] .topbar-title small,html[data-theme='light'] .live-status{color:#66625e}
-html[data-theme='light'] .sync-pill,html[data-theme='light'] .badge{background:#fff;border-color:#ddd9d5;color:#65615d}
-html[data-theme='light'] .panel,html[data-theme='light'] .stat-card,html[data-theme='light'] .cart,html[data-theme='light'] .customers-panel,html[data-theme='light'] .settings-sidebar,html[data-theme='light'] .settings-list-card{background:#fff;border-color:#ddd9d5;box-shadow:0 8px 28px rgba(35,30,25,.06)}
-html[data-theme='light'] .stat-head{color:#68645f}
-html[data-theme='light'] .stat-card small{color:#6c6863}
-html[data-theme='light'] .panel-title p{color:#6b6762}
-html[data-theme='light'] .panel-title h2,html[data-theme='light'] .stat-card>strong{color:#202224}
-html[data-theme='light'] .sale-row{border-color:#ebe7e3}
-html[data-theme='light'] .sale-main span,html[data-theme='light'] .mini-list div{color:#6d6964}
-html[data-theme='light'] .mini-list b{color:#292b2c}
-html[data-theme='light'] .progress{background:#e8e5e1}
-html[data-theme='light'] .category-tabs button,html[data-theme='light'] .product-filters button{background:#fff;border-color:#ddd9d5;color:#68645f}
-html[data-theme='light'] .category-tabs button:hover,html[data-theme='light'] .product-filters button:hover{border-color:#c9a99b;color:#493229}
-html[data-theme='light'] .category-tabs button.selected,html[data-theme='light'] .product-filters button.selected{background:#f7eee9;border-color:#ce7858;color:#703d2c}
-html[data-theme='light'] .product-card{background:#fff;border-color:#ddd9d5;box-shadow:0 5px 18px rgba(35,30,25,.04)}
-html[data-theme='light'] .product-card:hover{border-color:#c9876d;box-shadow:0 8px 22px rgba(88,45,29,.08)}
-html[data-theme='light'] .product-card>svg{color:#77716b}
-html[data-theme='light'] .product-card span{color:#a84a28}
-html[data-theme='light'] .cart{background:#fff}
-html[data-theme='light'] .cart-header,html[data-theme='light'] .cart-item,html[data-theme='light'] .payment,html[data-theme='light'] .checkout{border-color:#e5e1dc}
-html[data-theme='light'] .cart-header p,html[data-theme='light'] .empty-cart,html[data-theme='light'] .payment>span,html[data-theme='light'] .checkout span{color:#6c6863}
-html[data-theme='light'] .empty-cart b,html[data-theme='light'] .cart-item b,html[data-theme='light'] .checkout strong{color:#262829}
-html[data-theme='light'] .cart-item span{color:#77726d}
-html[data-theme='light'] .qty button,html[data-theme='light'] .payment-grid button{background:#faf9f7;border-color:#ddd9d5;color:#625e59}
-html[data-theme='light'] .payment-grid button.selected{background:#f7eee9;border-color:#c87558;color:#603425}
-html[data-theme='light'] .trash{color:#77716c}
-html[data-theme='light'] th{color:#66615c;background:#faf9f7}
-html[data-theme='light'] td{color:#4f4b47;border-color:#e8e4df}
-html[data-theme='light'] .search-box{background:#fff;border-color:#d7d2cd;color:#6c6762}
-html[data-theme='light'] .search-box input{color:#252728}
-html[data-theme='light'] .products-empty,html[data-theme='light'] .sales-empty,html[data-theme='light'] .users-placeholder{color:#6c6863}
-html[data-theme='light'] .products-empty b,html[data-theme='light'] .sales-empty b,html[data-theme='light'] .users-placeholder b{color:#292b2c}
-html[data-theme='light'] .icon-btn,html[data-theme='light'] .icon-action{color:#6c6762;background:#faf9f7;border-color:#ddd9d5}
-html[data-theme='light'] .icon-btn:hover,html[data-theme='light'] .icon-action:hover{color:#6d301f;border-color:#c98a72;background:#f9f1ed}
-html[data-theme='light'] .modal,.light .modal{background:#fff;border-color:#ddd9d5;box-shadow:0 24px 70px rgba(35,30,25,.18)}
-html[data-theme='light'] .modal label{color:#5f5a55}
-html[data-theme='light'] .modal input,html[data-theme='light'] .modal select,html[data-theme='light'] .modal textarea{background:#fff;border-color:#d7d2cd;color:#252728}
-html[data-theme='light'] .modal input::placeholder,html[data-theme='light'] .modal textarea::placeholder{color:#9a938c}
-html[data-theme='light'] .secondary{background:#fff;border-color:#d7d2cd;color:#5f5a55}
-html[data-theme='light'] .secondary:hover{background:#f7f5f2;border-color:#c7bdb5;color:#342923}
-html[data-theme='light'] .confirm-copy,html[data-theme='light'] .slider-hint,html[data-theme='light'] .slider-safe-note{color:#6a655f}
-html[data-theme='light'] .confirm-order-item span,html[data-theme='light'] .confirm-summary span{color:#706b66}
-html[data-theme='light'] .confirm-summary b{color:#282a2b}
-html[data-theme='light'] .receipt-modal{background:#fff;border-color:#ddd9d5;color:#282a2b;box-shadow:0 24px 70px rgba(35,30,25,.18)}
-html[data-theme='light'] .receipt-meta span,html[data-theme='light'] .receipt-section-title,html[data-theme='light'] .receipt-item span,html[data-theme='light'] .receipt-total span,html[data-theme='light'] .receipt-footer{color:#6c6761}
-html[data-theme='light'] .receipt-total .grand span{color:#302c29}
-html[data-theme='light'] .export-menu{background:#fff;border-color:#ddd9d5;box-shadow:0 16px 40px rgba(35,30,25,.12)}
-html[data-theme='light'] .export-menu button{color:#625d58}
-html[data-theme='light'] .export-menu button:hover{background:#f7f3f0;color:#302a26}
-html[data-theme='light'] .export-menu b{color:#292b2c}
-html[data-theme='light'] .export-menu small{color:#77716b}
-html[data-theme='light'] .filter-kicker,html[data-theme='light'] .report-live,html[data-theme='light'] .report-unit,html[data-theme='light'] .report-chart-foot,html[data-theme='light'] .report-empty{color:#6e6964}
-html[data-theme='light'] .range-btn{background:#fff;border-color:#ddd9d5;color:#66615c}
-html[data-theme='light'] .range-btn:hover{color:#5b2e21;background:#f8f3f0}
-html[data-theme='light'] .date-inputs label{color:#68635e}
-html[data-theme='light'] .date-inputs input{background:#fff;border-color:#d7d2cd;color:#252728}
-html[data-theme='light'] .report-bar-col small,html[data-theme='light'] .report-bar-col>span:last-child{color:#6c6762}
-html[data-theme='light'] .report-chart-foot b{color:#34312e}
-html[data-theme='light'] .top-day-row,html[data-theme='light'] .day-sale-row{border-color:#e5e1dc}
-html[data-theme='light'] .top-day-row:hover{background:#f8f5f2}
-html[data-theme='light'] .top-day-main small,html[data-theme='light'] .day-product-row small,html[data-theme='light'] .day-payment-row small,html[data-theme='light'] .day-sale-main small{color:#706b66}
-html[data-theme='light'] .top-day-row>strong,html[data-theme='light'] .day-sale-row>strong,html[data-theme='light'] .day-sale-time,html[data-theme='light'] .day-sale-main b{color:#292b2c}
-html[data-theme='light'] .report-day-detail,html[data-theme='light'] .report-day-sales{background:#fff;border-color:#ddd9d5;color:#292b2c}
-html[data-theme='light'] .report-day-detail-head p,html[data-theme='light'] .report-day-kpis small{color:#6d6863}
-html[data-theme='light'] .report-day-kpis strong{color:#292b2c}
-html[data-theme='light'] .user-card,html[data-theme='light'] .user-row{background:#fff;border-color:#ddd9d5;color:#292b2c}
-html[data-theme='light'] .user-card p,html[data-theme='light'] .user-info p,html[data-theme='light'] .profile-preview span{color:#6d6863}
-html[data-theme='light'] .role-btn{background:#faf9f7;border-color:#ddd9d5;color:#65605b}
-html[data-theme='light'] .users-toolbar{color:#6d6863}
-html[data-theme='light'] .users-toolbar b{color:#292b2c}
-html[data-theme='light'] .toolbar-separator{color:#b0aaa4}
-html[data-theme='light'] .user-row:hover{background:#faf7f4}
-html[data-theme='light'] .login-user,html[data-theme='light'] .login-pin{background:#fff;border-color:#ddd9d5}
-html[data-theme='light'] .login-user span,html[data-theme='light'] .login-hint{color:#6d6863}
-html[data-theme='light'] .login-pin input{background:#fff;border-color:#d7d2cd;color:#252728}
-html[data-theme='light'] .delivery-form input,html[data-theme='light'] .delivery-form textarea,html[data-theme='light'] .modification-item textarea{background:#fff;border-color:#d7d2cd;color:#252728}
-html[data-theme='light'] .delivery-form-title{color:#3a332f}
-html[data-theme='light'] .order-card,html[data-theme='light'] .order-drawer,html[data-theme='light'] .order-detail,html[data-theme='light'] .orders-panel{background:#fff;border-color:#ddd9d5;color:#292b2c}
-html[data-theme='light'] .orders-column-head span,html[data-theme='light'] .order-address,html[data-theme='light'] .order-detail-head span:not(.order-status),html[data-theme='light'] .order-detail-grid span,html[data-theme='light'] .orders-count{color:#6c6762}
-html[data-theme='light'] .order-card-top span,html[data-theme='light'] .order-card-bottom span{color:#706b66}
-html[data-theme='light'] .orders-empty,html[data-theme='light'] .orders-day-empty>span{color:#6d6863}
-html[data-theme='light'] .drawer-section-title,html[data-theme='light'] .drawer-action small{color:#6c6761}
-html[data-theme='light'] .drawer-item-main>span,html[data-theme='light'] .modification-item-top span{color:#6d6863}
-html[data-theme='light'] .workspace-head,html[data-theme='light'] .workspace-summary,html[data-theme='light'] .workspace-lines,html[data-theme='light'] .workspace-total-row,html[data-theme='light'] .workspace-bottom-actions,html[data-theme='light'] .workspace-payment{background:#fff;border-color:#e5e1dc}
-html[data-theme='light'] .workspace-catalog{background:#faf9f7;border-color:#ddd9d5}
-html[data-theme='light'] .workspace-search{background:#fff;border-color:#d7d2cd;color:#6d6863}
-html[data-theme='light'] .workspace-search input{color:#252728}
-html[data-theme='light'] .workspace-product{background:#fff;border-color:#e1ddd8;color:#292b2c}
-html[data-theme='light'] .workspace-product:hover:not(:disabled){background:#f9f1ed;border-color:#c98b73}
-html[data-theme='light'] .workspace-units{background:#f5f2ef;border-color:#ddd9d5;color:#6c6761}
-html[data-theme='light'] .workspace-title>div>span,html[data-theme='light'] .workspace-section-head>div>span,html[data-theme='light'] .workspace-summary-head span{color:#6d6863}
-html[data-theme='light'] .workspace-line-name b,html[data-theme='light'] .workspace-product b,html[data-theme='light'] .workspace-title h2{color:#292b2c}
-html[data-theme='light'] .workspace-line-name small{color:#77716c}
-html[data-theme='light'] .customer-picker,html[data-theme='light'] .customer-modal{background:#fff;border-color:#ddd9d5}
-html[data-theme='light'] .customer-picker-head h2{color:#292b2c}
-html[data-theme='light'] .customer-picker-head p,html[data-theme='light'] .customer-picker-empty,html[data-theme='light'] .customer-picker-form label>span,html[data-theme='light'] .customer-modal-head p,html[data-theme='light'] .customer-form label>span{color:#6d6863}
-html[data-theme='light'] .customer-picker-search,html[data-theme='light'] .customers-search{background:#fff;border-color:#d7d2cd;color:#6d6863}
-html[data-theme='light'] .customer-picker-search input,html[data-theme='light'] .customers-search input{background:transparent;color:#252728}
-html[data-theme='light'] .customer-picker-search input::placeholder{color:#9a938c}
-html[data-theme='light'] .customer-picker-row{background:#fff;border-color:#e1ddd8;color:#292b2c}
-html[data-theme='light'] .customer-picker-row:hover{background:#f8f4f1}
-html[data-theme='light'] .customer-picker-row span,html[data-theme='light'] .customer-main>span{color:#706b66}
-html[data-theme='light'] .customer-picker-form input,html[data-theme='light'] .customer-picker-form textarea,html[data-theme='light'] .customer-form input,html[data-theme='light'] .customer-form textarea,html[data-theme='light'] .customer-form select{background:#fff;border-color:#d7d2cd;color:#252728}
-html[data-theme='light'] .customer-action{color:#6d6863}
-html[data-theme='light'] .customers-count{color:#6c6762}
-html[data-theme='light'] .customers-count b{color:#35312e}
-html[data-theme='light'] .settings-brand-row h1,html[data-theme='light'] .settings-content-head h2{color:#242627}
-html[data-theme='light'] .settings-brand-row span,html[data-theme='light'] .settings-overline,html[data-theme='light'] .settings-head-count{color:#6c6762}
-html[data-theme='light'] .settings-nav-item{color:#69645f}
-html[data-theme='light'] .settings-nav-item:hover{background:#f7f4f1;color:#332d29}
-html[data-theme='light'] .settings-nav-item.active{background:#f7eee9;color:#3d2c25}
-html[data-theme='light'] .settings-nav-item small{color:#77716b}
-html[data-theme='light'] .settings-feature-head span,html[data-theme='light'] .settings-row-copy span{color:#6c6762}
-html[data-theme='light'] .settings-row-copy b,html[data-theme='light'] .settings-section-toolbar b,html[data-theme='light'] .settings-products-head b{color:#292b2c}
-html[data-theme='light'] .settings-row-icon{background:#f7f4f1;border-color:#ddd8d2;color:#8d4328}
-html[data-theme='light'] .settings-list-row:hover{background:#faf8f5}
-html[data-theme='light'] .settings-row-edit,html[data-theme='light'] .settings-edit-input{background:#fff;border-color:#d7d2cd;color:#252728}
-html[data-theme='light'] .settings-action-btn,html[data-theme='light'] .settings-inline-btn{background:#faf9f7;border-color:#ddd9d5;color:#65605b}
-html[data-theme='light'] .settings-payment-row,html[data-theme='light'] .settings-category-pill{background:#faf9f7;border-color:#ddd9d5;color:#5f5a55}
-html[data-theme='light'] .settings-payment-main span,html[data-theme='light'] .settings-category-summary span,html[data-theme='light'] .settings-category-summary small,html[data-theme='light'] .settings-note,html[data-theme='light'] .settings-module-note{color:#6d6863}
-html[data-theme='light'] .settings-add-payment input,html[data-theme='light'] .settings-add-row input,html[data-theme='light'] .settings-category-mini input{background:#fff;border-color:#d7d2cd;color:#252728}
-html[data-theme='light'] .settings-manager-lock,html[data-theme='light'] .settings-field-editor-note{background:#fbf5f1;border-color:#ead5ca;color:#795747}
-html[data-theme='light'] .settings-manager-lock span,html[data-theme='light'] .settings-embedded-toolbar p{color:#6d6863}
-html[data-theme='light'] .settings-orders-intro{background:#faf9f7;border-color:#e1ddd8;color:#625d58}
-html[data-theme='light'] .settings-orders-intro b{color:#35302c}
-html[data-theme='light'] .settings-orders-intro span,html[data-theme='light'] .settings-custom-field-add>div:first-child span{color:#6d6863}
-html[data-theme='light'] .settings-order-field{border-color:#e5e1dc}
-html[data-theme='light'] .settings-order-drag,html[data-theme='light'] .settings-mini-check{color:#716b65}
-html[data-theme='light'] .settings-custom-field-form input,html[data-theme='light'] .settings-custom-field-form select,html[data-theme='light'] .settings-field-editor-label input,html[data-theme='light'] .settings-field-editor-label select{background:#fff;border-color:#d7d2cd;color:#252728}
-html[data-theme='light'] .settings-field-editor-label>span,html[data-theme='light'] .settings-field-editor-label small{color:#6d6863}
-html[data-theme='light'] .settings-field-editor-required{background:#faf9f7;border-color:#e0dcd7;color:#5f5a55}
-html[data-theme='light'] .settings-theme-option{background:#faf9f7;border-color:#ddd9d5;color:#625d58}
-html[data-theme='light'] .settings-theme-option:hover{background:#f7f3f0;color:#3e3029}
-html[data-theme='light'] .settings-theme-option.active{background:#f7eee9;border-color:#c97758;color:#5a2f22}
-html[data-theme='light'] .settings-theme-times label span{color:#6d6863}
-html[data-theme='light'] .settings-theme-times input{background:#fff;border-color:#d7d2cd;color:#252728}
-html[data-theme='light'] .settings-theme-auto-panel{background:#faf9f7;border:1px solid #e0dcd7;border-radius:10px;padding:11px;margin-top:10px}
-html[data-theme='light'] .settings-theme-auto-head{color:#5f5a55}
-html[data-theme='light'] .settings-theme-auto-head svg{color:#a84a28}
-html[data-theme='light'] .settings-theme-auto-head b{color:#35302c}
-html[data-theme='light'] .settings-theme-auto-head small{color:#6d6863}
-html[data-theme='light'] .settings-toggle span{background:#ece9e5;border-color:#cbc6c0}
-html[data-theme='light'] .settings-toggle span::after{background:#88817a}
-html[data-theme='light'] .settings-toggle input:checked + span{background:#f2e2db;border-color:#c87558}
-html[data-theme='light'] .settings-toggle input:checked + span::after{background:#a84a28}
-html[data-theme='light'] .pos-landing-card,html[data-theme='light'] .pos-landing-panel{background:#fff;border-color:#ddd9d5;color:#292b2c}
-html[data-theme='light'] .pos-landing-card>p:not(.eyebrow),html[data-theme='light'] .landing-secondary{color:#6d6863}
-html[data-theme='light'] .back-soft{color:#706b66}
-html[data-theme='light'] .success-toast{background:#edf8f0;border-color:#b8ddc1;color:#28633a}
-html[data-theme='light'] .form-error,html[data-theme='light'] .pos-error{color:#a6472c}
-html[data-theme='light'] .eyebrow{color:#aa4b2a}
+html[data-theme='light'] body{
+  background:radial-gradient(circle at 84% -12%,rgba(200,77,31,.10),transparent 30%),linear-gradient(180deg,#f8f3ec 0%,#f3eee7 100%);
+  color:var(--cream);
+}
+html[data-theme='light'] ::selection{background:#f3d6c4;color:#351c14}
+html[data-theme='light'] .sidebar{
+  background:#fffaf4;
+  border-color:var(--brand-border);
+  box-shadow:8px 0 30px rgba(64,38,22,.05);
+}
+html[data-theme='light'] .topbar{
+  background:rgba(255,250,244,.92);
+  border-color:var(--brand-border);
+  box-shadow:0 1px 0 rgba(74,44,27,.03);
+}
+html[data-theme='light'] .main,
+html[data-theme='light'] .content{color:var(--cream)}
+html[data-theme='light'] .brand-mark{
+  background:linear-gradient(145deg,#d65a24,#b94318);
+  color:#fff;
+  box-shadow:0 7px 18px rgba(170,62,24,.20);
+}
+html[data-theme='light'] .brand strong{color:var(--brand-espresso)}
+html[data-theme='light'] .brand span{color:#cb5426}
+html[data-theme='light'] .business{
+  background:#fffdf9;
+  border-color:var(--brand-border);
+  box-shadow:0 8px 24px rgba(64,38,22,.04);
+}
+html[data-theme='light'] .connection{color:#625850}
+html[data-theme='light'] .profile-mini{border-color:#e7ddd2}
+html[data-theme='light'] .avatar{background:#efe7de;color:#4d3b32;border:1px solid #dfd3c7}
+html[data-theme='light'] .nav-item{color:#6b6058}
+html[data-theme='light'] .nav-item:hover{background:#f7efe7;color:#2c201b}
+html[data-theme='light'] .nav-item.active{
+  background:linear-gradient(90deg,#f8e8dc,#fdf6ef);
+  color:#38241c;
+  box-shadow:inset 3px 0 #d45a28;
+}
+html[data-theme='light'] .topbar-title{color:#2a1d18}
+html[data-theme='light'] .topbar-title span{color:#d05a29}
+html[data-theme='light'] .topbar-title small,
+html[data-theme='light'] .live-status{color:#6e645c}
+html[data-theme='light'] .eyebrow{color:#b64a21}
+html[data-theme='light'] .sync-pill,
+html[data-theme='light'] .badge{
+  background:#fffdf9;
+  border-color:#ddd2c6;
+  color:#665c55;
+}
 
-/* Componentes con fondos oscuros que no deben conservar texto claro en modo light. */
-html[data-theme='light'] .checkout-modal,html[data-theme='light'] .checkout-panel,html[data-theme='light'] .payment-complete-card,html[data-theme='light'] .discount-editor,html[data-theme='light'] .item-editor-modal{background:#fff;border-color:#ddd9d5;color:#292b2c;box-shadow:0 24px 70px rgba(35,30,25,.18)}
-html[data-theme='light'] .checkout-modal input,html[data-theme='light'] .checkout-modal select,html[data-theme='light'] .checkout-modal textarea,html[data-theme='light'] .discount-editor input{background:#fff;border-color:#d7d2cd;color:#252728}
-html[data-theme='light'] .checkout-total-main span,html[data-theme='light'] .checkout-discount-line,html[data-theme='light'] .discount-editor-head span,html[data-theme='light'] .discount-input>span,html[data-theme='light'] .payment-complete-card p,html[data-theme='light'] .payment-complete-bottom{color:#6d6863!important}
-html[data-theme='light'] .payment-complete-total span{color:#6d6863}
-html[data-theme='light'] .item-editor-section,html[data-theme='light'] .item-editor-preview{background:#faf9f7;border-color:#e0dcd7}
-html[data-theme='light'] .item-editor-section-head b,html[data-theme='light'] .item-editor-preview b{color:#292b2c}
-html[data-theme='light'] .item-editor-section-head span,html[data-theme='light'] .item-editor-preview span{color:#6d6863}
-html[data-theme='light'] .item-editor-section textarea{background:#fff;border-color:#d7d2cd;color:#252728}
-html[data-theme='light'] .item-editor-chips button{background:#fff;border-color:#ddd9d5;color:#6a645e}
-html[data-theme='light'] .item-editor-footer{background:#faf9f7;border-color:#e0dcd7}
+/* Superficies principales */
+html[data-theme='light'] .panel,
+html[data-theme='light'] .stat-card,
+html[data-theme='light'] .cart,
+html[data-theme='light'] .settings-sidebar,
+html[data-theme='light'] .settings-list-card,
+html[data-theme='light'] .customers-panel,
+html[data-theme='light'] .orders-column,
+html[data-theme='light'] .order-card,
+html[data-theme='light'] .user-card,
+html[data-theme='light'] .user-row,
+html[data-theme='light'] .report-filter,
+html[data-theme='light'] .report-chart-panel,
+html[data-theme='light'] .report-topdays-panel,
+html[data-theme='light'] .report-day-detail,
+html[data-theme='light'] .report-day-sales,
+html[data-theme='light'] .closing-main-card,
+html[data-theme='light'] .closing-next-card,
+html[data-theme='light'] .closure-history-panel,
+html[data-theme='light'] .admin-control-card,
+html[data-theme='light'] .pos-landing-card,
+html[data-theme='light'] .pos-landing-panel{
+  background:var(--panel);
+  border-color:var(--brand-border);
+  color:var(--cream);
+  box-shadow:0 8px 28px rgba(72,43,25,.055);
+}
+html[data-theme='light'] .stat-head{color:#6e635b}
+html[data-theme='light'] .stat-card>strong,
+html[data-theme='light'] .panel-title h2,
+html[data-theme='light'] .admin-summary-number,
+html[data-theme='light'] .month-number{color:#261914}
+html[data-theme='light'] .stat-card small,
+html[data-theme='light'] .panel-title p,
+html[data-theme='light'] .sale-main span,
+html[data-theme='light'] .mini-list div{color:#756a62}
+html[data-theme='light'] .mini-list b{color:#342620}
+html[data-theme='light'] .sale-row{border-color:#ece3da}
+html[data-theme='light'] .sale-avatar,
+html[data-theme='light'] .product-photo,
+html[data-theme='light'] .stat-icon,
+html[data-theme='light'] .order-square-icon{
+  background:#f5e8dc;
+  border:1px solid #e5d6c8;
+  color:#bd4a21;
+}
+html[data-theme='light'] .progress{background:#e8ded5}
+html[data-theme='light'] .progress span{background:linear-gradient(90deg,#c94b1d,#df7632)}
+
+/* Héroes: crema, no bloques negros */
+html[data-theme='light'] .hero-metric,
+html[data-theme='light'] .admin-hero,
+html[data-theme='light'] .report-hero,
+html[data-theme='light'] .config-hero{
+  background:linear-gradient(135deg,#fffaf3 0%,#f9eee4 62%,#f6e3d4 100%);
+  border-color:#e5cdbd;
+  color:#2a1a14;
+  box-shadow:0 12px 34px rgba(118,57,25,.07);
+}
+html[data-theme='light'] .hero-metric span,
+html[data-theme='light'] .report-hero span,
+html[data-theme='light'] .admin-hero span,
+html[data-theme='light'] .admin-hero small,
+html[data-theme='light'] .config-hero-copy span,
+html[data-theme='light'] .config-hero-copy small{color:#75635a}
+html[data-theme='light'] .hero-metric strong,
+html[data-theme='light'] .report-hero strong,
+html[data-theme='light'] .admin-hero strong{color:#2c1b14}
+html[data-theme='light'] .hero-bars i{background:linear-gradient(#db6f2c,#b6481d);opacity:.72}
+html[data-theme='light'] .admin-hero-side{
+  background:rgba(255,251,246,.72);
+  border-color:#e5cdbd;
+}
+html[data-theme='light'] .admin-hero-side span{color:#a94721}
+html[data-theme='light'] .admin-hero-side b{color:#3b2820}
+
+/* Navegación de configuraciones */
+html[data-theme='light'] .settings-brand-row h1,
+html[data-theme='light'] .settings-content-head h2{color:#271a15}
+html[data-theme='light'] .settings-brand-row span,
+html[data-theme='light'] .settings-overline,
+html[data-theme='light'] .settings-head-count{color:#6e625a}
+html[data-theme='light'] .settings-head-count{background:#fffdf9;border-color:#ddd2c6}
+html[data-theme='light'] .settings-nav-item{color:#6e625a}
+html[data-theme='light'] .settings-nav-item:hover{background:#f8f0e8;color:#35251e}
+html[data-theme='light'] .settings-nav-item.active{background:#f8e9de;color:#3d2419;box-shadow:inset 3px 0 #d35a27}
+html[data-theme='light'] .settings-nav-item small{color:#81756d}
+html[data-theme='light'] .settings-sidebar-footer{border-color:#e7ddd2;color:#756960}
+html[data-theme='light'] .settings-content-head,
+html[data-theme='light'] .settings-section-toolbar,
+html[data-theme='light'] .settings-feature-head,
+html[data-theme='light'] .settings-list-row,
+html[data-theme='light'] .settings-order-field{border-color:#e8ded4}
+html[data-theme='light'] .settings-section-toolbar b,
+html[data-theme='light'] .settings-products-head b,
+html[data-theme='light'] .settings-row-copy b{color:#2b1e18}
+html[data-theme='light'] .settings-section-toolbar span,
+html[data-theme='light'] .settings-products-head span,
+html[data-theme='light'] .settings-row-copy span,
+html[data-theme='light'] .settings-feature-head span{color:#756960}
+html[data-theme='light'] .settings-row-icon,
+html[data-theme='light'] .settings-feature-icon,
+html[data-theme='light'] .settings-brand-icon,
+html[data-theme='light'] .settings-card-icon,
+html[data-theme='light'] .settings-command-icon,
+html[data-theme='light'] .settings-payment-mark,
+html[data-theme='light'] .settings-category-dot{
+  background:#f6eae0;
+  border-color:#e5d6c8;
+  color:#b94a21;
+}
+html[data-theme='light'] .settings-list-row:hover{background:#fbf5ef}
+html[data-theme='light'] .settings-row-actions button,
+html[data-theme='light'] .settings-action-btn,
+html[data-theme='light'] .settings-inline-btn,
+html[data-theme='light'] .settings-counter-inline,
+html[data-theme='light'] .settings-counter,
+html[data-theme='light'] .settings-soon{
+  background:#faf6f1;
+  border-color:#ded3c8;
+  color:#665b53;
+}
+html[data-theme='light'] .settings-action-btn:hover,
+html[data-theme='light'] .settings-inline-btn:hover{background:#f8ede4;border-color:#d3a28a;color:#8d351b}
+html[data-theme='light'] .settings-add-row{background:#fbf6f0;border-color:#e8ded4}
+html[data-theme='light'] .settings-users-pane{background:#fffdf9;border-color:#e0d5ca}
+html[data-theme='light'] .settings-orders-intro,
+html[data-theme='light'] .settings-placeholder-list>div,
+html[data-theme='light'] .settings-spec-grid>div,
+html[data-theme='light'] .settings-future-grid span,
+html[data-theme='light'] .settings-field-editor-required,
+html[data-theme='light'] .settings-field-editor-note,
+html[data-theme='light'] .settings-manager-lock{
+  background:#fbf6f0;
+  border-color:#e4d8cd;
+  color:#665b53;
+}
+html[data-theme='light'] .settings-active-badge{background:#edf7ef;border-color:#bdd8c3;color:#2f7c49}
+html[data-theme='light'] .settings-error,
+html[data-theme='light'] .settings-feedback.error{background:var(--danger-bg);border-color:#e7b9b0;color:#9f3c31}
+html[data-theme='light'] .settings-success,
+html[data-theme='light'] .settings-feedback.success{background:var(--success-bg);border-color:#bfdac6;color:#2f6f43}
+html[data-theme='light'] .settings-role-pill,
+html[data-theme='light'] .settings-hero-chip{background:#fff6ef;border-color:#e2c7b6;color:#a94721}
+
+/* Tema */
+html[data-theme='light'] .settings-theme-option{
+  background:#fffdf9;
+  border-color:#ddd3c9;
+  color:#635850;
+}
+html[data-theme='light'] .settings-theme-option:hover{background:#fbf3ec;color:#34241d}
+html[data-theme='light'] .settings-theme-option.active{
+  background:#fff0e5;
+  border-color:#d28b68;
+  color:#883719;
+  box-shadow:0 5px 16px rgba(177,74,34,.08);
+}
+html[data-theme='light'] .settings-theme-auto-panel{background:#fbf6f0;border-color:#e2d7cd}
+html[data-theme='light'] .settings-theme-auto-head,
+html[data-theme='light'] .settings-theme-auto-head b{color:#45342b}
+html[data-theme='light'] .settings-theme-auto-head small,
+html[data-theme='light'] .settings-theme-times label span{color:#746960}
+html[data-theme='light'] .settings-theme-auto-head svg{color:#bf4b20}
+
+/* Controles e inputs: fondo claro, texto oscuro */
+html[data-theme='light'] .search-box,
+html[data-theme='light'] .customers-search,
+html[data-theme='light'] .workspace-search,
+html[data-theme='light'] .customer-picker-search{
+  background:#fffdf9;
+  border-color:#d8cec3;
+  color:#6d6259;
+}
+html[data-theme='light'] .search-box input,
+html[data-theme='light'] .customers-search input,
+html[data-theme='light'] .workspace-search input,
+html[data-theme='light'] .customer-picker-search input{color:#2a211d}
+html[data-theme='light'] .customer-picker-search input::placeholder{color:#a39a92}
+html[data-theme='light'] .customer-picker-form input,
+html[data-theme='light'] .customer-picker-form textarea,
+html[data-theme='light'] .customer-picker-form select,
+html[data-theme='light'] .customer-form input,
+html[data-theme='light'] .customer-form textarea,
+html[data-theme='light'] .customer-form select,
+html[data-theme='light'] .delivery-form input,
+html[data-theme='light'] .delivery-form textarea,
+html[data-theme='light'] .modification-item textarea,
+html[data-theme='light'] .settings-add-row input,
+html[data-theme='light'] .settings-custom-field-form input,
+html[data-theme='light'] .settings-custom-field-form select,
+html[data-theme='light'] .settings-field-editor-label input,
+html[data-theme='light'] .settings-field-editor-label select,
+html[data-theme='light'] .settings-theme-times input,
+html[data-theme='light'] .date-inputs input,
+html[data-theme='light'] .login-pin input,
+html[data-theme='light'] .user-create-modal input,
+html[data-theme='light'] .user-create-modal select,
+html[data-theme='light'] .user-config-modal input,
+html[data-theme='light'] .user-config-modal select,
+html[data-theme='light'] .user-form-grid input,
+html[data-theme='light'] .user-form-grid select{
+  background:#fffdf9;
+  border-color:#d7cec4;
+  color:#2b231f;
+  box-shadow:inset 0 1px 2px rgba(65,38,24,.025);
+}
+html[data-theme='light'] .customer-picker-form input::placeholder,
+html[data-theme='light'] .customer-picker-form textarea::placeholder,
+html[data-theme='light'] .customer-form input::placeholder,
+html[data-theme='light'] .customer-form textarea::placeholder,
+html[data-theme='light'] .delivery-form input::placeholder,
+html[data-theme='light'] .delivery-form textarea::placeholder{color:#aaa098}
+html[data-theme='light'] .customer-picker-form input:focus,
+html[data-theme='light'] .customer-picker-form textarea:focus,
+html[data-theme='light'] .customer-picker-form select:focus,
+html[data-theme='light'] .customer-form input:focus,
+html[data-theme='light'] .customer-form textarea:focus,
+html[data-theme='light'] .customer-form select:focus,
+html[data-theme='light'] .delivery-form input:focus,
+html[data-theme='light'] .delivery-form textarea:focus,
+html[data-theme='light'] .settings-custom-field-form input:focus,
+html[data-theme='light'] .settings-custom-field-form select:focus,
+html[data-theme='light'] .settings-field-editor-label input:focus,
+html[data-theme='light'] .settings-field-editor-label select:focus{border-color:#c97853;box-shadow:0 0 0 3px rgba(197,78,31,.08)}
+
+/* Botones: el naranja siempre lleva texto claro */
+html[data-theme='light'] .primary,
+html[data-theme='light'] .primary-inline,
+html[data-theme='light'] .report-export-btn,
+html[data-theme='light'] .customer-add-btn,
+html[data-theme='light'] .product-new-btn,
+html[data-theme='light'] .workspace-pay,
+html[data-theme='light'] .checkout-payment-grid .selected{
+  background:linear-gradient(135deg,#ce4f20,#ad3e17)!important;
+  border-color:#b9431a!important;
+  color:#fff!important;
+  box-shadow:0 9px 22px rgba(169,57,22,.17);
+}
+html[data-theme='light'] .secondary,
+html[data-theme='light'] .config-btn,
+html[data-theme='light'] .role-btn,
+html[data-theme='light'] .icon-btn,
+html[data-theme='light'] .icon-action,
+html[data-theme='light'] .range-btn,
+html[data-theme='light'] .sales-print-btn,
+html[data-theme='light'] .report-day-close,
+html[data-theme='light'] .test-reset-btn,
+html[data-theme='light'] .pin-field button{
+  background:#fffdf9;
+  border:1px solid #d8cec3;
+  color:#635850;
+}
+html[data-theme='light'] .secondary:hover,
+html[data-theme='light'] .config-btn:hover,
+html[data-theme='light'] .role-btn:hover,
+html[data-theme='light'] .icon-btn:hover,
+html[data-theme='light'] .icon-action:hover,
+html[data-theme='light'] .range-btn:hover,
+html[data-theme='light'] .sales-print-btn:hover,
+html[data-theme='light'] .report-day-close:hover{background:#f9f0e8;border-color:#ce9a80;color:#6e2d1b}
+
+/* POS y productos */
+html[data-theme='light'] .category-tabs button,
+html[data-theme='light'] .product-filters button,
+html[data-theme='light'] .workspace-tabs button{
+  background:#fffdf9;
+  border-color:#ded3c8;
+  color:#6a6058;
+}
+html[data-theme='light'] .category-tabs button.selected,
+html[data-theme='light'] .product-filters button.selected,
+html[data-theme='light'] .workspace-tabs button.selected{
+  background:#fff0e5;
+  border-color:#cf8768;
+  color:#7a321b;
+}
+html[data-theme='light'] .product-card,
+html[data-theme='light'] .workspace-product,
+html[data-theme='light'] .customer-picker-row{
+  background:#fffdf9;
+  border-color:#e0d6cc;
+  color:#2c231e;
+  box-shadow:0 5px 18px rgba(65,38,22,.035);
+}
+html[data-theme='light'] .product-card:hover,
+html[data-theme='light'] .workspace-product:hover:not(:disabled),
+html[data-theme='light'] .customer-picker-row:hover{background:#fbf3ec;border-color:#cf977e}
+html[data-theme='light'] .product-card b,
+html[data-theme='light'] .workspace-product b,
+html[data-theme='light'] .customer-picker-row b{color:#2a201b}
+html[data-theme='light'] .product-card span{color:#b34821}
+html[data-theme='light'] .product-card>svg{color:#887e76}
+html[data-theme='light'] .cart-header,
+html[data-theme='light'] .cart-item,
+html[data-theme='light'] .payment,
+html[data-theme='light'] .checkout{border-color:#ebe2da}
+html[data-theme='light'] .cart-header p,
+html[data-theme='light'] .empty-cart,
+html[data-theme='light'] .payment>span,
+html[data-theme='light'] .checkout span,
+html[data-theme='light'] .cart-item span{color:#776c64}
+html[data-theme='light'] .empty-cart b,
+html[data-theme='light'] .cart-item b,
+html[data-theme='light'] .checkout strong{color:#2b211c}
+html[data-theme='light'] .qty button,
+html[data-theme='light'] .payment-grid button,
+html[data-theme='light'] .discount-type-switch button,
+html[data-theme='light'] .discount-presets button{
+  background:#faf5ef;
+  border-color:#ddd3c9;
+  color:#625850;
+}
+html[data-theme='light'] .payment-grid button.selected,
+html[data-theme='light'] .discount-type-switch button.selected{
+  background:#fff0e5;
+  border-color:#cf8667;
+  color:#78331e;
+}
+html[data-theme='light'] .trash{color:#8c8279}
+
+/* Pedidos */
+html[data-theme='light'] .orders-board .orders-column{background:#fbf7f2}
+html[data-theme='light'] .orders-column-head{border-color:#e8ded5}
+html[data-theme='light'] .orders-column-head span,
+html[data-theme='light'] .orders-empty,
+html[data-theme='light'] .orders-count,
+html[data-theme='light'] .order-address,
+html[data-theme='light'] .order-card-bottom span,
+html[data-theme='light'] .order-card-top span{color:#766c64}
+html[data-theme='light'] .orders-count{background:#fffdf9;border-color:#ddd3c9}
+html[data-theme='light'] .orders-count b{color:#33241d}
+html[data-theme='light'] .order-card-top b{color:#b94821}
+html[data-theme='light'] .order-detail-modal,
+html[data-theme='light'] .checkout-order-modal,
+html[data-theme='light'] .receipt-modal{
+  background:#fffdf9;
+  border-color:#ddd3c9;
+  color:#2a211c;
+  box-shadow:0 24px 75px rgba(68,39,22,.19);
+}
+html[data-theme='light'] .order-detail-head{border-color:#e8ded5}
+html[data-theme='light'] .order-detail-head h2{color:#2b201a}
+html[data-theme='light'] .order-detail-grid>div{background:#fbf6f0;border-color:#e4dad0}
+html[data-theme='light'] .order-detail-grid span{color:#84776e}
+html[data-theme='light'] .order-detail-grid b{color:#33261f}
+html[data-theme='light'] .order-notes{background:#fff7ef;border-color:#ead5c3}
+html[data-theme='light'] .order-notes b{color:#a34720}
+html[data-theme='light'] .order-notes span{color:#665b53}
+html[data-theme='light'] .delivery-form{border-color:#e8ded5}
+html[data-theme='light'] .delivery-form-title{color:#403128}
+
+/* Workspace de pedido: completamente claro */
+html[data-theme='light'] .order-workspace-page,
+html[data-theme='light'] .order-workspace-page .order-workspace{background:#f6f1ea;color:#2a211c}
+html[data-theme='light'] .order-workspace-page .workspace-head,
+html[data-theme='light'] .order-workspace-page .workspace-summary,
+html[data-theme='light'] .order-workspace-page .workspace-lines,
+html[data-theme='light'] .order-workspace-page .workspace-bottom-actions,
+html[data-theme='light'] .order-workspace-page .workspace-payment{
+  background:#fffdf9;
+  border-color:#e6dcd3;
+}
+html[data-theme='light'] .order-workspace-page .workspace-catalog{background:#f8f2eb;border-color:#ddd2c7}
+html[data-theme='light'] .workspace-title h2,
+html[data-theme='light'] .workspace-section-head>b,
+html[data-theme='light'] .workspace-summary-total strong{color:#2a211c}
+html[data-theme='light'] .workspace-title>div>span,
+html[data-theme='light'] .workspace-section-head>div>span,
+html[data-theme='light'] .workspace-summary-head span,
+html[data-theme='light'] .workspace-summary-total small,
+html[data-theme='light'] .workspace-line-name small,
+html[data-theme='light'] .workspace-qty-label{color:#786d64}
+html[data-theme='light'] .workspace-line{background:#fffdf9;border-color:#e1d7cd;box-shadow:0 5px 18px rgba(61,35,21,.04)}
+html[data-theme='light'] .workspace-line:hover{border-color:#d5b19b}
+html[data-theme='light'] .workspace-line-index{background:#fae9dc;border-color:#e2c4b2;color:#b64a20}
+html[data-theme='light'] .workspace-line-head>strong{color:#3b2c23}
+html[data-theme='light'] .workspace-line-controls{border-color:#ece3db}
+html[data-theme='light'] .workspace-qty button{background:#fbf5ef;border-color:#dcd1c7;color:#5f554d}
+html[data-theme='light'] .workspace-remove{color:#867b73}
+html[data-theme='light'] .workspace-remove:hover:not(:disabled){background:#fff0e7;color:#9b3e20}
+html[data-theme='light'] .workspace-modification{background:#fbf6f0;border-color:#e4d8cd}
+html[data-theme='light'] .workspace-modification-head b{color:#46362c}
+html[data-theme='light'] .workspace-modification-head span{color:#7a6f66}
+html[data-theme='light'] .workspace-modification-head em{background:#fff0e5;border-color:#e3bea9;color:#a94721}
+html[data-theme='light'] .order-workspace-page .workspace-line textarea,
+html[data-theme='light'] .workspace-note textarea{background:#fffdf9;border-color:#d8cec3;color:#2b231f}
+html[data-theme='light'] .workspace-note{border-color:#e7ddd4}
+html[data-theme='light'] .workspace-note label{color:#6d625a}
+html[data-theme='light'] .workspace-note-head span{color:#8e837a}
+html[data-theme='light'] .workspace-note textarea:focus{border-color:#c97953;box-shadow:0 0 0 3px rgba(197,78,31,.08)}
+html[data-theme='light'] .workspace-paid{border-color:#cce1d0}
+html[data-theme='light'] .workspace-paid-icon{background:#eaf6ed;color:#2f7c49;border-color:#c5dfcc}
+html[data-theme='light'] .workspace-paid b{color:#337447}
+html[data-theme='light'] .workspace-paid span{color:#6d796f}
+html[data-theme='light'] .workspace-success{background:#edf8f0;border-color:#bfdbc6;color:#2f7547}
+html[data-theme='light'] .workspace-error{background:#fff0ed;border-color:#e5bbb2;color:#a04437}
+
+/* Modales, sliders y confirmaciones */
+html[data-theme='light'] .modal-backdrop,
+html[data-theme='light'] .customer-modal-backdrop,
+html[data-theme='light'] .customer-picker-backdrop,
+html[data-theme='light'] .checkout-editor-backdrop,
+html[data-theme='light'] .item-editor-backdrop,
+html[data-theme='light'] .danger-backdrop,
+html[data-theme='light'] .logout-backdrop,
+html[data-theme='light'] .closing-backdrop,
+html[data-theme='light'] .receipt-backdrop,
+html[data-theme='light'] .payment-complete-overlay,
+html[data-theme='light'] .workspace-backdrop{background:rgba(53,31,20,.38)}
+html[data-theme='light'] .modal,
+html[data-theme='light'] .checkout-modal,
+html[data-theme='light'] .checkout-panel,
+html[data-theme='light'] .discount-editor,
+html[data-theme='light'] .item-editor-modal,
+html[data-theme='light'] .payment-complete-card,
+html[data-theme='light'] .profile-modal,
+html[data-theme='light'] .user-create-modal,
+html[data-theme='light'] .user-config-modal,
+html[data-theme='light'] .logout-modal,
+html[data-theme='light'] .closing-modal,
+html[data-theme='light'] .delete-confirm-modal,
+html[data-theme='light'] .closure-delete-modal,
+html[data-theme='light'] .closure-detail-modal,
+html[data-theme='light'] .test-reset-modal,
+html[data-theme='light'] .danger-modal{
+  background:#fffdf9;
+  border-color:#ddd3c9;
+  color:#2a211c;
+  box-shadow:0 26px 90px rgba(67,38,21,.22);
+}
+html[data-theme='light'] .modal-header,
+html[data-theme='light'] .customer-modal-head,
+html[data-theme='light'] .customer-picker-head,
+html[data-theme='light'] .customer-picker-foot,
+html[data-theme='light'] .customer-modal-foot,
+html[data-theme='light'] .checkout-editor-head,
+html[data-theme='light'] .checkout-editor-footer,
+html[data-theme='light'] .item-editor-head,
+html[data-theme='light'] .item-editor-footer,
+html[data-theme='light'] .closing-modal-footer{border-color:#e7ddd4;background:#fffaf4}
+html[data-theme='light'] .checkout-modal-close,
+html[data-theme='light'] .receipt-close,
+html[data-theme='light'] .logout-close,
+html[data-theme='light'] .item-editor-close{
+  background:#fffdf9;
+  border-color:#ded3c9;
+  color:#776b62;
+}
+html[data-theme='light'] .checkout-modal-close:hover,
+html[data-theme='light'] .receipt-close:hover,
+html[data-theme='light'] .logout-close:hover,
+html[data-theme='light'] .item-editor-close:hover{color:#8f371d;border-color:#cb9a82}
+html[data-theme='light'] .confirm-icon,
+html[data-theme='light'] .payment-report-icon,
+html[data-theme='light'] .checkout-receipt-mark,
+html[data-theme='light'] .receipt-brand-mark,
+html[data-theme='light'] .pos-landing-icon,
+html[data-theme='light'] .logout-icon,
+html[data-theme='light'] .delete-confirm-icon{
+  background:#fae9dc;
+  border-color:#e5c6b3;
+  color:#bb4a21;
+}
+html[data-theme='light'] .receipt-brand-mark{color:#fff;background:linear-gradient(145deg,#d45b26,#b9431a);border-color:#bd481d}
+html[data-theme='light'] .confirm-copy,
+html[data-theme='light'] .checkout-order-total span,
+html[data-theme='light'] .checkout-discount-line,
+html[data-theme='light'] .discount-editor-head span,
+html[data-theme='light'] .discount-input>span,
+html[data-theme='light'] .payment-complete-card p,
+html[data-theme='light'] .payment-complete-bottom{color:#746960!important}
+html[data-theme='light'] .confirm-order-list,
+html[data-theme='light'] .checkout-summary-card,
+html[data-theme='light'] .checkout-total-card,
+html[data-theme='light'] .checkout-slider-section,
+html[data-theme='light'] .checkout-slider-head,
+html[data-theme='light'] .item-editor-section,
+html[data-theme='light'] .item-editor-preview{background:#fbf6f0;border-color:#e3d8ce}
+html[data-theme='light'] .confirm-order-item{border-color:#e7ddd4}
+html[data-theme='light'] .confirm-order-item span,
+html[data-theme='light'] .confirm-summary span{color:#766b63}
+html[data-theme='light'] .confirm-order-item b,
+html[data-theme='light'] .confirm-summary b{color:#33251f}
+html[data-theme='light'] .confirm-slider{background:#f3ebe3;border-color:#dcd1c7}
+html[data-theme='light'] .confirm-slider-text{color:#84786f}
+html[data-theme='light'] .confirm-slider-thumb{background:#c94d1f;color:#fff;box-shadow:0 8px 18px rgba(170,58,20,.20)}
+html[data-theme='light'] .confirm-slider.ready .confirm-slider-thumb{background:#3d8b57;color:#fff}
+html[data-theme='light'] .delete-slider{background:#f4ebe4;border-color:#dfcfc3}
+html[data-theme='light'] .delete-slider-text{color:#8c6d62}
+html[data-theme='light'] .delete-slider-thumb{background:#c94d1f;color:#fff}
+html[data-theme='light'] .discount-trigger{background:#fff5ec;border-color:#e2c9b9;color:#9b4020}
+html[data-theme='light'] .discount-trigger b{color:#8f3b20}
+html[data-theme='light'] .payment-complete-check{background:#eaf6ed;border-color:#c3dfca;color:#2f7c49}
+html[data-theme='light'] .payment-complete-progress{background:#e4ddd7}
+
+/* Clientes */
+html[data-theme='light'] .customer-picker-head h2,
+html[data-theme='light'] .customer-main>b{color:#2b211c}
+html[data-theme='light'] .customer-picker-head p,
+html[data-theme='light'] .customer-picker-empty,
+html[data-theme='light'] .customer-picker-form label>span,
+html[data-theme='light'] .customer-modal-head p,
+html[data-theme='light'] .customer-form label>span,
+html[data-theme='light'] .customer-picker-row span,
+html[data-theme='light'] .customer-main>span,
+html[data-theme='light'] .customers-count{color:#756a62}
+html[data-theme='light'] .customer-picker-avatar,
+html[data-theme='light'] .customer-picker-icon,
+html[data-theme='light'] .customer-avatar,
+html[data-theme='light'] .customers-empty-icon{
+  background:#f6eae0;
+  border-color:#e3d4c7;
+  color:#b74a22;
+}
+html[data-theme='light'] .customers-toolbar{background:#fffaf4;border-color:#e7ddd4}
+html[data-theme='light'] .customer-picker-toolbar{background:#fbf6f0;border-color:#e6dbd1}
+html[data-theme='light'] .customer-picker-row.guest{background:#edf8f0;border-color:#c7dfcd}
+html[data-theme='light'] .customer-action{color:#766a61}
+html[data-theme='light'] .customers-empty{color:#786c63}
+html[data-theme='light'] .customers-feedback.error{background:#fff0ed;border-color:#e5bbb2;color:#a04437}
+
+/* Reportes, tablas y cierres */
+html[data-theme='light'] th{color:#746960;background:#fbf6f0}
+html[data-theme='light'] td{color:#4c4038;border-color:#e8ded6}
+html[data-theme='light'] .rank-row,
+html[data-theme='light'] .feature-list li,
+html[data-theme='light'] .top-day-row,
+html[data-theme='light'] .day-sale-row{border-color:#e8ded6}
+html[data-theme='light'] .rank-row span,
+html[data-theme='light'] .top-day-rank,
+html[data-theme='light'] .product-report-rank,
+html[data-theme='light'] .top-day-main small,
+html[data-theme='light'] .day-product-row small,
+html[data-theme='light'] .day-payment-row small,
+html[data-theme='light'] .day-sale-main small,
+html[data-theme='light'] .day-sale-payment,
+html[data-theme='light'] .top-day-arrow{color:#7a6f67}
+html[data-theme='light'] .report-bar-track,
+html[data-theme='light'] .top-day-bar{background:#e8ded6}
+html[data-theme='light'] .report-bar-fill,
+html[data-theme='light'] .top-day-bar span{background:linear-gradient(180deg,#d65c25,#bf431a)}
+html[data-theme='light'] .report-bar-value,
+html[data-theme='light'] .report-bar-col small,
+html[data-theme='light'] .report-bar-col>span:last-child{color:#6c6057}
+html[data-theme='light'] .report-chart-gridlines i{border-color:#e8ded6}
+html[data-theme='light'] .report-day-section{background:#fbf6f0;border-color:#e3d8ce}
+html[data-theme='light'] .report-day-close{color:#655a52;background:#fffdf9;border-color:#d9cec4}
+html[data-theme='light'] .invoice-count{background:#fff1e6;border-color:#e2c1ae;color:#a24722}
+html[data-theme='light'] .day-sale-payment{background:#faf5ef;border-color:#ddd2c7}
+html[data-theme='light'] .closing-status-pill{background:#faf5ef;border-color:#ded4ca;color:#685d55}
+html[data-theme='light'] .closing-status-pill.pending,
+html[data-theme='light'] .closing-status-pill.blocked{background:#fff5df;border-color:#ead4ab;color:#91601f}
+html[data-theme='light'] .closing-status-pill.closed{background:#edf7ef;border-color:#c5dfcb;color:#2f7746}
+html[data-theme='light'] .closing-state{background:#fff1e7;border-color:#e1c0ad;color:#9e431f}
+html[data-theme='light'] .closing-state.done{background:#edf7ef;border-color:#c5dfcb;color:#2f7746}
+html[data-theme='light'] .closing-warning,
+html[data-theme='light'] .closing-confirm-warning,
+html[data-theme='light'] .closing-warning-box{background:#fff5df;border-color:#ead4ab;color:#8e6426}
+html[data-theme='light'] .closing-closed-banner{background:#edf7ef;border-color:#c5dfcb;color:#2f7746}
+html[data-theme='light'] .closing-stats>div,
+html[data-theme='light'] .next-close-date,
+html[data-theme='light'] .closing-modal-summary>div,
+html[data-theme='light'] .closing-method-grid>div{background:#fbf6f0;border-color:#e1d6cc}
+html[data-theme='light'] .closing-stats span,
+html[data-theme='light'] .next-close-date span,
+html[data-theme='light'] .next-close-date small,
+html[data-theme='light'] .closing-action-card span,
+html[data-theme='light'] .closing-action-card small,
+html[data-theme='light'] .closing-modal-summary span,
+html[data-theme='light'] .closing-method-grid span{color:#786d64}
+html[data-theme='light'] .cash-difference-box{background:#fff5df;border-color:#e7d0a8;color:#8e6426}
+html[data-theme='light'] .cash-difference-box.ok{background:#edf7ef;border-color:#c5dfcb;color:#2f7746}
+html[data-theme='light'] .cash-difference-box.surplus{background:#fff8e8;border-color:#e6d7a5;color:#85671f}
+html[data-theme='light'] .closure-history-row{border-color:#e8ded6}
+html[data-theme='light'] .closure-history-icon{background:#f7e8dc;border-color:#e1c6b5;color:#b44922}
+html[data-theme='light'] .closure-history-main span,
+html[data-theme='light'] .closure-history-total small{color:#786d64}
+html[data-theme='light'] .closure-difference{background:#fff5df;border-color:#e5d1ac;color:#946324}
+html[data-theme='light'] .closure-difference.ok{background:#edf7ef;border-color:#c5dfcb;color:#2f7746}
+html[data-theme='light'] .closure-difference.surplus{background:#fff8e8;border-color:#e6d7a5;color:#85671f}
+
+/* Usuarios / permisos */
+html[data-theme='light'] .users-toolbar,
+html[data-theme='light'] .permission-group-title{color:#73675f}
+html[data-theme='light'] .users-toolbar b,
+html[data-theme='light'] .user-info h2,
+html[data-theme='light'] .profile-preview h2{color:#2b211c}
+html[data-theme='light'] .user-card p,
+html[data-theme='light'] .user-info p,
+html[data-theme='light'] .profile-preview span,
+html[data-theme='light'] .users-note b{color:#746960}
+html[data-theme='light'] .role-choice,
+html[data-theme='light'] .permission-choice,
+html[data-theme='light'] .toggle-row,
+html[data-theme='light'] .manager-lock{
+  background:#fbf6f0;
+  border-color:#e1d6cc;
+  color:#46372e;
+}
+html[data-theme='light'] .role-choice:hover:not(:disabled),
+html[data-theme='light'] .permission-choice:hover:not(:disabled){border-color:#cf9a82;background:#fffaf4}
+html[data-theme='light'] .role-choice small,
+html[data-theme='light'] .permission-copy small,
+html[data-theme='light'] .toggle-row>div>span{color:#756a62}
+html[data-theme='light'] .permission-choice.checked{background:#edf7ef;border-color:#bfd8c5;color:#315e3e}
+html[data-theme='light'] .permission-check{background:#fffdf9;border-color:#d5cbc1;color:#3c8154}
+html[data-theme='light'] .permission-choice.checked .permission-check{background:#dff0e3;border-color:#9cc6a6}
+html[data-theme='light'] .switch{background:#e7ded5}
+html[data-theme='light'] .toggle-row .switch.on,
+html[data-theme='light'] .settings-toggle input:checked + span{background:#f1ddd1;border-color:#ce8a69}
+html[data-theme='light'] .settings-toggle span::after{background:#85796f}
+html[data-theme='light'] .settings-toggle input:checked + span::after{background:#aa4420}
+html[data-theme='light'] .manager-badge{background:#fff0e5;color:#9d4020;border-color:#dfbda9}
+
+/* Estados semánticos */
+html[data-theme='light'] .success-toast,
+html[data-theme='light'] .closing-toast,
+html[data-theme='light'] .settings-success{background:#edf7ef;border-color:#c1ddc7;color:#2f7346}
+html[data-theme='light'] .form-error,
+html[data-theme='light'] .pos-error,
+html[data-theme='light'] .checkout-error,
+html[data-theme='light'] .closing-modal-error{color:#a14235}
+html[data-theme='light'] .status-pending{color:#946223}
+html[data-theme='light'] .status-preparing{color:#a86822}
+html[data-theme='light'] .status-ready,
+html[data-theme='light'] .status-paid{color:#347b4b}
+html[data-theme='light'] .status-delivered{color:#486f93}
+html[data-theme='light'] .status-cancelled{color:#a24a43}
+html[data-theme='light'] .order-status{background:#faf5ef;border-color:#ddd2c8;color:#655a52}
+
+
+/* Cobertura final para estados y subcomponentes que antes heredaban superficies oscuras. */
+html[data-theme='light'] .admin-close-status{background:#faf5ef;border-color:#ded4ca;color:#685d55}
+html[data-theme='light'] .admin-close-status.closed{background:#edf7ef;border-color:#c5dfcb;color:#2f7746}
+html[data-theme='light'] .admin-close-status.pending{background:#fff5df;border-color:#ead4ab;color:#91601f}
+html[data-theme='light'] .admin-state-icon{background:#edf7ef;border-color:#c5dfcb;color:#2f7746}
+html[data-theme='light'] .admin-state-icon.pending{background:#fff5df;border-color:#ead4ab;color:#91601f}
+html[data-theme='light'] .admin-closure-mini-list button{border-color:#e8ded6}
+html[data-theme='light'] .admin-closure-mini-list span{color:#756a62}
+html[data-theme='light'] .admin-closure-mini-list em{background:#fff1e6;border-color:#e2c1ae;color:#a24722}
+html[data-theme='light'] .admin-closure-mini-list em.ok{background:#edf7ef;border-color:#c5dfcb;color:#2f7746}
+html[data-theme='light'] .checkout-slider-head,
+html[data-theme='light'] .checkout-slider-section,
+html[data-theme='light'] .checkout-summary-card,
+html[data-theme='light'] .checkout-total-card{background:#fbf6f0;border-color:#e3d8ce;color:#403128}
+html[data-theme='light'] .checkout-summary-card-head{border-color:#e7ddd4}
+html[data-theme='light'] .checkout-total-main span{color:#786d64}
+html[data-theme='light'] .checkout-total-main strong{color:#2d211b}
+html[data-theme='light'] .checkout-saving,
+html[data-theme='light'] .confirm-saving{background:#edf7ef;border-color:#c4ddca;color:#2f7746}
+html[data-theme='light'] .closing-cash-input>span,
+html[data-theme='light'] .closing-note-input>span{color:#70655d}
+html[data-theme='light'] .closing-cash-input input,
+html[data-theme='light'] .closing-note-input textarea{background:#fffdf9;border-color:#d7cec4;color:#2b231f}
+html[data-theme='light'] .closing-cash-input small{color:#7a6f67}
+html[data-theme='light'] .closure-cash-verification,
+html[data-theme='light'] .closure-delete-summary,
+html[data-theme='light'] .closure-detail-note,
+html[data-theme='light'] .closure-detail-summary{background:#fbf6f0;border-color:#e2d7cd;color:#4e3d33}
+html[data-theme='light'] .closure-history-main b,
+html[data-theme='light'] .closure-history-total strong{color:#3a2c24}
+html[data-theme='light'] .config-section{border-color:#e7ddd4}
+html[data-theme='light'] .config-section-title{color:#44342b}
+html[data-theme='light'] .config-section-title>svg{color:#c14e23}
+html[data-theme='light'] .login-user,
+html[data-theme='light'] .login-pin{background:#fffdf9;border-color:#ded4ca;box-shadow:0 8px 26px rgba(72,43,25,.04)}
+html[data-theme='light'] .login-user span,
+html[data-theme='light'] .login-hint{color:#756a62}
+html[data-theme='light'] .login-pin input{background:#fffdf9;border-color:#d7cec4;color:#2b231f}
+html[data-theme='light'] .logout-user{background:#fbf6f0;border-color:#e2d7cd;color:#3f3028}
+html[data-theme='light'] .logout-user small{color:#7a6e65}
+html[data-theme='light'] .logout-icon{background:#fae9dc;border-color:#e5c6b3;color:#b74a22}
+html[data-theme='light'] .pos-closure-next-card,
+html[data-theme='light'] .pos-closure-warning-box{background:#fffdf9;border-color:#ded4ca}
+html[data-theme='light'] .pos-closure-warning-icon{background:#fff5df;border-color:#ead4ab;color:#93601f}
+html[data-theme='light'] .orders-day-empty-icon{background:#f6eae0;border-color:#e3d4c7;color:#b74a22}
+html[data-theme='light'] .drawer-items{background:#fffdf9;border-color:#e1d6cc}
+html[data-theme='light'] .mod-chips button{background:#faf5ef;border-color:#ddd2c7;color:#6d6259}
+html[data-theme='light'] .mod-chips button:hover{background:#fff0e6;border-color:#d09b83;color:#79351f}
+html[data-theme='light'] .item-editor-qty{background:#faf5ef;border-color:#ded3c8;color:#645950}
+html[data-theme='light'] .item-editor-close{background:#fffdf9;border-color:#ded3c8;color:#6f645c}
+html[data-theme='light'] .item-editor-close:hover{color:#8d351b;border-color:#ce9a82}
+html[data-theme='light'] .item-editor-section-head b,
+html[data-theme='light'] .item-editor-preview b{color:#30231d}
+html[data-theme='light'] .item-editor-section-head span,
+html[data-theme='light'] .item-editor-preview span{color:#756a62}
+html[data-theme='light'] .item-editor-chips button{background:#fffdf9;border-color:#ded4ca;color:#685d55}
+html[data-theme='light'] .settings-settings-card,
+html[data-theme='light'] .settings-command-card{background:#fffdf9;border-color:#e0d5ca;color:#2d211b}
+html[data-theme='light'] .settings-command-card::after{background:rgba(200,77,31,.07)}
+html[data-theme='light'] .settings-card-head p,
+html[data-theme='light'] .settings-kicker{color:#756a62}
+html[data-theme='light'] .settings-card-active{border-color:#d4a48c}
+html[data-theme='light'] .settings-card-muted{border-color:#e0d7cf}
+html[data-theme='light'] .settings-category-row span,
+html[data-theme='light'] .settings-placeholder-list span,
+html[data-theme='light'] .settings-spec-grid span{color:#756a62}
+html[data-theme='light'] .permission-group{background:transparent}
+html[data-theme='light'] .toggle-row{box-shadow:0 4px 14px rgba(72,43,25,.025)}
+html[data-theme='light'] .account-state{background:#faf5ef;border-color:#ded4ca;color:#6c6159}
+html[data-theme='light'] .account-state.on{color:#2f7746}
+html[data-theme='light'] .account-state.off{color:#796f67}
+html[data-theme='light'] .manager-lock{color:#756a62}
+html[data-theme='light'] .danger{color:#a64234}
+html[data-theme='light'] .warning{color:#946324}
+html[data-theme='light'] .pending{color:#946324}
+html[data-theme='light'] .positive,
+html[data-theme='light'] .enabled,
+html[data-theme='light'] .done{color:#2f7746}
 
 /* La consola StreamLinx conserva deliberadamente su estética oscura. */
 html[data-theme='light'] .streamlinx-command-center{color-scheme:dark}
+

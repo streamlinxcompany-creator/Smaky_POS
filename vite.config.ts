@@ -12,8 +12,8 @@ export default defineConfig({
         name: 'Smaky POS',
         short_name: 'Smaky POS',
         description: 'POS y control de negocio para Smaky Burgers',
-        theme_color: '#0a0a0a',
-        background_color: '#0a0a0a',
+        theme_color: '#c84d1f',
+        background_color: '#f4efe8',
         display: 'standalone',
         lang: 'es-CO',
         icons: []
