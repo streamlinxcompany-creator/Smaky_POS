@@ -840,3 +840,196 @@ html[data-theme='light'] .settings-feature-head,html[data-theme='light'] .settin
 html[data-theme='light'] .settings-theme-auto-note,html[data-theme='light'] .settings-field-editor-required{background:#faf9f7;border-color:#dfdbd6;color:#625d58}
 
 html[data-theme='light'] .settings-toggle span{background:#ece9e5;border-color:#cbc6c0}html[data-theme='light'] .settings-toggle span::after{background:#88817a}html[data-theme='light'] .settings-toggle input:checked + span{background:#f2e2db;border-color:#c87558}html[data-theme='light'] .settings-toggle input:checked + span::after{background:#a84a28}
+
+/* --------------------------------------------------------------------------
+   Tema claro v2 — contraste y legibilidad global de Smaky POS
+   Mantiene la identidad naranja de Smaky, pero reemplaza las superficies
+   oscuras y textos grises heredados que quedaban ilegibles en modo claro.
+   -------------------------------------------------------------------------- */
+html[data-theme='light']{
+  --bg:#f4f3f0;
+  --panel:#ffffff;
+  --panel2:#faf9f7;
+  --line:#dedbd6;
+  --cream:#202224;
+  --muted:#6f6b67;
+  --soft:#f7eee9;
+  color-scheme:light;
+}
+html[data-theme='light'] body{background:radial-gradient(circle at 80% -10%,rgba(185,78,28,.07),transparent 32%),var(--bg);color:#202224}
+html[data-theme='light'] ::selection{background:#f1d8cc;color:#3a2118}
+html[data-theme='light'] .sidebar{background:rgba(255,255,255,.97);border-color:#dedbd6}
+html[data-theme='light'] .topbar{background:rgba(255,255,255,.94);border-color:#dedbd6}
+html[data-theme='light'] .business{background:#faf9f7;border-color:#dedbd6}
+html[data-theme='light'] .connection{color:#66625e}
+html[data-theme='light'] .profile-mini{border-color:#e5e1dc}
+html[data-theme='light'] .avatar{background:#eeeae6;color:#49443f}
+html[data-theme='light'] .nav-item{color:#66635f}
+html[data-theme='light'] .nav-item:hover{background:#f6f3f0;color:#282a2b}
+html[data-theme='light'] .nav-item.active{background:#f7eee9;color:#3b2922;box-shadow:inset 2px 0 #c75a34}
+html[data-theme='light'] .topbar-title small,html[data-theme='light'] .live-status{color:#66625e}
+html[data-theme='light'] .sync-pill,html[data-theme='light'] .badge{background:#fff;border-color:#ddd9d5;color:#65615d}
+html[data-theme='light'] .panel,html[data-theme='light'] .stat-card,html[data-theme='light'] .cart,html[data-theme='light'] .customers-panel,html[data-theme='light'] .settings-sidebar,html[data-theme='light'] .settings-list-card{background:#fff;border-color:#ddd9d5;box-shadow:0 8px 28px rgba(35,30,25,.06)}
+html[data-theme='light'] .stat-head{color:#68645f}
+html[data-theme='light'] .stat-card small{color:#6c6863}
+html[data-theme='light'] .panel-title p{color:#6b6762}
+html[data-theme='light'] .panel-title h2,html[data-theme='light'] .stat-card>strong{color:#202224}
+html[data-theme='light'] .sale-row{border-color:#ebe7e3}
+html[data-theme='light'] .sale-main span,html[data-theme='light'] .mini-list div{color:#6d6964}
+html[data-theme='light'] .mini-list b{color:#292b2c}
+html[data-theme='light'] .progress{background:#e8e5e1}
+html[data-theme='light'] .category-tabs button,html[data-theme='light'] .product-filters button{background:#fff;border-color:#ddd9d5;color:#68645f}
+html[data-theme='light'] .category-tabs button:hover,html[data-theme='light'] .product-filters button:hover{border-color:#c9a99b;color:#493229}
+html[data-theme='light'] .category-tabs button.selected,html[data-theme='light'] .product-filters button.selected{background:#f7eee9;border-color:#ce7858;color:#703d2c}
+html[data-theme='light'] .product-card{background:#fff;border-color:#ddd9d5;box-shadow:0 5px 18px rgba(35,30,25,.04)}
+html[data-theme='light'] .product-card:hover{border-color:#c9876d;box-shadow:0 8px 22px rgba(88,45,29,.08)}
+html[data-theme='light'] .product-card>svg{color:#77716b}
+html[data-theme='light'] .product-card span{color:#a84a28}
+html[data-theme='light'] .cart{background:#fff}
+html[data-theme='light'] .cart-header,html[data-theme='light'] .cart-item,html[data-theme='light'] .payment,html[data-theme='light'] .checkout{border-color:#e5e1dc}
+html[data-theme='light'] .cart-header p,html[data-theme='light'] .empty-cart,html[data-theme='light'] .payment>span,html[data-theme='light'] .checkout span{color:#6c6863}
+html[data-theme='light'] .empty-cart b,html[data-theme='light'] .cart-item b,html[data-theme='light'] .checkout strong{color:#262829}
+html[data-theme='light'] .cart-item span{color:#77726d}
+html[data-theme='light'] .qty button,html[data-theme='light'] .payment-grid button{background:#faf9f7;border-color:#ddd9d5;color:#625e59}
+html[data-theme='light'] .payment-grid button.selected{background:#f7eee9;border-color:#c87558;color:#603425}
+html[data-theme='light'] .trash{color:#77716c}
+html[data-theme='light'] th{color:#66615c;background:#faf9f7}
+html[data-theme='light'] td{color:#4f4b47;border-color:#e8e4df}
+html[data-theme='light'] .search-box{background:#fff;border-color:#d7d2cd;color:#6c6762}
+html[data-theme='light'] .search-box input{color:#252728}
+html[data-theme='light'] .products-empty,html[data-theme='light'] .sales-empty,html[data-theme='light'] .users-placeholder{color:#6c6863}
+html[data-theme='light'] .products-empty b,html[data-theme='light'] .sales-empty b,html[data-theme='light'] .users-placeholder b{color:#292b2c}
+html[data-theme='light'] .icon-btn,html[data-theme='light'] .icon-action{color:#6c6762;background:#faf9f7;border-color:#ddd9d5}
+html[data-theme='light'] .icon-btn:hover,html[data-theme='light'] .icon-action:hover{color:#6d301f;border-color:#c98a72;background:#f9f1ed}
+html[data-theme='light'] .modal,.light .modal{background:#fff;border-color:#ddd9d5;box-shadow:0 24px 70px rgba(35,30,25,.18)}
+html[data-theme='light'] .modal label{color:#5f5a55}
+html[data-theme='light'] .modal input,html[data-theme='light'] .modal select,html[data-theme='light'] .modal textarea{background:#fff;border-color:#d7d2cd;color:#252728}
+html[data-theme='light'] .modal input::placeholder,html[data-theme='light'] .modal textarea::placeholder{color:#9a938c}
+html[data-theme='light'] .secondary{background:#fff;border-color:#d7d2cd;color:#5f5a55}
+html[data-theme='light'] .secondary:hover{background:#f7f5f2;border-color:#c7bdb5;color:#342923}
+html[data-theme='light'] .confirm-copy,html[data-theme='light'] .slider-hint,html[data-theme='light'] .slider-safe-note{color:#6a655f}
+html[data-theme='light'] .confirm-order-item span,html[data-theme='light'] .confirm-summary span{color:#706b66}
+html[data-theme='light'] .confirm-summary b{color:#282a2b}
+html[data-theme='light'] .receipt-modal{background:#fff;border-color:#ddd9d5;color:#282a2b;box-shadow:0 24px 70px rgba(35,30,25,.18)}
+html[data-theme='light'] .receipt-meta span,html[data-theme='light'] .receipt-section-title,html[data-theme='light'] .receipt-item span,html[data-theme='light'] .receipt-total span,html[data-theme='light'] .receipt-footer{color:#6c6761}
+html[data-theme='light'] .receipt-total .grand span{color:#302c29}
+html[data-theme='light'] .export-menu{background:#fff;border-color:#ddd9d5;box-shadow:0 16px 40px rgba(35,30,25,.12)}
+html[data-theme='light'] .export-menu button{color:#625d58}
+html[data-theme='light'] .export-menu button:hover{background:#f7f3f0;color:#302a26}
+html[data-theme='light'] .export-menu b{color:#292b2c}
+html[data-theme='light'] .export-menu small{color:#77716b}
+html[data-theme='light'] .filter-kicker,html[data-theme='light'] .report-live,html[data-theme='light'] .report-unit,html[data-theme='light'] .report-chart-foot,html[data-theme='light'] .report-empty{color:#6e6964}
+html[data-theme='light'] .range-btn{background:#fff;border-color:#ddd9d5;color:#66615c}
+html[data-theme='light'] .range-btn:hover{color:#5b2e21;background:#f8f3f0}
+html[data-theme='light'] .date-inputs label{color:#68635e}
+html[data-theme='light'] .date-inputs input{background:#fff;border-color:#d7d2cd;color:#252728}
+html[data-theme='light'] .report-bar-col small,html[data-theme='light'] .report-bar-col>span:last-child{color:#6c6762}
+html[data-theme='light'] .report-chart-foot b{color:#34312e}
+html[data-theme='light'] .top-day-row,html[data-theme='light'] .day-sale-row{border-color:#e5e1dc}
+html[data-theme='light'] .top-day-row:hover{background:#f8f5f2}
+html[data-theme='light'] .top-day-main small,html[data-theme='light'] .day-product-row small,html[data-theme='light'] .day-payment-row small,html[data-theme='light'] .day-sale-main small{color:#706b66}
+html[data-theme='light'] .top-day-row>strong,html[data-theme='light'] .day-sale-row>strong,html[data-theme='light'] .day-sale-time,html[data-theme='light'] .day-sale-main b{color:#292b2c}
+html[data-theme='light'] .report-day-detail,html[data-theme='light'] .report-day-sales{background:#fff;border-color:#ddd9d5;color:#292b2c}
+html[data-theme='light'] .report-day-detail-head p,html[data-theme='light'] .report-day-kpis small{color:#6d6863}
+html[data-theme='light'] .report-day-kpis strong{color:#292b2c}
+html[data-theme='light'] .user-card,html[data-theme='light'] .user-row{background:#fff;border-color:#ddd9d5;color:#292b2c}
+html[data-theme='light'] .user-card p,html[data-theme='light'] .user-info p,html[data-theme='light'] .profile-preview span{color:#6d6863}
+html[data-theme='light'] .role-btn{background:#faf9f7;border-color:#ddd9d5;color:#65605b}
+html[data-theme='light'] .users-toolbar{color:#6d6863}
+html[data-theme='light'] .users-toolbar b{color:#292b2c}
+html[data-theme='light'] .toolbar-separator{color:#b0aaa4}
+html[data-theme='light'] .user-row:hover{background:#faf7f4}
+html[data-theme='light'] .login-user,html[data-theme='light'] .login-pin{background:#fff;border-color:#ddd9d5}
+html[data-theme='light'] .login-user span,html[data-theme='light'] .login-hint{color:#6d6863}
+html[data-theme='light'] .login-pin input{background:#fff;border-color:#d7d2cd;color:#252728}
+html[data-theme='light'] .delivery-form input,html[data-theme='light'] .delivery-form textarea,html[data-theme='light'] .modification-item textarea{background:#fff;border-color:#d7d2cd;color:#252728}
+html[data-theme='light'] .delivery-form-title{color:#3a332f}
+html[data-theme='light'] .order-card,html[data-theme='light'] .order-drawer,html[data-theme='light'] .order-detail,html[data-theme='light'] .orders-panel{background:#fff;border-color:#ddd9d5;color:#292b2c}
+html[data-theme='light'] .orders-column-head span,html[data-theme='light'] .order-address,html[data-theme='light'] .order-detail-head span:not(.order-status),html[data-theme='light'] .order-detail-grid span,html[data-theme='light'] .orders-count{color:#6c6762}
+html[data-theme='light'] .order-card-top span,html[data-theme='light'] .order-card-bottom span{color:#706b66}
+html[data-theme='light'] .orders-empty,html[data-theme='light'] .orders-day-empty>span{color:#6d6863}
+html[data-theme='light'] .drawer-section-title,html[data-theme='light'] .drawer-action small{color:#6c6761}
+html[data-theme='light'] .drawer-item-main>span,html[data-theme='light'] .modification-item-top span{color:#6d6863}
+html[data-theme='light'] .workspace-head,html[data-theme='light'] .workspace-summary,html[data-theme='light'] .workspace-lines,html[data-theme='light'] .workspace-total-row,html[data-theme='light'] .workspace-bottom-actions,html[data-theme='light'] .workspace-payment{background:#fff;border-color:#e5e1dc}
+html[data-theme='light'] .workspace-catalog{background:#faf9f7;border-color:#ddd9d5}
+html[data-theme='light'] .workspace-search{background:#fff;border-color:#d7d2cd;color:#6d6863}
+html[data-theme='light'] .workspace-search input{color:#252728}
+html[data-theme='light'] .workspace-product{background:#fff;border-color:#e1ddd8;color:#292b2c}
+html[data-theme='light'] .workspace-product:hover:not(:disabled){background:#f9f1ed;border-color:#c98b73}
+html[data-theme='light'] .workspace-units{background:#f5f2ef;border-color:#ddd9d5;color:#6c6761}
+html[data-theme='light'] .workspace-title>div>span,html[data-theme='light'] .workspace-section-head>div>span,html[data-theme='light'] .workspace-summary-head span{color:#6d6863}
+html[data-theme='light'] .workspace-line-name b,html[data-theme='light'] .workspace-product b,html[data-theme='light'] .workspace-title h2{color:#292b2c}
+html[data-theme='light'] .workspace-line-name small{color:#77716c}
+html[data-theme='light'] .customer-picker,html[data-theme='light'] .customer-modal{background:#fff;border-color:#ddd9d5}
+html[data-theme='light'] .customer-picker-head h2{color:#292b2c}
+html[data-theme='light'] .customer-picker-head p,html[data-theme='light'] .customer-picker-empty,html[data-theme='light'] .customer-picker-form label>span,html[data-theme='light'] .customer-modal-head p,html[data-theme='light'] .customer-form label>span{color:#6d6863}
+html[data-theme='light'] .customer-picker-search,html[data-theme='light'] .customers-search{background:#fff;border-color:#d7d2cd;color:#6d6863}
+html[data-theme='light'] .customer-picker-search input,html[data-theme='light'] .customers-search input{background:transparent;color:#252728}
+html[data-theme='light'] .customer-picker-search input::placeholder{color:#9a938c}
+html[data-theme='light'] .customer-picker-row{background:#fff;border-color:#e1ddd8;color:#292b2c}
+html[data-theme='light'] .customer-picker-row:hover{background:#f8f4f1}
+html[data-theme='light'] .customer-picker-row span,html[data-theme='light'] .customer-main>span{color:#706b66}
+html[data-theme='light'] .customer-picker-form input,html[data-theme='light'] .customer-picker-form textarea,html[data-theme='light'] .customer-form input,html[data-theme='light'] .customer-form textarea,html[data-theme='light'] .customer-form select{background:#fff;border-color:#d7d2cd;color:#252728}
+html[data-theme='light'] .customer-action{color:#6d6863}
+html[data-theme='light'] .customers-count{color:#6c6762}
+html[data-theme='light'] .customers-count b{color:#35312e}
+html[data-theme='light'] .settings-brand-row h1,html[data-theme='light'] .settings-content-head h2{color:#242627}
+html[data-theme='light'] .settings-brand-row span,html[data-theme='light'] .settings-overline,html[data-theme='light'] .settings-head-count{color:#6c6762}
+html[data-theme='light'] .settings-nav-item{color:#69645f}
+html[data-theme='light'] .settings-nav-item:hover{background:#f7f4f1;color:#332d29}
+html[data-theme='light'] .settings-nav-item.active{background:#f7eee9;color:#3d2c25}
+html[data-theme='light'] .settings-nav-item small{color:#77716b}
+html[data-theme='light'] .settings-feature-head span,html[data-theme='light'] .settings-row-copy span{color:#6c6762}
+html[data-theme='light'] .settings-row-copy b,html[data-theme='light'] .settings-section-toolbar b,html[data-theme='light'] .settings-products-head b{color:#292b2c}
+html[data-theme='light'] .settings-row-icon{background:#f7f4f1;border-color:#ddd8d2;color:#8d4328}
+html[data-theme='light'] .settings-list-row:hover{background:#faf8f5}
+html[data-theme='light'] .settings-row-edit,html[data-theme='light'] .settings-edit-input{background:#fff;border-color:#d7d2cd;color:#252728}
+html[data-theme='light'] .settings-action-btn,html[data-theme='light'] .settings-inline-btn{background:#faf9f7;border-color:#ddd9d5;color:#65605b}
+html[data-theme='light'] .settings-payment-row,html[data-theme='light'] .settings-category-pill{background:#faf9f7;border-color:#ddd9d5;color:#5f5a55}
+html[data-theme='light'] .settings-payment-main span,html[data-theme='light'] .settings-category-summary span,html[data-theme='light'] .settings-category-summary small,html[data-theme='light'] .settings-note,html[data-theme='light'] .settings-module-note{color:#6d6863}
+html[data-theme='light'] .settings-add-payment input,html[data-theme='light'] .settings-add-row input,html[data-theme='light'] .settings-category-mini input{background:#fff;border-color:#d7d2cd;color:#252728}
+html[data-theme='light'] .settings-manager-lock,html[data-theme='light'] .settings-field-editor-note{background:#fbf5f1;border-color:#ead5ca;color:#795747}
+html[data-theme='light'] .settings-manager-lock span,html[data-theme='light'] .settings-embedded-toolbar p{color:#6d6863}
+html[data-theme='light'] .settings-orders-intro{background:#faf9f7;border-color:#e1ddd8;color:#625d58}
+html[data-theme='light'] .settings-orders-intro b{color:#35302c}
+html[data-theme='light'] .settings-orders-intro span,html[data-theme='light'] .settings-custom-field-add>div:first-child span{color:#6d6863}
+html[data-theme='light'] .settings-order-field{border-color:#e5e1dc}
+html[data-theme='light'] .settings-order-drag,html[data-theme='light'] .settings-mini-check{color:#716b65}
+html[data-theme='light'] .settings-custom-field-form input,html[data-theme='light'] .settings-custom-field-form select,html[data-theme='light'] .settings-field-editor-label input,html[data-theme='light'] .settings-field-editor-label select{background:#fff;border-color:#d7d2cd;color:#252728}
+html[data-theme='light'] .settings-field-editor-label>span,html[data-theme='light'] .settings-field-editor-label small{color:#6d6863}
+html[data-theme='light'] .settings-field-editor-required{background:#faf9f7;border-color:#e0dcd7;color:#5f5a55}
+html[data-theme='light'] .settings-theme-option{background:#faf9f7;border-color:#ddd9d5;color:#625d58}
+html[data-theme='light'] .settings-theme-option:hover{background:#f7f3f0;color:#3e3029}
+html[data-theme='light'] .settings-theme-option.active{background:#f7eee9;border-color:#c97758;color:#5a2f22}
+html[data-theme='light'] .settings-theme-times label span{color:#6d6863}
+html[data-theme='light'] .settings-theme-times input{background:#fff;border-color:#d7d2cd;color:#252728}
+html[data-theme='light'] .settings-theme-auto-panel{background:#faf9f7;border:1px solid #e0dcd7;border-radius:10px;padding:11px;margin-top:10px}
+html[data-theme='light'] .settings-theme-auto-head{color:#5f5a55}
+html[data-theme='light'] .settings-theme-auto-head svg{color:#a84a28}
+html[data-theme='light'] .settings-theme-auto-head b{color:#35302c}
+html[data-theme='light'] .settings-theme-auto-head small{color:#6d6863}
+html[data-theme='light'] .settings-toggle span{background:#ece9e5;border-color:#cbc6c0}
+html[data-theme='light'] .settings-toggle span::after{background:#88817a}
+html[data-theme='light'] .settings-toggle input:checked + span{background:#f2e2db;border-color:#c87558}
+html[data-theme='light'] .settings-toggle input:checked + span::after{background:#a84a28}
+html[data-theme='light'] .pos-landing-card,html[data-theme='light'] .pos-landing-panel{background:#fff;border-color:#ddd9d5;color:#292b2c}
+html[data-theme='light'] .pos-landing-card>p:not(.eyebrow),html[data-theme='light'] .landing-secondary{color:#6d6863}
+html[data-theme='light'] .back-soft{color:#706b66}
+html[data-theme='light'] .success-toast{background:#edf8f0;border-color:#b8ddc1;color:#28633a}
+html[data-theme='light'] .form-error,html[data-theme='light'] .pos-error{color:#a6472c}
+html[data-theme='light'] .eyebrow{color:#aa4b2a}
+
+/* Componentes con fondos oscuros que no deben conservar texto claro en modo light. */
+html[data-theme='light'] .checkout-modal,html[data-theme='light'] .checkout-panel,html[data-theme='light'] .payment-complete-card,html[data-theme='light'] .discount-editor,html[data-theme='light'] .item-editor-modal{background:#fff;border-color:#ddd9d5;color:#292b2c;box-shadow:0 24px 70px rgba(35,30,25,.18)}
+html[data-theme='light'] .checkout-modal input,html[data-theme='light'] .checkout-modal select,html[data-theme='light'] .checkout-modal textarea,html[data-theme='light'] .discount-editor input{background:#fff;border-color:#d7d2cd;color:#252728}
+html[data-theme='light'] .checkout-total-main span,html[data-theme='light'] .checkout-discount-line,html[data-theme='light'] .discount-editor-head span,html[data-theme='light'] .discount-input>span,html[data-theme='light'] .payment-complete-card p,html[data-theme='light'] .payment-complete-bottom{color:#6d6863!important}
+html[data-theme='light'] .payment-complete-total span{color:#6d6863}
+html[data-theme='light'] .item-editor-section,html[data-theme='light'] .item-editor-preview{background:#faf9f7;border-color:#e0dcd7}
+html[data-theme='light'] .item-editor-section-head b,html[data-theme='light'] .item-editor-preview b{color:#292b2c}
+html[data-theme='light'] .item-editor-section-head span,html[data-theme='light'] .item-editor-preview span{color:#6d6863}
+html[data-theme='light'] .item-editor-section textarea{background:#fff;border-color:#d7d2cd;color:#252728}
+html[data-theme='light'] .item-editor-chips button{background:#fff;border-color:#ddd9d5;color:#6a645e}
+html[data-theme='light'] .item-editor-footer{background:#faf9f7;border-color:#e0dcd7}
+
+/* La consola StreamLinx conserva deliberadamente su estética oscura. */
+html[data-theme='light'] .streamlinx-command-center{color-scheme:dark}

@@ -214,7 +214,13 @@ export function Settings() {
           <div className="settings-theme-grid">
             {([['dark','Oscuro',Moon],['light','Claro',Sun],['auto','Automático',Monitor]] as Array<[ThemeMode,string,LucideIcon]>).map(([mode,label,Icon]) => <button key={mode} className={`settings-theme-option ${generalSettings.themeMode === mode ? 'active' : ''}`} disabled={saving} onClick={() => void saveGeneral({ themeMode: mode })}><Icon size={17}/><span>{label}</span>{generalSettings.themeMode === mode && <Check size={14}/>}</button>)}
           </div>
-          {generalSettings.themeMode === 'auto' && <div className="settings-theme-times settings-theme-auto-note"><Monitor size={16}/><small>Smaky seguirá automáticamente la preferencia de tema de Windows, macOS o Linux mediante <b>prefers-color-scheme</b>.</small></div>}
+          {generalSettings.themeMode === 'auto' && <div className="settings-theme-auto-panel">
+            <div className="settings-theme-auto-head"><Monitor size={16}/><div><b>Horario automático</b><small>Claro durante el día y oscuro por la noche. Por defecto, cambia a oscuro a las <b>19:00</b>.</small></div></div>
+            <div className="settings-theme-times">
+              <label><span>CLARO DESDE</span><input type="time" value={generalSettings.autoLightFrom} disabled={saving} onChange={event => void saveGeneral({ autoLightFrom: event.target.value })}/></label>
+              <label><span>OSCURO DESDE</span><input type="time" value={generalSettings.autoDarkFrom} disabled={saving} onChange={event => void saveGeneral({ autoDarkFrom: event.target.value })}/></label>
+            </div>
+          </div>}
         </section>
         <section className="settings-list-card">
         <div className="settings-list-row settings-list-row-click" onClick={() => setSection('orders')}><div className="settings-row-icon"><ClipboardList size={16}/></div><div className="settings-row-copy"><b>Pedidos</b><span>{orderFields.filter(field => field.enabled).length} campos activos de información</span></div><ChevronRight size={15}/></div>

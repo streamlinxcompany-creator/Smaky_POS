@@ -25,18 +25,12 @@ export function Layout() {
   const [confirmLogout, setConfirmLogout] = useState(false)
 
   useEffect(() => {
-    let mediaQuery: MediaQueryList | null = null
-    let mediaHandler: ((event: MediaQueryListEvent) => void) | null = null
-
-    const clearMediaListener = () => {
-      if (mediaQuery && mediaHandler) mediaQuery.removeEventListener?.('change', mediaHandler)
-      mediaQuery = null
-      mediaHandler = null
-    }
+    let clearTimer: (() => void) | null = null
 
     const applyTheme = async () => {
       const settings = await getGeneralSettings()
-      clearMediaListener()
+      clearTimer?.()
+      clearTimer = null
       if (settings.themeMode === 'light') {
         document.documentElement.dataset.theme = 'light'
         return
@@ -45,20 +39,38 @@ export function Layout() {
         document.documentElement.dataset.theme = 'dark'
         return
       }
-      mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-      const syncSystemTheme = () => {
-        if (mediaQuery) document.documentElement.dataset.theme = mediaQuery.matches ? 'dark' : 'light'
+      // Automático en Smaky significa horario comercial: claro durante el día y
+      // oscuro desde la hora configurada (por defecto 19:00) hasta la mañana.
+      // No dependemos de prefers-color-scheme porque el POS tiene una rutina
+      // visual propia y debe comportarse igual en Windows, macOS, Linux y móvil.
+      const toMinutes = (value: string, fallback: number) => {
+        const match = /^(\d{2}):(\d{2})$/.exec(value)
+        if (!match) return fallback
+        const hours = Number(match[1]); const minutes = Number(match[2])
+        return hours * 60 + minutes
       }
-      mediaHandler = syncSystemTheme
-      syncSystemTheme()
-      mediaQuery.addEventListener?.('change', mediaHandler)
+      const syncScheduledTheme = () => {
+        const now = new Date()
+        const current = now.getHours() * 60 + now.getMinutes()
+        const darkFrom = toMinutes(settings.autoDarkFrom, 19 * 60)
+        const lightFrom = toMinutes(settings.autoLightFrom, 7 * 60)
+        // Si el rango cruza medianoche (19:00 → 07:00), oscuro queda fuera
+        // del intervalo diurno. También soportamos horarios invertidos.
+        const isDark = darkFrom >= lightFrom
+          ? current >= darkFrom || current < lightFrom
+          : current >= darkFrom && current < lightFrom
+        document.documentElement.dataset.theme = isDark ? 'dark' : 'light'
+      }
+      syncScheduledTheme()
+      const timer = window.setInterval(syncScheduledTheme, 30_000)
+      clearTimer = () => window.clearInterval(timer)
     }
 
     const onSettings = () => { void applyTheme() }
     void applyTheme()
     window.addEventListener('smaky-settings-change', onSettings)
     return () => {
-      clearMediaListener()
+      clearTimer?.()
       window.removeEventListener('smaky-settings-change', onSettings)
     }
   }, [])
