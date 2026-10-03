@@ -160,6 +160,7 @@ export function printSaleReceipt(sale: Sale, target?: Window | null, documentLab
       ${sale.phone ? `<div class="client-field"><div class="client-label">Teléfono</div><div class="client-value">${escapeHtml(sale.phone)}</div></div>` : ''}
       ${sale.address ? `<div class="client-field client-wide"><div class="client-label">Dirección</div><div class="client-value">${escapeHtml(sale.address)}</div></div>` : ''}
       ${sale.notes ? `<div class="client-field client-wide"><div class="client-label">Observación</div><div class="client-value">${escapeHtml(sale.notes)}</div></div>` : ''}
+      ${Object.entries(sale.customFields || {}).filter(([, value]) => String(value || '').trim()).map(([key, value]) => `<div class="client-field client-wide"><div class="client-label">${escapeHtml(sale.customFieldLabels?.[key] || 'Información')}</div><div class="client-value">${escapeHtml(String(value))}</div></div>`).join('')}
     </div>
   </div>` : ''
   return printWindow(`Comprobante #${sale.orderNumber ?? sale.id.slice(-6)}`, `

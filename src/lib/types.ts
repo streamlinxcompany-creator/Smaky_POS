@@ -11,6 +11,27 @@ export type PermissionKey =
 
 export type PaymentMethod = string
 
+export type OrderFieldType = 'text' | 'textarea' | 'number' | 'phone' | 'address' | 'select'
+
+export type OrderFieldConfig = {
+  id: string
+  label: string
+  type: OrderFieldType
+  enabled: boolean
+  required: boolean
+  options?: string[]
+  system?: boolean
+}
+
+export type ThemeMode = 'light' | 'dark' | 'auto'
+
+export type GeneralSettings = {
+  themeMode: ThemeMode
+  autoDarkFrom: string
+  autoLightFrom: string
+  showConsumerFinal: boolean
+}
+
 export type Customer = {
   id: string
   name: string
@@ -20,6 +41,7 @@ export type Customer = {
   createdAt: string
   updatedAt: string
   active: boolean
+  customFields?: Record<string, string>
 }
 
 export type PaymentMethodConfig = {
@@ -57,6 +79,8 @@ export type DeliveryInfo = {
   phone: string
   address: string
   notes: string
+  customFields?: Record<string, string>
+  customFieldLabels?: Record<string, string>
 }
 
 export type Order = DeliveryInfo & {

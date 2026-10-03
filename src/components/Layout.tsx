@@ -2,6 +2,7 @@ import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-route
 import { BarChart3, ClipboardList, ContactRound, LayoutDashboard, LockKeyhole, LogOut, Menu, Settings, ShoppingCart, ShieldCheck, Wifi, WifiOff, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { clearSession, getSessionUser, hasPermission, initials } from '../lib/auth'
+import { getGeneralSettings } from '../lib/store'
 
 const allNav = [
   { to: '/', label: 'Inicio', icon: LayoutDashboard, roles: ['manager', 'admin', 'employee'] },
@@ -22,6 +23,46 @@ export function Layout() {
   const [user, setUser] = useState(getSessionUser())
   const [online, setOnline] = useState(navigator.onLine)
   const [confirmLogout, setConfirmLogout] = useState(false)
+
+  useEffect(() => {
+    let mediaQuery: MediaQueryList | null = null
+    let mediaHandler: ((event: MediaQueryListEvent) => void) | null = null
+
+    const clearMediaListener = () => {
+      if (mediaQuery && mediaHandler) mediaQuery.removeEventListener?.('change', mediaHandler)
+      mediaQuery = null
+      mediaHandler = null
+    }
+
+    const applyTheme = async () => {
+      const settings = await getGeneralSettings()
+      clearMediaListener()
+      if (settings.themeMode === 'light') {
+        document.documentElement.dataset.theme = 'light'
+        return
+      }
+      if (settings.themeMode === 'dark') {
+        document.documentElement.dataset.theme = 'dark'
+        return
+      }
+      mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+      const syncSystemTheme = () => {
+        if (mediaQuery) document.documentElement.dataset.theme = mediaQuery.matches ? 'dark' : 'light'
+      }
+      mediaHandler = syncSystemTheme
+      syncSystemTheme()
+      mediaQuery.addEventListener?.('change', mediaHandler)
+    }
+
+    const onSettings = () => { void applyTheme() }
+    void applyTheme()
+    window.addEventListener('smaky-settings-change', onSettings)
+    return () => {
+      clearMediaListener()
+      window.removeEventListener('smaky-settings-change', onSettings)
+    }
+  }, [])
+
   useEffect(() => {
     const on = () => setOnline(true), off = () => setOnline(false), sync = () => setUser(getSessionUser())
     window.addEventListener('online', on); window.addEventListener('offline', off); window.addEventListener('smaky-auth-change', sync)

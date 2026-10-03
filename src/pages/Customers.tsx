@@ -1,10 +1,10 @@
 import { Check, MapPin, Pencil, Phone, Plus, Search, Trash2, UserRound, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { getSessionUser } from '../lib/auth'
-import { createCustomer, deactivateCustomer, getCustomers, updateCustomer } from '../lib/store'
-import type { Customer } from '../lib/types'
+import { createCustomer, deactivateCustomer, getCustomers, getOrderFields, updateCustomer } from '../lib/store'
+import type { Customer, OrderFieldConfig } from '../lib/types'
 
-const emptyForm = { name: '', phone: '', address: '', notes: '' }
+const emptyForm = { name: '', phone: '', address: '', notes: '', customFields: {} as Record<string, string> }
 type FormState = typeof emptyForm
 
 export function Customers() {
@@ -17,9 +17,11 @@ export function Customers() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [orderFields, setOrderFields] = useState<OrderFieldConfig[]>([])
 
   const load = async () => setCustomers(await getCustomers())
   useEffect(() => { void load() }, [])
+  useEffect(() => { const refreshFields = () => { void getOrderFields().then(setOrderFields) }; refreshFields(); window.addEventListener('smaky-settings-change', refreshFields); return () => window.removeEventListener('smaky-settings-change', refreshFields) }, [])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -37,7 +39,7 @@ export function Customers() {
 
   const openEdit = (customer: Customer) => {
     setEditing(customer)
-    setForm({ name: customer.name, phone: customer.phone, address: customer.address, notes: customer.notes })
+    setForm({ name: customer.name, phone: customer.phone, address: customer.address, notes: customer.notes, customFields: { ...(customer.customFields || {}) } })
     setError('')
     setMessage('')
     setModalOpen(true)
@@ -54,6 +56,8 @@ export function Customers() {
     setSaving(true)
     setError('')
     try {
+      const missing = orderFields.filter(field => field.enabled && field.required).find(field => { const value = field.system ? ({ name: form.name, phone: form.phone, address: form.address, notes: form.notes } as Record<string, string>)[field.id] : form.customFields[field.id]; return !String(value || '').trim() })
+      if (missing) throw new Error(`Completa el campo “${missing.label}”.`)
       if (editing) await updateCustomer(editing.id, form, user)
       else await createCustomer(form, user)
       await load()
@@ -104,10 +108,13 @@ export function Customers() {
       <section className="customer-modal" role="dialog" aria-modal="true" aria-labelledby="customer-modal-title">
         <header className="customer-modal-head"><div><span className="eyebrow">CLIENTE</span><h2 id="customer-modal-title">{editing ? 'Editar cliente' : 'Agregar cliente'}</h2><p>El celular identifica al cliente.</p></div><button className="item-editor-close" onClick={closeModal} aria-label="Cerrar"><X size={18}/></button></header>
         <div className="customer-form">
-          <label><span>Nombre</span><input autoFocus value={form.name} onChange={event => setForm(v => ({ ...v, name: event.target.value }))} placeholder="Nombre completo"/></label>
-          <label><span>Celular</span><input value={form.phone} onChange={event => setForm(v => ({ ...v, phone: event.target.value }))} placeholder="300 000 0000" inputMode="tel"/></label>
-          <label className="customer-field-wide"><span>Dirección</span><input value={form.address} onChange={event => setForm(v => ({ ...v, address: event.target.value }))} placeholder="Dirección de entrega"/></label>
-          <label className="customer-field-wide"><span>Observaciones</span><textarea value={form.notes} onChange={event => setForm(v => ({ ...v, notes: event.target.value }))} placeholder="Ej. Casa azul, toca el timbre…"/></label>
+          {orderFields.filter(field => field.enabled).map((field, index) => {
+            const value = field.system ? ({ name: form.name, phone: form.phone, address: form.address, notes: form.notes } as Record<string, string>)[field.id] || '' : form.customFields[field.id] || ''
+            const setValue = (next: string) => setForm(current => field.system ? { ...current, [field.id]: next } : { ...current, customFields: { ...current.customFields, [field.id]: next } })
+            const wide = field.type === 'textarea' || field.type === 'address' || field.id === 'address'
+            const commonProps = { autoFocus: index === 0, value, onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setValue(event.target.value) }
+            return <label className={wide ? 'customer-field-wide' : ''} key={field.id}><span>{field.label}{field.required ? ' · Obligatorio' : ''}</span>{field.type === 'textarea' ? <textarea {...commonProps} placeholder={field.id === 'notes' ? 'Ej. Casa azul, toca el timbre…' : 'Escribe aquí…'}/> : field.type === 'select' ? <select {...commonProps}><option value="">Selecciona una opción…</option>{(field.options || []).map(option => <option value={option} key={option}>{option}</option>)}</select> : <input {...commonProps} type={field.type === 'number' ? 'number' : field.type === 'phone' ? 'tel' : 'text'} placeholder={field.type === 'phone' ? '300 000 0000' : field.type === 'address' || field.id === 'address' ? 'Dirección de entrega' : field.id === 'name' ? 'Nombre completo' : 'Escribe aquí…'} inputMode={field.type === 'number' ? 'decimal' : field.type === 'phone' ? 'tel' : undefined}/>}</label>
+          })}
           {error && <div className="customers-feedback error">{error}</div>}
         </div>
         <footer className="customer-modal-foot"><button className="secondary" disabled={saving} onClick={closeModal}>Cancelar</button><button className="primary" disabled={saving || !form.name.trim() || !form.phone.trim()} onClick={() => void save()}>{saving ? 'Guardando…' : editing ? <><Check size={15}/> Guardar</> : <><Plus size={15}/> Agregar cliente</>}</button></footer>

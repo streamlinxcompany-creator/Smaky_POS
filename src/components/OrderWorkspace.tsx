@@ -1,6 +1,6 @@
 import { ArrowRight, Check, CreditCard, FileText, Minus, Plus, Printer, Search, ShoppingCart, SlidersHorizontal, Tag, Trash2, UserRound, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent } from 'react'
-import { completeOrder, createOrder, getPaymentMethods, getProductCategories, getProducts, updateOrderComandaStatus, updateOrderItems } from '../lib/store'
+import { completeOrder, createOrder, getOrderFields, getPaymentMethods, getProductCategories, getProducts, updateOrderComandaStatus, updateOrderItems } from '../lib/store'
 import { money, time, date } from '../lib/format'
 import type { Customer, Order, PaymentMethod, PaymentMethodConfig, Product, Sale, SaleItem, User } from '../lib/types'
 import { printOrderComanda, printSaleReceipt } from '../lib/print'
@@ -51,6 +51,7 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<string[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>([])
+  const [orderFields, setOrderFields] = useState<import('../lib/types').OrderFieldConfig[]>([])
   const [items, setItems] = useState<SaleItem[]>(initialOrder?.items.map(item => ({ ...item, lineId: item.lineId || newLineId() })) || [])
   const [order, setOrder] = useState<Order | null>(initialOrder || null)
   const [customer, setCustomer] = useState<Customer | null>(initialCustomer || null)
@@ -104,8 +105,10 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
     customerName: currentCustomer.name,
     phone: currentCustomer.phone,
     address: currentCustomer.address,
-    notes: currentCustomer.notes
-  } : { customerName: '', phone: '', address: '', notes: '' }
+    notes: currentCustomer.notes,
+    customFields: { ...(currentCustomer.customFields || {}) },
+    customFieldLabels: Object.fromEntries(orderFields.filter(field => !field.system).map(field => [field.id, field.label]))
+  } : { customerName: '', phone: '', address: '', notes: '', customFields: {}, customFieldLabels: {} }
 
   const filtered = products.filter(product => {
     const categoryMatch = category === 'Todos' || product.category === category
@@ -113,7 +116,7 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
     return categoryMatch && (!q || product.name.toLowerCase().includes(q))
   })
 
-  useEffect(() => { void Promise.all([getProducts(), getProductCategories(), getPaymentMethods()]).then(([productsData, categoryData, paymentMethodData]) => { setProducts(productsData); setCategories(categoryData); setPaymentMethods(paymentMethodData); if (paymentMethodData.length) setPayment(paymentMethodData[0].id) }) }, [])
+  useEffect(() => { void Promise.all([getProducts(), getProductCategories(), getPaymentMethods(), getOrderFields()]).then(([productsData, categoryData, paymentMethodData, fieldData]) => { setProducts(productsData); setCategories(categoryData); setPaymentMethods(paymentMethodData); setOrderFields(fieldData); if (paymentMethodData.length) setPayment(paymentMethodData[0].id) }) }, [])
 
   useEffect(() => {
     if (!completedSale) return
@@ -132,7 +135,7 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
 
   const setCurrent = (next: Order | null) => {
     setOrder(next)
-    if (next?.customerName) setCustomer(current => current || { id: next.customerId || `legacy-${next.id}`, name: next.customerName, phone: next.phone, address: next.address, notes: next.notes, createdAt: next.createdAt, updatedAt: next.updatedAt, active: true })
+    if (next?.customerName) setCustomer(current => current || { id: next.customerId || `legacy-${next.id}`, name: next.customerName, phone: next.phone, address: next.address, notes: next.notes, customFields: { ...(next.customFields || {}) }, createdAt: next.createdAt, updatedAt: next.updatedAt, active: true })
     if (next) {
       setItems(next.items.map(item => ({ ...item, lineId: item.lineId || newLineId() })))
       setNotes(next.notes || '')

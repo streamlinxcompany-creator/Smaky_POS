@@ -67,14 +67,21 @@ export async function restoreArchivedRecord(entity: string, recordId: string, ac
 export const DEFAULT_PRODUCT_CATEGORIES = ['Hamburguesas', 'Combos', 'Acompañamientos', 'Bebidas']
 const CATEGORY_SETTING_KEY = 'productCategories'
 const PAYMENT_METHODS_SETTING_KEY = 'paymentMethods'
-const POS_PREFERENCES_SETTING_KEY = 'posPreferences'
+export const ORDER_FIELDS_SETTING_KEY = 'orderFields'
+export const GENERAL_SETTINGS_KEY = 'generalSettings'
 
-export type PosPreferences = {
-  showFinalConsumerOption: boolean
-}
+export const DEFAULT_ORDER_FIELDS: import('./types').OrderFieldConfig[] = [
+  { id: 'name', label: 'Nombre', type: 'text', enabled: true, required: true, system: true },
+  { id: 'phone', label: 'Número', type: 'phone', enabled: true, required: true, system: true },
+  { id: 'address', label: 'Dirección', type: 'address', enabled: true, required: false, system: true },
+  { id: 'notes', label: 'Observaciones', type: 'textarea', enabled: true, required: false, system: true },
+]
 
-export const DEFAULT_POS_PREFERENCES: PosPreferences = {
-  showFinalConsumerOption: false
+export const DEFAULT_GENERAL_SETTINGS: import('./types').GeneralSettings = {
+  themeMode: 'dark',
+  autoDarkFrom: '19:00',
+  autoLightFrom: '07:00',
+  showConsumerFinal: false,
 }
 
 export const DEFAULT_PAYMENT_METHODS: PaymentMethodConfig[] = [
@@ -133,9 +140,13 @@ export async function seed() {
     const setting: SystemSetting = { id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: DEFAULT_PRODUCT_CATEGORIES, updatedAt: new Date().toISOString() }
     await db.settings.put(setting)
   }
-  const preferencesSetting = await db.settings.get(POS_PREFERENCES_SETTING_KEY)
-  if (!preferencesSetting || !preferencesSetting.value || typeof preferencesSetting.value !== 'object') {
-    await db.settings.put({ id: POS_PREFERENCES_SETTING_KEY, key: POS_PREFERENCES_SETTING_KEY, value: DEFAULT_POS_PREFERENCES, updatedAt: new Date().toISOString() })
+  const orderFieldsSetting = await db.settings.get(ORDER_FIELDS_SETTING_KEY)
+  if (!orderFieldsSetting || !Array.isArray(orderFieldsSetting.value)) {
+    await db.settings.put({ id: ORDER_FIELDS_SETTING_KEY, key: ORDER_FIELDS_SETTING_KEY, value: DEFAULT_ORDER_FIELDS, updatedAt: new Date().toISOString() })
+  }
+  const generalSetting = await db.settings.get(GENERAL_SETTINGS_KEY)
+  if (!generalSetting || !generalSetting.value || typeof generalSetting.value !== 'object') {
+    await db.settings.put({ id: GENERAL_SETTINGS_KEY, key: GENERAL_SETTINGS_KEY, value: DEFAULT_GENERAL_SETTINGS, updatedAt: new Date().toISOString() })
   }
 
   const paymentSetting = await db.settings.get(PAYMENT_METHODS_SETTING_KEY)
@@ -155,6 +166,84 @@ export async function getProducts() {
 export async function getAllProducts() {
   const products = await db.products.toArray()
   return products.filter(product => !product.deletedAt).sort((a, b) => a.name.localeCompare(b.name, 'es'))
+}
+
+const ORDER_FIELD_TYPES: import('./types').OrderFieldType[] = ['text', 'textarea', 'number', 'phone', 'address', 'select']
+
+const normalizeOrderField = (field: Partial<import('./types').OrderFieldConfig>): import('./types').OrderFieldConfig => {
+  const id = String(field.id || '').trim()
+  const legacySystemType = id === 'phone' ? 'phone' : id === 'address' ? 'address' : id === 'notes' ? 'textarea' : 'text'
+  const type = field.system && ['name', 'phone', 'address', 'notes'].includes(id)
+    ? legacySystemType
+    : ORDER_FIELD_TYPES.includes(field.type as import('./types').OrderFieldType) ? field.type as import('./types').OrderFieldType : legacySystemType
+  const options = Array.isArray(field.options)
+    ? Array.from(new Set(field.options.map(value => String(value).trim()).filter(Boolean))).slice(0, 50)
+    : undefined
+  return {
+    id,
+    label: String(field.label || '').trim().replace(/\s+/g, ' '),
+    type,
+    enabled: Boolean(field.enabled),
+    required: Boolean(field.required),
+    ...(options?.length ? { options } : {}),
+    system: Boolean(field.system),
+  }
+}
+
+export async function getOrderFields(): Promise<import('./types').OrderFieldConfig[]> {
+  const setting = await db.settings.get(ORDER_FIELDS_SETTING_KEY)
+  const value = setting?.value
+  const fields = Array.isArray(value) ? value.map(item => normalizeOrderField(item as import('./types').OrderFieldConfig)) : DEFAULT_ORDER_FIELDS.map(item => normalizeOrderField(item))
+  const ids = new Set(fields.map(field => field.id))
+  const requiredSystemFields = DEFAULT_ORDER_FIELDS.filter(field => field.system && !ids.has(field.id)).map(field => normalizeOrderField(field))
+  return [...requiredSystemFields, ...fields]
+}
+
+export async function updateOrderFields(fields: import('./types').OrderFieldConfig[], actor: User) {
+  const normalized = fields
+    .map(field => normalizeOrderField(field))
+    .filter(field => field.id && field.label)
+  const ids = new Set<string>()
+  for (const field of normalized) {
+    if (ids.has(field.id)) throw new Error('Hay campos de pedido repetidos.')
+    ids.add(field.id)
+    if (field.system && ['name', 'phone'].includes(field.id)) {
+      field.enabled = true
+      field.required = true
+    }
+    if (field.type === 'select' && (!field.options || field.options.length === 0)) throw new Error(`El campo “${field.label}” necesita al menos una opción.`)
+    if (!field.enabled) field.required = false
+  }
+  const before = await getOrderFields()
+  const now = new Date().toISOString()
+  await db.settings.put({ id: ORDER_FIELDS_SETTING_KEY, key: ORDER_FIELDS_SETTING_KEY, value: normalized, updatedAt: now })
+  await audit('ORDER_FIELDS_UPDATED', 'SETTINGS', 'setting', ORDER_FIELDS_SETTING_KEY, { fields: before }, { fields: normalized }, actor)
+  window.dispatchEvent(new CustomEvent('smaky-settings-change', { detail: { key: ORDER_FIELDS_SETTING_KEY } }))
+  return normalized
+}
+
+export async function getGeneralSettings(): Promise<import('./types').GeneralSettings> {
+  const setting = await db.settings.get(GENERAL_SETTINGS_KEY)
+  const value = setting?.value
+  if (value && typeof value === 'object') return { ...DEFAULT_GENERAL_SETTINGS, ...(value as Partial<import('./types').GeneralSettings>) }
+  return { ...DEFAULT_GENERAL_SETTINGS }
+}
+
+export async function updateGeneralSettings(changes: Partial<import('./types').GeneralSettings>, actor: User) {
+  const before = await getGeneralSettings()
+  const next: import('./types').GeneralSettings = {
+    ...before,
+    ...changes,
+    themeMode: changes.themeMode === 'light' || changes.themeMode === 'auto' || changes.themeMode === 'dark' ? changes.themeMode : before.themeMode,
+    autoDarkFrom: /^([01]\d|2[0-3]):[0-5]\d$/.test(changes.autoDarkFrom || '') ? changes.autoDarkFrom! : before.autoDarkFrom,
+    autoLightFrom: /^([01]\d|2[0-3]):[0-5]\d$/.test(changes.autoLightFrom || '') ? changes.autoLightFrom! : before.autoLightFrom,
+    showConsumerFinal: changes.showConsumerFinal ?? before.showConsumerFinal,
+  }
+  const now = new Date().toISOString()
+  await db.settings.put({ id: GENERAL_SETTINGS_KEY, key: GENERAL_SETTINGS_KEY, value: next, updatedAt: now })
+  await audit('GENERAL_SETTINGS_UPDATED', 'SETTINGS', 'setting', GENERAL_SETTINGS_KEY, before, next, actor)
+  window.dispatchEvent(new CustomEvent('smaky-settings-change', { detail: { key: GENERAL_SETTINGS_KEY } }))
+  return next
 }
 
 export async function getProductCategories() {
@@ -220,27 +309,6 @@ export async function updateProductCategory(oldName: string, newName: string, ac
   await db.settings.put({ id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: next, updatedAt: now })
   await audit('PRODUCT_CATEGORY_UPDATED', 'SETTINGS', 'setting', CATEGORY_SETTING_KEY, { categories: current }, { categories: next, renamedFrom: found, renamedTo: cleanName, updatedProducts }, actor)
   return next
-}
-
-export async function getPosPreferences(): Promise<PosPreferences> {
-  const setting = await db.settings.get(POS_PREFERENCES_SETTING_KEY)
-  const value = setting?.value
-  if (value && typeof value === 'object') {
-    const raw = value as Record<string, unknown>
-    return {
-      showFinalConsumerOption: raw.showFinalConsumerOption === true
-    }
-  }
-  return { ...DEFAULT_POS_PREFERENCES }
-}
-
-export async function updatePosPreferences(next: PosPreferences, actor: User) {
-  const before = await getPosPreferences()
-  const value: PosPreferences = { showFinalConsumerOption: Boolean(next.showFinalConsumerOption) }
-  const now = new Date().toISOString()
-  await db.settings.put({ id: POS_PREFERENCES_SETTING_KEY, key: POS_PREFERENCES_SETTING_KEY, value, updatedAt: now })
-  await audit('POS_PREFERENCES_UPDATED', 'SETTINGS', 'setting', POS_PREFERENCES_SETTING_KEY, before, value, actor)
-  return value
 }
 
 export async function getPaymentMethods(): Promise<PaymentMethodConfig[]> {
@@ -448,7 +516,7 @@ export async function findCustomerByPhone(phone: string) {
   return customer && customer.active ? customer : null
 }
 
-export async function createCustomer(input: Pick<Customer, 'name' | 'phone' | 'address' | 'notes'>, actor: User) {
+export async function createCustomer(input: Pick<Customer, 'name' | 'phone' | 'address' | 'notes'> & { customFields?: Record<string, string> }, actor: User) {
   const name = input.name.trim().replace(/\s+/g, ' ')
   const phone = normalizePhone(input.phone)
   const address = input.address.trim()
@@ -458,13 +526,14 @@ export async function createCustomer(input: Pick<Customer, 'name' | 'phone' | 'a
   const duplicate = await findCustomerByPhone(phone)
   if (duplicate) throw new Error(`Ya existe un cliente con el celular ${duplicate.phone}.`)
   const now = new Date().toISOString()
-  const customer: Customer = { id: crypto.randomUUID(), name, phone, address, notes, createdAt: now, updatedAt: now, active: true }
+  const customFields = Object.fromEntries(Object.entries(input.customFields || {}).map(([key, value]) => [key, String(value ?? '').trim()]).filter(([, value]) => value))
+  const customer: Customer = { id: crypto.randomUUID(), name, phone, address, notes, customFields, createdAt: now, updatedAt: now, active: true }
   await db.customers.add(customer)
   await audit('CUSTOMER_CREATED', 'CUSTOMERS', 'customer', customer.id, null, customer, actor)
   return customer
 }
 
-export async function updateCustomer(id: string, input: Pick<Customer, 'name' | 'phone' | 'address' | 'notes'>, actor: User) {
+export async function updateCustomer(id: string, input: Pick<Customer, 'name' | 'phone' | 'address' | 'notes'> & { customFields?: Record<string, string> }, actor: User) {
   const current = await db.customers.get(id)
   if (!current) return null
   const name = input.name.trim().replace(/\s+/g, ' ')
@@ -475,7 +544,8 @@ export async function updateCustomer(id: string, input: Pick<Customer, 'name' | 
   if (phone.length < 7 || phone.length > 15) throw new Error('Escribe un celular válido.')
   const duplicate = await db.customers.where('phone').equals(phone).first()
   if (duplicate && duplicate.id !== id && duplicate.active) throw new Error(`Ya existe un cliente con el celular ${phone}.`)
-  const after: Customer = { ...current, name, phone, address, notes, updatedAt: new Date().toISOString() }
+  const customFields = Object.fromEntries(Object.entries(input.customFields || {}).map(([key, value]) => [key, String(value ?? '').trim()]).filter(([, value]) => value))
+  const after: Customer = { ...current, name, phone, address, notes, customFields, updatedAt: new Date().toISOString() }
   await db.customers.put(after)
   await audit('CUSTOMER_UPDATED', 'CUSTOMERS', 'customer', id, current, after, actor)
   return after
@@ -496,6 +566,16 @@ export async function getOrders() {
 }
 
 export async function createOrder(items: Order['items'], delivery: DeliveryInfo, user: User, customerId?: string) {
+  const configuredFields = await getOrderFields()
+  if (customerId) {
+    const missing = configuredFields.filter(field => field.enabled && field.required).find(field => {
+      const value = field.system
+        ? ({ name: delivery.customerName, phone: delivery.phone, address: delivery.address, notes: delivery.notes } as Record<string, string | undefined>)[field.id]
+        : delivery.customFields?.[field.id]
+      return !String(value || '').trim()
+    })
+    if (missing) throw new Error(`Completa el campo “${missing.label}” antes de guardar el pedido.`)
+  }
   const now = new Date()
   const calendarKey = businessDayKey(now)
   const closure = await db.closures.where('dateKey').equals(calendarKey).first()
@@ -517,6 +597,8 @@ export async function createOrder(items: Order['items'], delivery: DeliveryInfo,
     phone: delivery.phone || '',
     address: delivery.address || '',
     notes: delivery.notes || '',
+    customFields: Object.fromEntries(Object.entries(delivery.customFields || {}).map(([key, value]) => [key, String(value ?? '').trim()]).filter(([, value]) => value)),
+    customFieldLabels: { ...(delivery.customFieldLabels || {}) },
     items: cleanItems,
     subtotal: total,
     total,
@@ -598,6 +680,8 @@ export async function completeOrder(orderId: string, payment: PaymentMethod, act
       phone: order.phone,
       address: order.address,
       notes: order.notes,
+      customFields: { ...(order.customFields || {}) },
+      customFieldLabels: { ...(order.customFieldLabels || {}) },
       items: order.items.map(item => ({ ...item })),
       subtotal,
       total: saleTotal,

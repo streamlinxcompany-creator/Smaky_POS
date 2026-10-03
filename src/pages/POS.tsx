@@ -1,10 +1,10 @@
 import { AlertTriangle, Check, FileText, MapPin, Phone, Plus, Search, UserPlus, UserRound, UsersRound, UtensilsCrossed, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { OrderWorkspace } from '../components/OrderWorkspace'
 import { getSessionUser } from '../lib/auth'
-import { createCustomer, getClosureByDate, getCustomers, getOrders, getPosPreferences, recordBusinessDayKey } from '../lib/store'
+import { createCustomer, getClosureByDate, getCustomers, getGeneralSettings, getOrderFields, getOrders, recordBusinessDayKey, updateCustomer } from '../lib/store'
 import { date, money, time } from '../lib/format'
-import type { CashClosure, Customer, Order, OrderStatus } from '../lib/types'
+import type { CashClosure, Customer, Order, OrderFieldConfig, OrderStatus } from '../lib/types'
 
 const statusLabel: Record<OrderStatus, string> = {
   pending: 'Pendiente',
@@ -29,12 +29,14 @@ export function POS() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false)
   const [customerFormOpen, setCustomerFormOpen] = useState(false)
+  const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null)
   const [customerSearch, setCustomerSearch] = useState('')
   const [customerList, setCustomerList] = useState<Customer[]>([])
-  const [customerForm, setCustomerForm] = useState({ name: '', phone: '', address: '', notes: '' })
+  const [customerForm, setCustomerForm] = useState<{ name: string; phone: string; address: string; notes: string; customFields: Record<string, string> }>({ name: '', phone: '', address: '', notes: '', customFields: {} })
+  const [orderFields, setOrderFields] = useState<OrderFieldConfig[]>([])
+  const [generalSettings, setGeneralSettings] = useState({ showConsumerFinal: false })
   const [customerSaving, setCustomerSaving] = useState(false)
   const [customerError, setCustomerError] = useState('')
-  const [showFinalConsumerOption, setShowFinalConsumerOption] = useState(false)
   const [selected, setSelected] = useState<Order | null>(null)
   const [todayClosure, setTodayClosure] = useState<CashClosure | null>(null)
   const [closureWarning, setClosureWarning] = useState<CashClosure | null>(null)
@@ -51,7 +53,14 @@ export function POS() {
     setLoading(false)
   }
 
-  useEffect(() => { void refresh(); void getPosPreferences().then(preferences => setShowFinalConsumerOption(preferences.showFinalConsumerOption)) }, [])
+  useEffect(() => { void refresh() }, [])
+  useEffect(() => {
+    const loadFields = () => { void Promise.all([getOrderFields(), getGeneralSettings()]).then(([fields, general]) => { setOrderFields(fields); setGeneralSettings(general) }) }
+    loadFields()
+    const onSettings = () => loadFields()
+    window.addEventListener('smaky-settings-change', onSettings)
+    return () => window.removeEventListener('smaky-settings-change', onSettings)
+  }, [])
 
   const todayOrders = useMemo(() => orders.slice().sort((a, b) => b.orderNumber - a.orderNumber), [orders])
 
@@ -90,20 +99,38 @@ export function POS() {
     void openCustomerPicker()
   }
 
+  const requiredFieldsMissing = (customer: Customer | null) => orderFields.filter(field => field.enabled && field.required).find(field => {
+    const value = field.system
+      ? ({ name: customer?.name, phone: customer?.phone, address: customer?.address, notes: customer?.notes } as Record<string, string | undefined>)[field.id]
+      : customer?.customFields?.[field.id]
+    return !String(value || '').trim()
+  })
+
   const chooseCustomer = (customer: Customer | null) => {
+    const missing = requiredFieldsMissing(customer)
+    if (customer && missing) {
+      setCustomerError(`Este cliente necesita completar “${missing.label}” antes de crear el pedido.`)
+      setCustomerForm({ name: customer.name, phone: customer.phone, address: customer.address, notes: customer.notes, customFields: { ...(customer.customFields || {}) } })
+      setEditingCustomerId(customer.id)
+      setCustomerFormOpen(true)
+      return
+    }
     setSelectedCustomer(customer)
     setCustomerPickerOpen(false)
     setCustomerFormOpen(false)
+    setEditingCustomerId(null)
     setCreating(true)
   }
 
-  const openCustomerForm = () => {
+  const openCustomerForm = (customer?: Customer) => {
     setCustomerError('')
+    setEditingCustomerId(customer?.id || null)
     setCustomerForm({
-      name: '',
-      phone: customerSearch.replace(/\D/g, ''),
-      address: '',
-      notes: ''
+      name: customer?.name || '',
+      phone: customer?.phone || customerSearch.replace(/\D/g, ''),
+      address: customer?.address || '',
+      notes: customer?.notes || '',
+      customFields: Object.fromEntries(orderFields.filter(field => !field.system).map(field => [field.id, customer?.customFields?.[field.id] || '']))
     })
     setCustomerFormOpen(true)
   }
@@ -113,9 +140,21 @@ export function POS() {
     setCustomerSaving(true)
     setCustomerError('')
     try {
-      const customer = await createCustomer(customerForm, user)
-      setCustomerList(current => [customer, ...current])
-      chooseCustomer(customer)
+      const missing = orderFields.filter(field => field.enabled && field.required).find(field => {
+        const value = field.system ? ({ name: customerForm.name, phone: customerForm.phone, address: customerForm.address, notes: customerForm.notes } as Record<string, string>)[field.id] : customerForm.customFields[field.id]
+        return !String(value || '').trim()
+      })
+      if (missing) throw new Error(`Completa el campo “${missing.label}”.`)
+      const customer = editingCustomerId
+        ? await updateCustomer(editingCustomerId, customerForm, user)
+        : await createCustomer(customerForm, user)
+      if (!customer) throw new Error('No fue posible actualizar el cliente.')
+      setCustomerList(current => editingCustomerId ? current.map(item => item.id === customer.id ? customer : item) : [customer, ...current])
+      setSelectedCustomer(customer)
+      setCustomerPickerOpen(false)
+      setCustomerFormOpen(false)
+      setEditingCustomerId(null)
+      setCreating(true)
     } catch (caught) {
       setCustomerError(caught instanceof Error ? caught.message : 'No fue posible guardar el cliente.')
     } finally {
@@ -134,13 +173,19 @@ export function POS() {
       {!customerFormOpen ? <><header className="customer-picker-head"><div className="customer-picker-title"><div className="customer-picker-icon"><UsersRound size={19}/></div><div><span className="eyebrow">NUEVO PEDIDO</span><h2 id="customer-picker-title">¿Para quién es el pedido?</h2><p>Busca el celular o selecciona un cliente.</p></div></div><button className="item-editor-close" onClick={() => setCustomerPickerOpen(false)} aria-label="Cerrar"><X size={18}/></button></header>
         <div className="customer-picker-toolbar"><label className="customer-picker-search"><Search size={17}/><input autoFocus value={customerSearch} onChange={event => setCustomerSearch(event.target.value)} placeholder="Buscar por celular o nombre…" inputMode="search"/></label><button className="customer-add-btn" onClick={openCustomerForm}><UserPlus size={16}/> Agregar cliente</button></div>
         <div className="customer-picker-list">
-          {showFinalConsumerOption && <button className="customer-picker-row guest" onClick={() => chooseCustomer(null)}><div className="customer-picker-avatar guest"><UserRound size={17}/></div><div><b>Consumidor final</b><span>Continuar sin guardar cliente</span></div><Check size={16}/></button>}
+          {/* Consumidor final se controla desde Configuraciones → General. */}
+          {generalSettings.showConsumerFinal && <button className="customer-picker-row guest" onClick={() => chooseCustomer(null)}><div className="customer-picker-avatar guest"><UserRound size={17}/></div><div><b>Consumidor final</b><span>Continuar sin guardar cliente</span></div><Check size={16}/></button>}
           {filteredCustomers.map(customer => <button className="customer-picker-row" key={customer.id} onClick={() => chooseCustomer(customer)}><div className="customer-picker-avatar"><UserRound size={17}/></div><div><b>{customer.name}</b><span><Phone size={12}/> {customer.phone}{customer.address ? <> · <MapPin size={12}/> {customer.address}</> : null}</span></div><span className="customer-picker-arrow">→</span></button>)}
           {!filteredCustomers.length && <div className="customer-picker-empty"><UserRound size={24}/><b>No hay coincidencias</b><span>Agrega este número como cliente nuevo.</span><button className="primary-inline" onClick={openCustomerForm}><UserPlus size={15}/> Agregar cliente</button></div>}
         </div>
-      </> : <><header className="customer-picker-head"><div className="customer-picker-title"><div className="customer-picker-icon"><UserPlus size={19}/></div><div><span className="eyebrow">NUEVO CLIENTE</span><h2>Agregar cliente</h2><p>El celular será su forma de búsqueda.</p></div></div><button className="item-editor-close" onClick={() => setCustomerFormOpen(false)} aria-label="Volver"><X size={18}/></button></header>
-        <div className="customer-picker-form"><label><span>Nombre</span><input autoFocus value={customerForm.name} onChange={event => setCustomerForm(value => ({ ...value, name: event.target.value }))} placeholder="Nombre completo"/></label><label><span>Celular</span><input value={customerForm.phone} onChange={event => setCustomerForm(value => ({ ...value, phone: event.target.value }))} placeholder="300 000 0000" inputMode="tel"/></label><label><span>Dirección</span><input value={customerForm.address} onChange={event => setCustomerForm(value => ({ ...value, address: event.target.value }))} placeholder="Dirección de entrega"/></label><label><span>Observaciones</span><textarea value={customerForm.notes} onChange={event => setCustomerForm(value => ({ ...value, notes: event.target.value }))} placeholder="Ej. Casa azul, toca el timbre…"/></label>{customerError && <div className="customers-feedback error">{customerError}</div>}</div>
-        <footer className="customer-picker-foot"><button className="secondary" disabled={customerSaving} onClick={() => setCustomerFormOpen(false)}>Volver</button><button className="primary" disabled={customerSaving || !customerForm.name.trim() || !customerForm.phone.trim()} onClick={() => void saveNewCustomer()}>{customerSaving ? 'Guardando…' : <><Plus size={15}/> Guardar y usar cliente</>}</button></footer>
+      </> : <><header className="customer-picker-head"><div className="customer-picker-title"><div className="customer-picker-icon"><UserPlus size={19}/></div><div><span className="eyebrow">{editingCustomerId ? 'DATOS DEL CLIENTE' : 'NUEVO CLIENTE'}</span><h2>{editingCustomerId ? 'Completar cliente' : 'Agregar cliente'}</h2><p>{editingCustomerId ? 'Completa los campos solicitados para este pedido.' : 'El celular será su forma de búsqueda.'}</p></div></div><button className="item-editor-close" onClick={() => setCustomerFormOpen(false)} aria-label="Volver"><X size={18}/></button></header>
+        <div className="customer-picker-form">{orderFields.filter(field => field.enabled).map((field, index) => {
+          const value = field.system ? ({ name: customerForm.name, phone: customerForm.phone, address: customerForm.address, notes: customerForm.notes } as Record<string, string>)[field.id] || '' : customerForm.customFields[field.id] || ''
+          const setValue = (next: string) => setCustomerForm(current => field.system ? { ...current, [field.id]: next } : { ...current, customFields: { ...current.customFields, [field.id]: next } })
+          const commonProps = { autoFocus: index === 0, value, onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setValue(event.target.value) }
+          return <label className={field.type === 'textarea' || field.type === 'address' || field.id === 'address' ? 'customer-field-wide' : ''} key={field.id}><span>{field.label}{field.required ? ' · Obligatorio' : ''}</span>{field.type === 'textarea' ? <textarea {...commonProps} placeholder={field.id === 'notes' ? 'Ej. Casa azul, toca el timbre…' : 'Escribe aquí…'} /> : field.type === 'select' ? <select {...commonProps}><option value="">Selecciona una opción…</option>{(field.options || []).map(option => <option value={option} key={option}>{option}</option>)}</select> : <input {...commonProps} type={field.type === 'number' ? 'number' : field.type === 'phone' ? 'tel' : 'text'} inputMode={field.type === 'number' ? 'decimal' : field.type === 'phone' ? 'tel' : undefined} placeholder={field.type === 'phone' ? '300 000 0000' : field.type === 'address' || field.id === 'address' ? 'Dirección de entrega' : 'Escribe aquí…'} />}</label>
+        })}{customerError && <div className="customers-feedback error">{customerError}</div>}</div>
+        <footer className="customer-picker-foot"><button className="secondary" disabled={customerSaving} onClick={() => { setCustomerFormOpen(false); setEditingCustomerId(null) }}>Volver</button><button className="primary" disabled={customerSaving || !customerForm.name.trim() || !customerForm.phone.trim()} onClick={() => void saveNewCustomer()}>{customerSaving ? 'Guardando…' : <><Plus size={15}/> {editingCustomerId ? 'Actualizar y usar cliente' : 'Guardar y usar cliente'}</>}</button></footer>
       </>}
     </section>
   </div> : null
