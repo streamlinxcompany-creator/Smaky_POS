@@ -6,37 +6,51 @@ const escapeHtml = (value: string | number | undefined | null) => String(value ?
 
 const buildPrintDocument = (title: string, body: string) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=88mm,initial-scale=1,maximum-scale=1"><title>${escapeHtml(title)}</title><style>
   @page{size:88mm auto;margin:0}
-  html,body{width:88mm;min-width:0;height:auto;min-height:0;margin:0;padding:0;background:#fff;color:#000;overflow:visible}
+  html,body{width:88mm;min-width:88mm;height:auto;min-height:0;margin:0;padding:0;background:#fff;color:#000;overflow:visible}
   *{box-sizing:border-box;color:#000!important}
-  body{font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.22;font-weight:500;print-color-adjust:exact;-webkit-print-color-adjust:exact}
-  .receipt{width:88mm;max-width:88mm;margin:0;padding:1.2mm 1.4mm 2.2mm;background:#fff;color:#000}
+  body{font-family:Arial,Helvetica,sans-serif;font-size:10px;line-height:1.18;font-weight:500;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+  .receipt{width:88mm;max-width:88mm;margin:0 auto;padding:2.5mm 4.2mm 1.8mm;background:#fff}
   .center{text-align:center}
-  .brand{font-size:18px;font-weight:900;letter-spacing:1.7px;line-height:1.1}
-  .subbrand{font-size:10px;font-weight:700;margin-top:2px}
-  .doc-label{font-size:8.5px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;margin-top:4px}
-  .order-no{font-size:16px;font-weight:900;margin-top:5px}
-  .meta{font-size:8.5px;margin-top:3px;font-weight:600}
+  .brand{font-size:21px;font-weight:900;letter-spacing:2.4px;line-height:1}
+  .subbrand{font-size:9px;font-weight:700;letter-spacing:.9px;margin-top:3px;text-transform:uppercase}
+  .doc-label{font-size:8px;font-weight:800;letter-spacing:1px;text-transform:uppercase;margin-top:6px}
+  .order-no{font-size:17px;font-weight:900;line-height:1;margin-top:4px}
+  .meta{font-size:8px;margin-top:5px;font-weight:600;line-height:1.25}
   .line{border-top:1px dashed #000;margin:7px 0}
-  .item{display:flex;justify-content:space-between;align-items:flex-start;gap:7px;padding:3.5px 0;break-inside:avoid;page-break-inside:avoid}
-  .item-main{min-width:0;flex:1}
-  .item-name{font-size:10.5px;font-weight:800;line-height:1.2;overflow-wrap:anywhere}
-  .item-sub{font-size:8.5px;font-weight:500;margin-top:2px;line-height:1.2;overflow-wrap:anywhere}
-  .qty{font-weight:900;white-space:nowrap}
-  .amount{font-size:10.5px;font-weight:900;white-space:nowrap;text-align:right}
-  .section{font-size:9px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;border-bottom:1px solid #000;padding:4px 0 3px;margin-top:3px;break-inside:avoid;page-break-inside:avoid}
+  .section{font-size:8.5px;font-weight:900;letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid #000;padding:4px 0 3px;margin-top:2px;break-inside:avoid;page-break-inside:avoid}
+  .item{display:grid;grid-template-columns:20px minmax(0,1fr) auto;column-gap:5px;align-items:start;padding:4px 0;break-inside:avoid;page-break-inside:avoid}
+  .item-main{min-width:0}
+  .qty{font-size:10px;font-weight:900;white-space:nowrap}
+  .item-name{font-size:10px;font-weight:800;line-height:1.18;overflow-wrap:anywhere}
+  .item-sub{font-size:8px;font-weight:500;margin-top:2px;line-height:1.18;overflow-wrap:anywhere}
+  .mod{font-size:8.5px;font-weight:800;margin-top:3px;line-height:1.18;overflow-wrap:anywhere}
+  .amount{font-size:10px;font-weight:900;white-space:nowrap;text-align:right}
+  .client-box{border:1px solid #000;padding:5px 6px;margin:5px 0 6px;break-inside:avoid;page-break-inside:avoid}
+  .client-title{font-size:7.5px;font-weight:900;letter-spacing:1px;text-transform:uppercase;margin-bottom:3px}
+  .client-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 10px}
+  .client-field{min-width:0}
+  .client-label{font-size:7px;font-weight:800;text-transform:uppercase}
+  .client-value{font-size:8.5px;font-weight:600;line-height:1.2;overflow-wrap:anywhere}
+  .client-wide{grid-column:1 / -1}
   .totals{border-top:1px solid #000;margin-top:5px;padding-top:5px;break-inside:avoid;page-break-inside:avoid}
-  .total-row{display:flex;justify-content:space-between;gap:8px;padding:2px 0;font-size:10px}
+  .total-row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:2px 0;font-size:9px}
   .total-row span{font-weight:700}
-  .total-row b{font-weight:900}
-  .total-row.grand{padding-top:5px}
-  .total-row.grand span{font-size:12px;font-weight:900}
-  .total-row.grand strong{font-size:18px;font-weight:900}
+  .total-row b{font-weight:900;white-space:nowrap}
+  .total-row.grand{padding-top:5px;margin-top:2px;border-top:1px dashed #000}
+  .total-row.grand span{font-size:11px;font-weight:900}
+  .total-row.grand strong{font-size:16px;font-weight:900;white-space:nowrap}
   .note{border:1px solid #000;padding:5px 6px;margin-top:6px;font-size:8.5px;line-height:1.25;break-inside:avoid;page-break-inside:avoid}
-  .note b{font-size:8px;letter-spacing:.6px}
-  .footer{text-align:center;border-top:1px dashed #000;margin-top:7px;padding-top:5px;font-size:8.5px;font-weight:700;line-height:1.2;break-inside:avoid;page-break-inside:avoid}
+  .note b{font-size:7.5px;letter-spacing:.8px}
+  .footer{text-align:center;border-top:1px dashed #000;margin-top:7px;padding-top:5px;font-size:7.5px;font-weight:700;line-height:1.2;break-inside:avoid;page-break-inside:avoid}
+  .kitchen-item{display:grid;grid-template-columns:23px minmax(0,1fr);column-gap:6px;align-items:start;padding:5px 0;border-bottom:1px dotted #777;break-inside:avoid;page-break-inside:avoid}
+  .kitchen-item:last-child{border-bottom:0}
+  .kitchen-qty{font-size:13px;font-weight:900;line-height:1}
+  .kitchen-name{font-size:11.5px;font-weight:900;line-height:1.16;overflow-wrap:anywhere}
+  .kitchen-category{font-size:7.5px;font-weight:700;margin-top:2px;text-transform:uppercase;letter-spacing:.4px}
+  .kitchen-mod{font-size:9px;font-weight:800;margin-top:4px;padding-top:3px;border-top:1px solid #000;line-height:1.18;overflow-wrap:anywhere}
   @media print{
-    html,body{width:88mm!important;min-width:0!important;height:auto!important;min-height:0!important;margin:0!important;padding:0!important;overflow:visible!important}
-    .receipt{width:88mm!important;max-width:none!important;margin:0!important;padding:1.2mm 1.4mm 2.2mm!important}
+    html,body{width:88mm!important;min-width:88mm!important;height:auto!important;min-height:0!important;margin:0!important;padding:0!important;overflow:visible!important}
+    .receipt{width:88mm!important;max-width:none!important;margin:0 auto!important;padding:2.5mm 4.2mm 1.8mm!important}
   }
 </style></head><body>${body}</body></html>`
 
@@ -114,32 +128,62 @@ const groupedItems = (items: SaleItem[]) => {
   return [...known, ...dynamic]
 }
 
-const commandItem = (item: SaleItem) => `<div class="item"><span class="qty">${item.quantity}×</span><div class="item-main"><div class="item-name">${escapeHtml(item.name)}</div><div class="item-sub">${escapeHtml(item.category || 'Producto')}</div>${item.modification ? `<div class="item-sub"><b>MOD:</b> ${escapeHtml(item.modification)}</div>` : ''}</div></div>`
+const commandItem = (item: SaleItem) => `<div class="kitchen-item"><span class="kitchen-qty">${item.quantity}×</span><div><div class="kitchen-name">${escapeHtml(item.name)}</div><div class="kitchen-category">${escapeHtml(item.category || 'Producto')}</div>${item.modification ? `<div class="kitchen-mod"><b>MOD:</b> ${escapeHtml(item.modification)}</div>` : ''}</div></div>`
 
 export function printOrderComanda(order: Order, target?: Window | null) {
   const groups = groupedItems(order.items).map(group => `<div class="section">${escapeHtml(group.category)}</div>${group.items.map(commandItem).join('')}`).join('')
   return printWindow(`Comanda Pedido ${order.orderNumber}`, `
     <div class="receipt">
-      <div class="center"><div class="brand">SMAKY</div><div class="subbrand">Comanda de cocina</div><div class="doc-label">Pedido</div><div class="order-no">#${escapeHtml(order.orderNumber)}</div><div class="meta">${escapeHtml(date(order.createdAt))} · ${escapeHtml(time(order.createdAt))} · ${escapeHtml(order.userName)}</div></div>
-      <div class="line"></div>${groups}
-      ${order.notes ? `<div class="note"><b>OBSERVACIONES</b><br>${escapeHtml(order.notes)}</div>` : ''}
-      <div class="line"></div><div class="footer">Preparar pedido · verificar modificaciones</div>
+      <div class="center">
+        <div class="brand">SMAKY</div>
+        <div class="subbrand">Comanda de cocina</div>
+        <div class="doc-label">Pedido</div>
+        <div class="order-no">#${escapeHtml(order.orderNumber)}</div>
+        <div class="meta">${escapeHtml(date(order.createdAt))} · ${escapeHtml(time(order.createdAt))} · ${escapeHtml(order.userName)}</div>
+      </div>
+      <div class="line"></div>
+      ${groups}
+      <div class="line"></div>
+      <div class="footer">Preparar pedido · verificar modificaciones</div>
     </div>`, 390, target)
 }
 
 export function printSaleReceipt(sale: Sale, target?: Window | null, documentLabel = 'ORIGINAL') {
-  const items = sale.items.map(item => `<div class="item"><div class="item-main"><div><span class="qty">${item.quantity}×</span> <span class="item-name">${escapeHtml(item.name)}</span></div>${item.modification ? `<div class="item-sub">${escapeHtml(item.modification)}</div>` : `<div class="item-sub">${escapeHtml(item.category || 'Producto')}</div>`}</div><strong class="amount">${money(item.total)}</strong></div>`).join('')
+  const items = sale.items.map(item => `<div class="item"><span class="qty">${item.quantity}×</span><div class="item-main"><div class="item-name">${escapeHtml(item.name)}</div>${item.modification ? `<div class="item-sub">${escapeHtml(item.modification)}</div>` : `<div class="item-sub">${escapeHtml(item.category || 'Producto')}</div>`}</div><strong class="amount">${money(item.total)}</strong></div>`).join('')
   const payment = sale.paymentLabel || (sale.payment === 'cash' ? 'Efectivo' : sale.payment === 'transfer' ? 'Transferencia' : sale.payment === 'card' ? 'Tarjeta' : sale.payment)
   const discount = sale.discountAmount && sale.discountAmount > 0 ? `<div class="total-row"><span>Descuento${sale.discountType === 'percent' && sale.discountValue ? ` (${sale.discountValue}%)` : ''}</span><b>−${money(sale.discountAmount)}</b></div>` : ''
+  const hasClientData = Boolean(sale.customerName || sale.phone || sale.address || sale.notes)
+  const clientBox = hasClientData ? `<div class="client-box">
+    <div class="client-title">Información del cliente</div>
+    <div class="client-grid">
+      ${sale.customerName ? `<div class="client-field"><div class="client-label">Cliente</div><div class="client-value">${escapeHtml(sale.customerName)}</div></div>` : ''}
+      ${sale.phone ? `<div class="client-field"><div class="client-label">Teléfono</div><div class="client-value">${escapeHtml(sale.phone)}</div></div>` : ''}
+      ${sale.address ? `<div class="client-field client-wide"><div class="client-label">Dirección</div><div class="client-value">${escapeHtml(sale.address)}</div></div>` : ''}
+      ${sale.notes ? `<div class="client-field client-wide"><div class="client-label">Observación</div><div class="client-value">${escapeHtml(sale.notes)}</div></div>` : ''}
+    </div>
+  </div>` : ''
   return printWindow(`Comprobante #${sale.orderNumber ?? sale.id.slice(-6)}`, `
     <div class="receipt">
-      <div class="center"><div class="brand">SMAKY</div><div class="doc-label">Factura / comprobante · ${escapeHtml(documentLabel)}</div><div class="order-no">Pedido #${escapeHtml(sale.orderNumber ?? sale.id.slice(-6).toUpperCase())}</div><div class="meta">Venta #${escapeHtml(sale.id.slice(-6).toUpperCase())} · ${escapeHtml(date(sale.createdAt))} · ${escapeHtml(time(sale.createdAt))}</div></div>
+      <div class="center">
+        <div class="brand">SMAKY</div>
+        <div class="doc-label">Factura / comprobante · ${escapeHtml(documentLabel)}</div>
+        <div class="order-no">Pedido #${escapeHtml(sale.orderNumber ?? sale.id.slice(-6).toUpperCase())}</div>
+        <div class="meta">Venta #${escapeHtml(sale.id.slice(-6).toUpperCase())} · ${escapeHtml(date(sale.createdAt))} · ${escapeHtml(time(sale.createdAt))}</div>
+      </div>
+
+      ${clientBox}
+
       <div class="line"></div>
-      <div class="item"><div class="item-main"><div class="item-name">Cliente</div><div class="item-sub">${escapeHtml(sale.customerName || 'Consumidor final')}</div>${sale.phone ? `<div class="item-sub">Cel: ${escapeHtml(sale.phone)}</div>` : ''}${sale.address ? `<div class="item-sub">Dirección: ${escapeHtml(sale.address)}</div>` : ''}</div><div class="item-main" style="text-align:right"><div class="item-name">Pago</div><div class="item-sub">${escapeHtml(payment)}</div></div></div>
-      <div class="line"></div>
+      <div class="section">Detalle del pedido</div>
       ${items}
-      <div class="totals"><div class="total-row"><span>Subtotal</span><b>${money(sale.subtotal)}</b></div>${discount}<div class="total-row grand"><span>Total</span><strong>${money(sale.total)}</strong></div></div>
-      ${sale.notes ? `<div class="note"><b>OBSERVACIONES</b><br>${escapeHtml(sale.notes)}</div>` : ''}
+
+      <div class="totals">
+        <div class="total-row"><span>Subtotal</span><b>${money(sale.subtotal)}</b></div>
+        ${discount}
+        <div class="total-row"><span>Medio de pago</span><b>${escapeHtml(payment)}</b></div>
+        <div class="total-row grand"><span>Total</span><strong>${money(sale.total)}</strong></div>
+      </div>
+
       <div class="footer">Gracias por tu compra · Smaky POS</div>
     </div>`, 390, target)
 }
