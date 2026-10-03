@@ -1,5 +1,5 @@
 import { Check, MapPin, Pencil, Phone, Plus, Search, Trash2, UserRound, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { getSessionUser } from '../lib/auth'
 import { createCustomer, deactivateCustomer, getCustomers, getOrderFields, updateCustomer } from '../lib/store'
 import type { Customer, OrderFieldConfig } from '../lib/types'
@@ -111,8 +111,9 @@ export function Customers() {
           {orderFields.filter(field => field.enabled).map((field, index) => {
             const value = field.system ? ({ name: form.name, phone: form.phone, address: form.address, notes: form.notes } as Record<string, string>)[field.id] || '' : form.customFields[field.id] || ''
             const setValue = (next: string) => setForm(current => field.system ? { ...current, [field.id]: next } : { ...current, customFields: { ...current.customFields, [field.id]: next } })
-            const wide = field.type === 'textarea' || field.id === 'address'
-            return <label className={wide ? 'customer-field-wide' : ''} key={field.id}><span>{field.label}{field.required ? ' · Obligatorio' : ''}</span>{field.type === 'textarea' ? <textarea autoFocus={index === 0} value={value} onChange={event => setValue(event.target.value)} placeholder={field.id === 'notes' ? 'Ej. Casa azul, toca el timbre…' : 'Escribe aquí…'}/> : <input autoFocus={index === 0} value={value} onChange={event => setValue(event.target.value)} placeholder={field.id === 'phone' ? '300 000 0000' : field.id === 'address' ? 'Dirección de entrega' : field.id === 'name' ? 'Nombre completo' : 'Escribe aquí…'} inputMode={field.id === 'phone' ? 'tel' : undefined}/>}</label>
+            const wide = field.type === 'textarea' || field.type === 'address' || field.id === 'address'
+            const commonProps = { autoFocus: index === 0, value, onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setValue(event.target.value) }
+            return <label className={wide ? 'customer-field-wide' : ''} key={field.id}><span>{field.label}{field.required ? ' · Obligatorio' : ''}</span>{field.type === 'textarea' ? <textarea {...commonProps} placeholder={field.id === 'notes' ? 'Ej. Casa azul, toca el timbre…' : 'Escribe aquí…'}/> : field.type === 'select' ? <select {...commonProps}><option value="">Selecciona una opción…</option>{(field.options || []).map(option => <option value={option} key={option}>{option}</option>)}</select> : <input {...commonProps} type={field.type === 'number' ? 'number' : field.type === 'phone' ? 'tel' : 'text'} placeholder={field.type === 'phone' ? '300 000 0000' : field.type === 'address' || field.id === 'address' ? 'Dirección de entrega' : field.id === 'name' ? 'Nombre completo' : 'Escribe aquí…'} inputMode={field.type === 'number' ? 'decimal' : field.type === 'phone' ? 'tel' : undefined}/>}</label>
           })}
           {error && <div className="customers-feedback error">{error}</div>}
         </div>

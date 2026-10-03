@@ -72,8 +72,8 @@ export const GENERAL_SETTINGS_KEY = 'generalSettings'
 
 export const DEFAULT_ORDER_FIELDS: import('./types').OrderFieldConfig[] = [
   { id: 'name', label: 'Nombre', type: 'text', enabled: true, required: true, system: true },
-  { id: 'phone', label: 'Celular', type: 'text', enabled: true, required: true, system: true },
-  { id: 'address', label: 'Dirección', type: 'text', enabled: true, required: false, system: true },
+  { id: 'phone', label: 'Número', type: 'phone', enabled: true, required: true, system: true },
+  { id: 'address', label: 'Dirección', type: 'address', enabled: true, required: false, system: true },
   { id: 'notes', label: 'Observaciones', type: 'textarea', enabled: true, required: false, system: true },
 ]
 
@@ -168,24 +168,40 @@ export async function getAllProducts() {
   return products.filter(product => !product.deletedAt).sort((a, b) => a.name.localeCompare(b.name, 'es'))
 }
 
+const ORDER_FIELD_TYPES: import('./types').OrderFieldType[] = ['text', 'textarea', 'number', 'phone', 'address', 'select']
+
+const normalizeOrderField = (field: Partial<import('./types').OrderFieldConfig>): import('./types').OrderFieldConfig => {
+  const id = String(field.id || '').trim()
+  const legacySystemType = id === 'phone' ? 'phone' : id === 'address' ? 'address' : id === 'notes' ? 'textarea' : 'text'
+  const type = field.system && ['name', 'phone', 'address', 'notes'].includes(id)
+    ? legacySystemType
+    : ORDER_FIELD_TYPES.includes(field.type as import('./types').OrderFieldType) ? field.type as import('./types').OrderFieldType : legacySystemType
+  const options = Array.isArray(field.options)
+    ? Array.from(new Set(field.options.map(value => String(value).trim()).filter(Boolean))).slice(0, 50)
+    : undefined
+  return {
+    id,
+    label: String(field.label || '').trim().replace(/\s+/g, ' '),
+    type,
+    enabled: Boolean(field.enabled),
+    required: Boolean(field.required),
+    ...(options?.length ? { options } : {}),
+    system: Boolean(field.system),
+  }
+}
+
 export async function getOrderFields(): Promise<import('./types').OrderFieldConfig[]> {
   const setting = await db.settings.get(ORDER_FIELDS_SETTING_KEY)
   const value = setting?.value
-  if (Array.isArray(value)) return value.map(item => ({ ...(item as import('./types').OrderFieldConfig) }))
-  return DEFAULT_ORDER_FIELDS.map(item => ({ ...item }))
+  const fields = Array.isArray(value) ? value.map(item => normalizeOrderField(item as import('./types').OrderFieldConfig)) : DEFAULT_ORDER_FIELDS.map(item => normalizeOrderField(item))
+  const ids = new Set(fields.map(field => field.id))
+  const requiredSystemFields = DEFAULT_ORDER_FIELDS.filter(field => field.system && !ids.has(field.id)).map(field => normalizeOrderField(field))
+  return [...requiredSystemFields, ...fields]
 }
 
 export async function updateOrderFields(fields: import('./types').OrderFieldConfig[], actor: User) {
   const normalized = fields
-    .map(field => ({
-      ...field,
-      id: String(field.id).trim(),
-      label: String(field.label).trim().replace(/\s+/g, ' '),
-      type: field.type === 'textarea' ? 'textarea' : 'text',
-      enabled: Boolean(field.enabled),
-      required: Boolean(field.required),
-      system: Boolean(field.system),
-    }))
+    .map(field => normalizeOrderField(field))
     .filter(field => field.id && field.label)
   const ids = new Set<string>()
   for (const field of normalized) {
@@ -195,6 +211,7 @@ export async function updateOrderFields(fields: import('./types').OrderFieldConf
       field.enabled = true
       field.required = true
     }
+    if (field.type === 'select' && (!field.options || field.options.length === 0)) throw new Error(`El campo “${field.label}” necesita al menos una opción.`)
     if (!field.enabled) field.required = false
   }
   const before = await getOrderFields()
@@ -549,6 +566,16 @@ export async function getOrders() {
 }
 
 export async function createOrder(items: Order['items'], delivery: DeliveryInfo, user: User, customerId?: string) {
+  const configuredFields = await getOrderFields()
+  if (customerId) {
+    const missing = configuredFields.filter(field => field.enabled && field.required).find(field => {
+      const value = field.system
+        ? ({ name: delivery.customerName, phone: delivery.phone, address: delivery.address, notes: delivery.notes } as Record<string, string | undefined>)[field.id]
+        : delivery.customFields?.[field.id]
+      return !String(value || '').trim()
+    })
+    if (missing) throw new Error(`Completa el campo “${missing.label}” antes de guardar el pedido.`)
+  }
   const now = new Date()
   const calendarKey = businessDayKey(now)
   const closure = await db.closures.where('dateKey').equals(calendarKey).first()

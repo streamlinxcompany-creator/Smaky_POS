@@ -25,27 +25,42 @@ export function Layout() {
   const [confirmLogout, setConfirmLogout] = useState(false)
 
   useEffect(() => {
-    let timer = 0
-    const getMinutes = (value: string) => { const [hours, minutes] = value.split(':').map(Number); return hours * 60 + minutes }
+    let mediaQuery: MediaQueryList | null = null
+    let mediaHandler: ((event: MediaQueryListEvent) => void) | null = null
+
+    const clearMediaListener = () => {
+      if (mediaQuery && mediaHandler) mediaQuery.removeEventListener?.('change', mediaHandler)
+      mediaQuery = null
+      mediaHandler = null
+    }
+
     const applyTheme = async () => {
       const settings = await getGeneralSettings()
-      const timeText = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date())
-      const [hour, minute] = timeText.split(':').map(Number)
-      const minutes = hour * 60 + minute
-      let next: 'light' | 'dark' = settings.themeMode === 'light' ? 'light' : 'dark'
-      if (settings.themeMode === 'auto') {
-        const darkFrom = getMinutes(settings.autoDarkFrom)
-        const lightFrom = getMinutes(settings.autoLightFrom)
-        const darkActive = darkFrom > lightFrom ? (minutes >= darkFrom || minutes < lightFrom) : minutes >= darkFrom && minutes < lightFrom
-        next = darkActive ? 'dark' : 'light'
+      clearMediaListener()
+      if (settings.themeMode === 'light') {
+        document.documentElement.dataset.theme = 'light'
+        return
       }
-      document.documentElement.dataset.theme = next
+      if (settings.themeMode === 'dark') {
+        document.documentElement.dataset.theme = 'dark'
+        return
+      }
+      mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+      const syncSystemTheme = () => {
+        if (mediaQuery) document.documentElement.dataset.theme = mediaQuery.matches ? 'dark' : 'light'
+      }
+      mediaHandler = syncSystemTheme
+      syncSystemTheme()
+      mediaQuery.addEventListener?.('change', mediaHandler)
     }
-    const schedule = () => { timer = window.setTimeout(async () => { await applyTheme(); schedule() }, 60_000) }
-    void applyTheme(); schedule()
+
     const onSettings = () => { void applyTheme() }
+    void applyTheme()
     window.addEventListener('smaky-settings-change', onSettings)
-    return () => { window.clearTimeout(timer); window.removeEventListener('smaky-settings-change', onSettings) }
+    return () => {
+      clearMediaListener()
+      window.removeEventListener('smaky-settings-change', onSettings)
+    }
   }, [])
 
   useEffect(() => {

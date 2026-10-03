@@ -11,7 +11,7 @@ export type PermissionKey =
 
 export type PaymentMethod = string
 
-export type OrderFieldType = 'text' | 'textarea'
+export type OrderFieldType = 'text' | 'textarea' | 'number' | 'phone' | 'address' | 'select'
 
 export type OrderFieldConfig = {
   id: string
@@ -19,6 +19,7 @@ export type OrderFieldConfig = {
   type: OrderFieldType
   enabled: boolean
   required: boolean
+  options?: string[]
   system?: boolean
 }
 

@@ -1,4 +1,4 @@
-import { Banknote, Check, ChevronRight, CreditCard, Pencil, Plus, Settings2, Tag, Trash2, WalletCards, Users as UsersIcon, Package, ClipboardList, Palette, Sun, Moon, Monitor, GripVertical } from 'lucide-react'
+import { Banknote, Check, ChevronRight, CreditCard, Pencil, Plus, Settings2, Tag, Trash2, WalletCards, Users as UsersIcon, Package, ClipboardList, Palette, Sun, Moon, Monitor, GripVertical, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { getSessionUser, hasPermission } from '../lib/auth'
 import { addPaymentMethod, addProductCategory, DEFAULT_GENERAL_SETTINGS, DEFAULT_ORDER_FIELDS, DEFAULT_PRODUCT_CATEGORIES, deletePaymentMethod, deleteProductCategory, getAllProducts, getGeneralSettings, getOrderFields, getPaymentMethods, getProductCategories, updateGeneralSettings, updateOrderFields, updatePaymentMethod, updateProductCategory } from '../lib/store'
@@ -35,6 +35,12 @@ export function Settings() {
   const [generalSettings, setGeneralSettings] = useState<GeneralSettings>(DEFAULT_GENERAL_SETTINGS)
   const [newFieldLabel, setNewFieldLabel] = useState('')
   const [newFieldType, setNewFieldType] = useState<OrderFieldType>('text')
+  const [newFieldOptions, setNewFieldOptions] = useState('')
+  const [editingOrderField, setEditingOrderField] = useState<OrderFieldConfig | null>(null)
+  const [editingFieldLabel, setEditingFieldLabel] = useState('')
+  const [editingFieldType, setEditingFieldType] = useState<OrderFieldType>('text')
+  const [editingFieldRequired, setEditingFieldRequired] = useState(false)
+  const [editingFieldOptions, setEditingFieldOptions] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -125,10 +131,30 @@ export function Settings() {
     catch (caught) { flashError(caught) } finally { setSaving(false) }
   }
 
-  const renameOrderField = async (field: OrderFieldConfig) => {
-    const label = window.prompt('Nombre que verá el cajero:', field.label)
-    if (!label?.trim() || label.trim() === field.label) return
-    await toggleOrderField(field, { label: label.trim() })
+  const openOrderFieldEditor = (field: OrderFieldConfig) => {
+    setEditingOrderField(field)
+    setEditingFieldLabel(field.label)
+    setEditingFieldType(field.type)
+    setEditingFieldRequired(field.required)
+    setEditingFieldOptions((field.options || []).join(', '))
+    clearFeedback()
+  }
+
+  const saveOrderFieldEditor = async () => {
+    if (!user || !editingOrderField || saving) return
+    const label = editingFieldLabel.trim()
+    if (!label) { flashError(new Error('El nombre del campo no puede estar vacío.')); return }
+    if (editingFieldType === 'select' && !editingFieldOptions.split(',').map(item => item.trim()).filter(Boolean).length) {
+      flashError(new Error('Agrega al menos una opción para el selector.')); return
+    }
+    setSaving(true); clearFeedback()
+    try {
+      const options = editingFieldType === 'select' ? Array.from(new Set(editingFieldOptions.split(',').map(item => item.trim()).filter(Boolean))) : undefined
+      const next = orderFields.map(item => item.id === editingOrderField.id ? { ...item, label, type: editingOrderField.system ? item.type : editingFieldType, required: editingFieldRequired, ...(options?.length ? { options } : { options: undefined }) } : item)
+      setOrderFields(await updateOrderFields(next, user))
+      setEditingOrderField(null)
+      setMessage('Campo de pedido actualizado.')
+    } catch (caught) { flashError(caught) } finally { setSaving(false) }
   }
 
   const addOrderField = async () => {
@@ -136,9 +162,11 @@ export function Settings() {
     setSaving(true); clearFeedback()
     try {
       const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-      const next = [...orderFields, { id, label: newFieldLabel.trim(), type: newFieldType, enabled: true, required: false, system: false }]
+      const options = newFieldType === 'select' ? Array.from(new Set(newFieldOptions.split(',').map(item => item.trim()).filter(Boolean))) : undefined
+      if (newFieldType === 'select' && !options?.length) throw new Error('Agrega las opciones del selector separadas por comas.')
+      const next: OrderFieldConfig[] = [...orderFields, { id, label: newFieldLabel.trim(), type: newFieldType, enabled: true, required: false, ...(options?.length ? { options } : {}), system: false }]
       setOrderFields(await updateOrderFields(next, user))
-      setNewFieldLabel(''); setNewFieldType('text'); setMessage('Campo personalizado agregado.')
+      setNewFieldLabel(''); setNewFieldType('text'); setNewFieldOptions(''); setMessage('Campo personalizado agregado.')
     } catch (caught) { flashError(caught) } finally { setSaving(false) }
   }
 
@@ -186,7 +214,7 @@ export function Settings() {
           <div className="settings-theme-grid">
             {([['dark','Oscuro',Moon],['light','Claro',Sun],['auto','Automático',Monitor]] as Array<[ThemeMode,string,LucideIcon]>).map(([mode,label,Icon]) => <button key={mode} className={`settings-theme-option ${generalSettings.themeMode === mode ? 'active' : ''}`} disabled={saving} onClick={() => void saveGeneral({ themeMode: mode })}><Icon size={17}/><span>{label}</span>{generalSettings.themeMode === mode && <Check size={14}/>}</button>)}
           </div>
-          {generalSettings.themeMode === 'auto' && <div className="settings-theme-times"><label><span>Oscuro desde</span><input type="time" value={generalSettings.autoDarkFrom} onChange={event => void saveGeneral({ autoDarkFrom: event.target.value })}/></label><label><span>Claro desde</span><input type="time" value={generalSettings.autoLightFrom} onChange={event => void saveGeneral({ autoLightFrom: event.target.value })}/></label><small>Smaky cambia automáticamente entre ambos modos según el horario configurado.</small></div>}
+          {generalSettings.themeMode === 'auto' && <div className="settings-theme-times settings-theme-auto-note"><Monitor size={16}/><small>Smaky seguirá automáticamente la preferencia de tema de Windows, macOS o Linux mediante <b>prefers-color-scheme</b>.</small></div>}
         </section>
         <section className="settings-list-card">
         <div className="settings-list-row settings-list-row-click" onClick={() => setSection('orders')}><div className="settings-row-icon"><ClipboardList size={16}/></div><div className="settings-row-copy"><b>Pedidos</b><span>{orderFields.filter(field => field.enabled).length} campos activos de información</span></div><ChevronRight size={15}/></div>
@@ -202,10 +230,27 @@ export function Settings() {
         <div className="settings-section-toolbar"><div><b>Información del pedido</b><span>Estos campos aparecen al registrar un cliente. Puedes crear tus propias preguntas.</span></div><div className="settings-counter-inline">{orderFields.filter(field => field.enabled).length}/{orderFields.length}</div></div>
         <div className="settings-orders-intro"><ClipboardList size={18}/><div><b>Campos de información</b><span>Nombre y celular son la base del cliente. Los demás pueden ajustarse según cómo trabaja el negocio.</span></div></div>
         <div className="settings-order-fields">{orderFields.map(field => <div className={`settings-order-field ${!field.enabled ? 'disabled' : ''}`} key={field.id}>
-          <div className="settings-order-drag"><GripVertical size={15}/></div><div className="settings-row-copy"><b>{field.label}</b><span>{field.system ? 'Campo del sistema' : 'Campo personalizado'} · {field.type === 'textarea' ? 'Respuesta larga' : 'Texto'}</span></div>
-          <div className="settings-order-controls"><button className="settings-action-btn" disabled={saving} onClick={() => void renameOrderField(field)} title="Cambiar nombre"><Pencil size={14}/></button><label className="settings-mini-check"><input type="checkbox" checked={field.required} disabled={saving || !field.enabled || (field.system && ['name','phone'].includes(field.id))} onChange={event => void toggleOrderField(field, { required: event.target.checked })}/><span>Oblig.</span></label><label className="settings-toggle"><input type="checkbox" checked={field.enabled} disabled={saving || (field.system && ['name','phone'].includes(field.id))} onChange={event => void toggleOrderField(field, { enabled: event.target.checked })}/><span></span></label><button className="settings-action-btn danger" disabled={saving || field.system} onClick={() => void removeOrderField(field)} title={field.system ? 'Campo del sistema' : 'Eliminar'}><Trash2 size={14}/></button></div>
+          <div className="settings-order-drag"><GripVertical size={15}/></div><div className="settings-row-copy"><b>{field.label}</b><span>{field.system ? 'Campo del sistema' : 'Campo personalizado'} · {field.type === 'textarea' ? 'Texto largo' : field.type === 'number' ? 'Número' : field.type === 'phone' ? 'Teléfono' : field.type === 'address' ? 'Dirección' : field.type === 'select' ? `Selector · ${(field.options || []).length} opciones` : 'Texto corto'}</span></div>
+          <div className="settings-order-controls"><button className="settings-action-btn" disabled={saving} onClick={() => openOrderFieldEditor(field)} title="Cambiar nombre"><Pencil size={14}/></button><label className="settings-mini-check"><input type="checkbox" checked={field.required} disabled={saving || !field.enabled || (field.system && ['name','phone'].includes(field.id))} onChange={event => void toggleOrderField(field, { required: event.target.checked })}/><span>Oblig.</span></label><label className="settings-toggle"><input type="checkbox" checked={field.enabled} disabled={saving || (field.system && ['name','phone'].includes(field.id))} onChange={event => void toggleOrderField(field, { enabled: event.target.checked })}/><span></span></label><button className="settings-action-btn danger" disabled={saving || field.system} onClick={() => void removeOrderField(field)} title={field.system ? 'Campo del sistema' : 'Eliminar'}><Trash2 size={14}/></button></div>
         </div>)}</div>
-        <div className="settings-custom-field-add"><div><b>Agregar una pregunta</b><span>Ejemplo: “¿Piso o apartamento?”, “¿Con qué salsa?” o cualquier dato que quieras pedir.</span></div><div className="settings-custom-field-form"><input value={newFieldLabel} onChange={event => setNewFieldLabel(event.target.value)} placeholder="Nombre del nuevo campo" maxLength={50}/><select value={newFieldType} onChange={event => setNewFieldType(event.target.value as OrderFieldType)}><option value="text">Texto corto</option><option value="textarea">Respuesta larga</option></select><button className="primary" disabled={saving || !newFieldLabel.trim()} onClick={() => void addOrderField()}><Plus size={14}/> Agregar campo</button></div></div>
+        <div className="settings-custom-field-add"><div><b>Agregar una pregunta</b><span>Ejemplo: “¿Piso o apartamento?”, “¿Con qué salsa?” o cualquier dato que quieras pedir.</span></div><div className="settings-custom-field-form"><input value={newFieldLabel} onChange={event => setNewFieldLabel(event.target.value)} placeholder="Nombre del nuevo campo" maxLength={50}/><select value={newFieldType} onChange={event => setNewFieldType(event.target.value as OrderFieldType)}><option value="text">Texto corto</option><option value="textarea">Texto largo</option><option value="number">Número</option><option value="phone">Teléfono</option><option value="address">Dirección</option><option value="select">Selector / lista</option></select><input value={newFieldOptions} onChange={event => setNewFieldOptions(event.target.value)} placeholder={newFieldType === 'select' ? 'Opciones: Casa, Apartamento, Oficina' : 'Opcional: opciones del selector'} disabled={newFieldType !== 'select'} maxLength={500}/><button className="primary" disabled={saving || !newFieldLabel.trim() || (newFieldType === 'select' && !newFieldOptions.trim())} onClick={() => void addOrderField()}><Plus size={14}/> Agregar campo</button></div></div>
+      </div>}
+
+      {editingOrderField && <div className="item-editor-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !saving) setEditingOrderField(null) }}>
+        <section className="item-editor-modal settings-field-editor" role="dialog" aria-modal="true" aria-labelledby="settings-field-editor-title">
+          <header className="item-editor-head">
+            <div><span className="item-editor-kicker">CAMPO DE PEDIDO</span><h3 id="settings-field-editor-title">Editar información</h3><p>Configura cómo se solicitará este dato en los nuevos pedidos.</p></div>
+            <button className="item-editor-close" onClick={() => setEditingOrderField(null)} aria-label="Cerrar"><X size={18}/></button>
+          </header>
+          <div className="item-editor-body settings-field-editor-body">
+            <label className="settings-field-editor-label"><span>Nombre / etiqueta</span><input value={editingFieldLabel} onChange={event => setEditingFieldLabel(event.target.value)} maxLength={50}/></label>
+            <label className="settings-field-editor-label"><span>Tipo de campo</span><select value={editingFieldType} disabled={editingOrderField.system} onChange={event => setEditingFieldType(event.target.value as OrderFieldType)}><option value="text">Texto corto</option><option value="textarea">Texto largo</option><option value="number">Número</option><option value="phone">Teléfono</option><option value="address">Dirección</option><option value="select">Selector / lista</option></select></label>
+            {editingFieldType === 'select' && <label className="settings-field-editor-label"><span>Opciones</span><input value={editingFieldOptions} onChange={event => setEditingFieldOptions(event.target.value)} placeholder="Casa, Apartamento, Oficina"/><small>Sepáralas con comas.</small></label>}
+            <label className="settings-field-editor-required"><input type="checkbox" checked={editingFieldRequired} disabled={editingOrderField.system && ['name','phone'].includes(editingOrderField.id)} onChange={event => setEditingFieldRequired(event.target.checked)}/><span>Solicitar este campo como obligatorio</span></label>
+            {editingOrderField.system && <div className="settings-field-editor-note">Los campos base del sistema conservan su estructura para mantener compatibilidad con pedidos históricos.</div>}
+          </div>
+          <footer className="item-editor-footer"><button className="secondary" disabled={saving} onClick={() => setEditingOrderField(null)}>Cancelar</button><button className="primary" disabled={saving} onClick={() => void saveOrderFieldEditor()}>{saving ? 'Guardando…' : <><Check size={15}/> Guardar campo</>}</button></footer>
+        </section>
       </div>}
 
       {activeSection === 'payments' && <div className="settings-list-card">
