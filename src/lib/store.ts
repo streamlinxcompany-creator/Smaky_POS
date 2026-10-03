@@ -97,7 +97,7 @@ const seedManager: User = {
   pin: '1234',
   rank: 'Gerente General',
   active: true,
-  permissions: ['dashboard.view','pos.access','customers.manage','sales.view','sales.delete','products.manage','reports.view','cashClosing.access']
+  permissions: ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access']
 }
 
 export async function seed() {
@@ -123,10 +123,10 @@ export async function seed() {
   if (!(await db.users.get(seedManager.id))) await db.users.add(seedManager)
 
   const currentUsers = await db.users.toArray()
-  const allPermissionKeys: PermissionKey[] = ['dashboard.view','pos.access','customers.manage','sales.view','sales.delete','products.manage','reports.view','cashClosing.access']
+  const allPermissionKeys: PermissionKey[] = ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access']
   for (const user of currentUsers) {
     const permissions = user.permissions?.length
-      ? Array.from(new Set([...user.permissions, 'customers.manage' as PermissionKey]))
+      ? Array.from(new Set([...user.permissions, 'customers.manage' as PermissionKey, ...(user.role === 'admin' ? ['customers.export' as PermissionKey] : [])]))
       : user.role === 'employee'
         ? ['dashboard.view','pos.access','customers.manage','sales.view','cashClosing.access'] as PermissionKey[]
         : allPermissionKeys
@@ -770,7 +770,7 @@ export async function updateUserSettings(targetId: string, changes: Partial<User
   if (typeof changes.name === 'string' && changes.name.trim().length >= 2) safeChanges.name = changes.name.trim()
   if (typeof changes.pin === 'string' && /^\d{4}$/.test(changes.pin)) safeChanges.pin = changes.pin
   if (typeof changes.rank === 'string' && changes.rank.trim().length >= 2) safeChanges.rank = changes.rank.trim()
-  if (actor.role === 'manager' && Array.isArray(changes.permissions)) safeChanges.permissions = Array.from(new Set([...changes.permissions.filter((key): key is PermissionKey => ['dashboard.view','pos.access','customers.manage','sales.view','sales.delete','products.manage','reports.view','cashClosing.access'].includes(key)), 'pos.access'])) as PermissionKey[]
+  if (actor.role === 'manager' && Array.isArray(changes.permissions)) safeChanges.permissions = Array.from(new Set([...changes.permissions.filter((key): key is PermissionKey => ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access'].includes(key)), 'pos.access'])) as PermissionKey[]
 
   const wantsRoleChange = changes.role !== undefined && changes.role !== target.role
   const wantsActiveChange = changes.active !== undefined && changes.active !== target.active

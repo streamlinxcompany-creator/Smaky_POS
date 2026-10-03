@@ -2,6 +2,7 @@ export type Role = 'manager' | 'admin' | 'employee'
 export type PermissionKey =
   | 'dashboard.view'
   | 'customers.manage'
+  | 'customers.export'
   | 'pos.access'
   | 'sales.view'
   | 'sales.delete'

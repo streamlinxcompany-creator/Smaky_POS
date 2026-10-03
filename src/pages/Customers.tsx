@@ -1,6 +1,6 @@
 import { Check, ChevronLeft, ChevronRight, Download, MapPin, Pencil, Phone, Plus, Search, Trash2, UserRound, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
-import { getSessionUser } from '../lib/auth'
+import { getSessionUser, hasPermission } from '../lib/auth'
 import { createCustomer, deactivateCustomer, getCustomers, getOrderFields, updateCustomer } from '../lib/store'
 import type { Customer, OrderFieldConfig } from '../lib/types'
 
@@ -21,6 +21,7 @@ export function Customers() {
   const [currentPage, setCurrentPage] = useState(1)
 
   const CUSTOMERS_PER_PAGE = 25
+  const canExportCustomers = hasPermission(user, 'customers.export')
 
   const load = async () => setCustomers(await getCustomers())
   useEffect(() => { void load() }, [])
@@ -43,7 +44,7 @@ export function Customers() {
   }, [currentPage, totalPages])
 
   const exportCustomers = () => {
-    if (!customers.length) return
+    if (!canExportCustomers || !customers.length) return
 
     const customFieldIds = orderFields.filter(field => !field.system).map(field => field.id)
     const customFieldLabels = new Map(orderFields.filter(field => !field.system).map(field => [field.id, field.label]))
@@ -133,7 +134,7 @@ export function Customers() {
   return <div className="customers-page">
     <header className="page-heading compact customers-heading">
       <div><p className="eyebrow">CLIENTES</p><h1>Clientes</h1><p className="muted">Busca por celular, selecciona un cliente y reutiliza sus datos al registrar pedidos.</p></div>
-      <div className="customers-heading-actions"><button className="secondary" onClick={exportCustomers} disabled={!customers.length} title="Exportar todos los clientes a CSV compatible con Excel"><Download size={16}/> Exportar</button><button className="primary-inline" onClick={openCreate}><Plus size={16}/> Nuevo cliente</button></div>
+      <div className="customers-heading-actions">{canExportCustomers && <button className="secondary" onClick={exportCustomers} disabled={!customers.length} title="Exportar todos los clientes a CSV compatible con Excel"><Download size={16}/> Exportar</button>}<button className="primary-inline" onClick={openCreate}><Plus size={16}/> Nuevo cliente</button></div>
     </header>
 
     {(error || message) && <div className={`customers-feedback ${error ? 'error' : 'success'}`}>{error || message}<button onClick={() => { setError(''); setMessage('') }} aria-label="Cerrar">×</button></div>}

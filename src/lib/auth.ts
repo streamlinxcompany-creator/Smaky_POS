@@ -6,6 +6,7 @@ export const PERMISSION_DEFINITIONS: Array<{ key: PermissionKey; label: string; 
   { key: 'dashboard.view', label: 'Inicio', description: 'Ver el resumen y actividad del negocio.', group: 'Navegación' },
   { key: 'pos.access', label: 'Punto de venta', description: 'Registrar pedidos y realizar cobros.', group: 'Navegación' },
   { key: 'customers.manage', label: 'Clientes', description: 'Crear, buscar y administrar clientes.', group: 'Navegación' },
+  { key: 'customers.export', label: 'Exportar clientes', description: 'Exportar la base completa de clientes a un archivo compatible con Excel.', group: 'Clientes' },
   { key: 'sales.view', label: 'Ver ventas', description: 'Consultar facturas y ventas registradas.', group: 'Ventas' },
   { key: 'sales.delete', label: 'Eliminar facturas', description: 'Eliminar ventas del historial con confirmación.', group: 'Ventas' },
   { key: 'products.manage', label: 'Productos', description: 'Crear, editar y administrar productos.', group: 'Catálogo' },
