@@ -59,6 +59,7 @@ export type Product = {
   category: string
   price: number
   active: boolean
+  updatedAt?: string
   /** Registro retirado de la operación; sólo StreamLinx lo consulta. */
   deletedAt?: string
   deletedBy?: string
@@ -126,6 +127,7 @@ export type Sale = DeliveryInfo & {
   orderNumber?: number
   deletedAt?: string
   deletedBy?: string
+  updatedAt?: string
 }
 
 export type CashClosure = {
@@ -150,6 +152,7 @@ export type CashClosure = {
   nextDateKey: string
   deletedAt?: string
   deletedBy?: string
+  updatedAt?: string
 }
 
 export type User = {
@@ -162,6 +165,9 @@ export type User = {
   permissions?: PermissionKey[]
   deletedAt?: string
   deletedBy?: string
+  authEmail?: string
+  legacyId?: string
+  updatedAt?: string
 }
 
 export type AuditEvent = {

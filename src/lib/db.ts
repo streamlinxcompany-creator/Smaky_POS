@@ -15,26 +15,26 @@ class SmakyDB extends Dexie {
   constructor() {
     super('smaky-pos-db')
     this.version(1).stores({ sales: 'id, createdAt, payment, userId', products: 'id, category, active' })
-    this.version(2).stores({ sales: 'id, createdAt, payment, userId', products: 'id, category, active', users: 'id, name, role, active' })
+    this.version(2).stores({ sales: 'id, createdAt, payment, userId', products: 'id, category, active', users: 'id, name, role, active, deletedAt' })
     this.version(3).stores({
       sales: 'id, createdAt, payment, userId, orderId, orderNumber',
       orders: 'id, createdAt, updatedAt, orderNumber, status, userId',
       products: 'id, category, active',
-      users: 'id, name, role, active'
+      users: 'id, name, role, active, deletedAt'
     })
     this.version(4).stores({
       sales: 'id, createdAt, payment, userId, orderId, orderNumber',
       orders: 'id, createdAt, updatedAt, orderNumber, status, userId',
       products: 'id, category, active',
-      users: 'id, name, role, active',
-      closures: 'id, dateKey, closedAt, userId'
+      users: 'id, name, role, active, deletedAt',
+      closures: 'id, dateKey, closedAt, userId, deletedAt'
     })
     this.version(5).stores({
       sales: 'id, createdAt, businessDateKey, payment, userId, orderId, orderNumber',
       orders: 'id, createdAt, businessDateKey, updatedAt, orderNumber, status, userId',
       products: 'id, category, active',
-      users: 'id, name, role, active',
-      closures: 'id, dateKey, closedAt, userId'
+      users: 'id, name, role, active, deletedAt',
+      closures: 'id, dateKey, closedAt, userId, deletedAt'
     })
     this.version(6).stores({
       sales: 'id, createdAt, businessDateKey, payment, userId, orderId, orderNumber, deletedAt',
@@ -81,7 +81,39 @@ class SmakyDB extends Dexie {
       settings: 'id, key, updatedAt',
       customers: 'id, phone, name, active, updatedAt'
     })
+    this.version(10).stores({
+      sales: 'id, createdAt, businessDateKey, payment, userId, orderId, orderNumber, deletedAt, updatedAt',
+      orders: 'id, createdAt, businessDateKey, updatedAt, orderNumber, status, userId, deletedAt',
+      products: 'id, category, active, deletedAt, updatedAt',
+      users: 'id, name, role, active, deletedAt, updatedAt',
+      closures: 'id, dateKey, closedAt, userId, deletedAt, updatedAt',
+      auditEvents: 'id, timestamp, actorId, module, action, recordType, recordId',
+      historyRecords: 'id, entity, recordId, capturedAt, eventId, [entity+recordId]',
+      backups: 'id, createdAt, kind',
+      settings: 'id, key, updatedAt',
+      customers: 'id, phone, name, active, updatedAt'
+    })
   }
 }
 
 export const db = new SmakyDB()
+
+
+type DbMutationListener = () => void
+let mutationListener: DbMutationListener | null = null
+let applyingRemoteSync = false
+
+export function setDbMutationListener(listener: DbMutationListener | null) {
+  mutationListener = listener
+}
+
+export function setDbSyncApplying(value: boolean) {
+  applyingRemoteSync = value
+}
+
+const mutationTables = [db.sales, db.orders, db.products, db.users, db.closures, db.auditEvents, db.historyRecords, db.settings, db.customers]
+for (const table of mutationTables) {
+  table.hook('creating').subscribe(() => { if (!applyingRemoteSync) mutationListener?.() })
+  table.hook('updating').subscribe(() => { if (!applyingRemoteSync) mutationListener?.() })
+  table.hook('deleting').subscribe(() => { if (!applyingRemoteSync) mutationListener?.() })
+}

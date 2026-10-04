@@ -1,6 +1,6 @@
 import { db } from './db'
 import { products as seedProducts } from './demoData'
-import { getSessionUser, hasPermission, setSessionUser } from './auth'
+import { createRemoteWorker, deleteRemoteUser, getLoginProfiles, getSessionUser, hasPermission, setSessionUser, updateRemoteUser } from './auth'
 import type { AuditEvent, BackupSnapshot, CashClosure, Customer, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
 
 type Auditable = Record<string, unknown>
@@ -59,6 +59,7 @@ export async function restoreArchivedRecord(entity: string, recordId: string, ac
   if (!record?.deletedAt) return false
   const before = { ...record }
   const after = { ...record }; delete after.deletedAt; delete after.deletedBy
+  if ('updatedAt' in after) (after as Record<string, unknown>).updatedAt = new Date().toISOString()
   await table.put(after as never)
   await audit(`${entity.toUpperCase()}_RESTORED`, 'RECOVERY', entity, recordId, before, after, actor)
   return true
@@ -97,7 +98,10 @@ const seedManager: User = {
   pin: '1234',
   rank: 'Gerente General',
   active: true,
-  permissions: ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access']
+  permissions: ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access'],
+  authEmail: 'u-owner@smaky.local',
+  legacyId: 'u-owner',
+  updatedAt: '2026-01-01T00:00:00.000Z'
 }
 
 export async function seed() {
@@ -130,7 +134,7 @@ export async function seed() {
       : user.role === 'employee'
         ? ['dashboard.view','pos.access','customers.manage','sales.view','cashClosing.access'] as PermissionKey[]
         : allPermissionKeys
-    await db.users.update(user.id, { permissions })
+    await db.users.update(user.id, { permissions, ...(user.updatedAt ? {} : { updatedAt: new Date().toISOString() }) })
     const sessionUser = getSessionUser()
     if (sessionUser?.id === user.id) setSessionUser({ ...user, permissions })
   }
@@ -368,9 +372,10 @@ export async function deletePaymentMethod(id: string, actor: User) {
 
 export async function saveProduct(product: Product) {
   const previous = await db.products.get(product.id)
-  await db.products.put(product)
-  await audit(previous ? 'PRODUCT_UPDATED' : 'PRODUCT_CREATED', 'PRODUCTS', 'product', product.id, previous, product)
-  return product
+  const nextProduct: Product = { ...product, updatedAt: new Date().toISOString() }
+  await db.products.put(nextProduct)
+  await audit(previous ? 'PRODUCT_UPDATED' : 'PRODUCT_CREATED', 'PRODUCTS', 'product', product.id, previous, nextProduct)
+  return nextProduct
 }
 
 export async function getSales() {
@@ -379,9 +384,10 @@ export async function getSales() {
 }
 
 export async function addSale(sale: Sale) {
-  await db.sales.add(sale)
-  await audit('INVOICE_CREATED', 'SALES', 'sale', sale.id, null, sale)
-  return sale
+  const nextSale: Sale = { ...sale, updatedAt: new Date().toISOString() }
+  await db.sales.add(nextSale)
+  await audit('INVOICE_CREATED', 'SALES', 'sale', nextSale.id, null, nextSale)
+  return nextSale
 }
 
 const businessDayKey = (iso: string | Date) => new Intl.DateTimeFormat('en-CA', {
@@ -411,7 +417,7 @@ export async function getClosures() {
 }
 
 export async function resetTestData(actor: User) {
-  const result = await db.transaction('rw', db.sales, db.orders, db.closures, db.users, async () => {
+  const result: false | { now: string; sales: number; orders: number; closures: number } = await db.transaction('rw', db.sales, db.orders, db.closures, db.users, async () => {
     const freshActor = await db.users.get(actor.id)
     if (!freshActor?.active || freshActor.role !== 'manager') return false
 
@@ -442,7 +448,7 @@ export async function deletePreviousDayClosure(closureId: string, actor: User) {
     const closure = await db.closures.get(closureId)
     if (!closure || closure.dateKey !== yesterdayKey) return false
 
-    const after = { ...closure, deletedAt: new Date().toISOString(), deletedBy: actor.id }
+    const after = { ...closure, deletedAt: new Date().toISOString(), deletedBy: actor.id, updatedAt: new Date().toISOString() }
     await db.closures.put(after)
     await audit('CASH_CLOSE_DELETED', 'CASH', 'closure', closureId, closure, after, actor)
     return true
@@ -688,7 +694,8 @@ export async function completeOrder(orderId: string, payment: PaymentMethod, act
       discountType: discount && safeDiscountValue > 0 ? discount.type : undefined,
       discountValue: discount && safeDiscountValue > 0 ? safeDiscountValue : undefined,
       discountAmount: discountAmount > 0 ? discountAmount : undefined,
-      businessDateKey
+      businessDateKey,
+      updatedAt: new Date().toISOString()
     }
 
     await db.sales.add(sale)
@@ -704,7 +711,7 @@ export async function deleteSale(targetId: string, actorId: string) {
   if (!actor || !actor.active || !hasPermission(actor, 'sales.delete')) return false
   const sale = await db.sales.get(targetId)
   if (!sale) return false
-  const after = { ...sale, deletedAt: new Date().toISOString(), deletedBy: actor.id }
+  const after = { ...sale, deletedAt: new Date().toISOString(), deletedBy: actor.id, updatedAt: new Date().toISOString() }
   await db.sales.put(after)
   await audit('INVOICE_DELETED', 'SALES', 'sale', targetId, sale, after, actor)
   return true
@@ -715,7 +722,7 @@ export async function deleteProduct(targetId: string, actorId: string) {
   if (!actor || !actor.active || !hasPermission(actor, 'products.manage')) return false
   const product = await db.products.get(targetId)
   if (!product) return false
-  const after = { ...product, deletedAt: new Date().toISOString(), deletedBy: actor.id }
+  const after = { ...product, deletedAt: new Date().toISOString(), deletedBy: actor.id, updatedAt: new Date().toISOString() }
   await db.products.put(after)
   await audit('PRODUCT_DELETED', 'PRODUCTS', 'product', targetId, product, after, actor)
   return true
@@ -726,7 +733,7 @@ export async function deleteOrder(targetId: string, actorId: string) {
   if (!actor || !actor.active || actor.role !== 'manager') return false
   const order = await db.orders.get(targetId)
   if (!order || order.status === 'paid') return false
-  const after = { ...order, deletedAt: new Date().toISOString(), deletedBy: actor.id }
+  const after = { ...order, deletedAt: new Date().toISOString(), deletedBy: actor.id, updatedAt: new Date().toISOString() }
   await db.orders.put(after)
   await audit('ORDER_DELETED', 'ORDERS', 'order', targetId, order, after, actor)
   return true
@@ -739,24 +746,62 @@ export async function replaceProducts(products: Product[]) {
 
 export async function getUsers() {
   const users = await db.users.toArray()
-  return users.filter(user => !user.deletedAt).sort((a, b) => {
+  const visible = users.filter(user => !user.deletedAt).sort((a, b) => {
+    const roleOrder: Record<Role, number> = { manager: 0, admin: 1, employee: 2 }
+    return roleOrder[a.role] - roleOrder[b.role] || a.name.localeCompare(b.name, 'es')
+  })
+
+  const loginProfiles = await getLoginProfiles(false)
+  if (!loginProfiles.length) return visible
+
+  const byId = new Map(visible.map(user => [user.id, user]))
+  const byLegacy = new Map(visible.filter(user => user.legacyId).map(user => [user.legacyId!, user]))
+  const consumedLocalIds = new Set<string>()
+  const merged: User[] = []
+  for (const profile of loginProfiles) {
+    const local = byId.get(profile.id) || (profile.legacyId ? byLegacy.get(profile.legacyId) : undefined)
+    if (local && local.id !== profile.id) consumedLocalIds.add(local.id)
+    const next: User = {
+      ...(local || { id: profile.id, pin: '' }),
+      id: profile.id,
+      legacyId: profile.legacyId || local?.legacyId,
+      authEmail: profile.authEmail,
+      name: profile.name,
+      role: profile.role,
+      rank: profile.rank,
+      active: profile.active,
+      pin: local?.pin || '',
+      permissions: local?.permissions,
+      updatedAt: local?.updatedAt,
+    }
+    merged.push(next)
+  }
+  const remoteIds = new Set(merged.map(user => user.id))
+  return [...merged, ...visible.filter(user => !remoteIds.has(user.id) && !consumedLocalIds.has(user.id))].sort((a, b) => {
     const roleOrder: Record<Role, number> = { manager: 0, admin: 1, employee: 2 }
     return roleOrder[a.role] - roleOrder[b.role] || a.name.localeCompare(b.name, 'es')
   })
 }
 
 export async function createWorker(name: string, pin: string, rank: string) {
+  const legacyId = crypto.randomUUID()
+  let remote: Awaited<ReturnType<typeof createRemoteWorker>> = null
+  if (navigator.onLine) remote = await createRemoteWorker(name.trim(), pin, rank.trim())
+
   const user: User = {
-    id: crypto.randomUUID(),
-    name: name.trim(),
-    role: 'employee',
+    id: remote?.id || legacyId,
+    legacyId,
+    authEmail: remote?.authEmail || `${legacyId}@smaky.local`,
+    name: remote?.name || name.trim(),
+    role: remote?.role || 'employee',
     pin,
-    rank: rank.trim(),
-    active: true,
-    permissions: ['dashboard.view','pos.access','sales.view','cashClosing.access']
+    rank: remote?.rank || rank.trim(),
+    active: remote?.active ?? true,
+    permissions: remote?.permissions || ['dashboard.view','pos.access','sales.view','cashClosing.access'],
+    updatedAt: new Date().toISOString()
   }
-  await db.users.add(user)
-  await audit('USER_CREATED', 'USERS', 'user', user.id, null, user)
+  await db.users.put(user)
+  await audit('USER_CREATED', 'USERS', 'user', user.id, null, { ...user, pin: undefined })
   return user
 }
 
@@ -794,9 +839,25 @@ export async function updateUserSettings(targetId: string, changes: Partial<User
   if (wantsActiveChange) safeChanges.active = changes.active
 
   if (Object.keys(safeChanges).length) {
-    const after = { ...target, ...safeChanges }
+    let remote: Awaited<ReturnType<typeof updateRemoteUser>> = null
+    if (navigator.onLine) remote = await updateRemoteUser(targetId, safeChanges)
+
+    const after: User = {
+      ...target,
+      ...(remote ? {
+        id: remote.id,
+        authEmail: remote.authEmail,
+        legacyId: remote.legacyId || target.legacyId,
+        name: remote.name,
+        role: remote.role,
+        rank: remote.rank,
+        active: remote.active,
+        permissions: remote.permissions,
+      } : safeChanges),
+      updatedAt: new Date().toISOString()
+    }
     await db.users.put(after)
-    await audit(wantsActiveChange && changes.active === false ? 'USER_DISABLED' : 'USER_UPDATED', 'USERS', 'user', targetId, target, after, actor)
+    await audit(wantsActiveChange && changes.active === false ? 'USER_DISABLED' : 'USER_UPDATED', 'USERS', 'user', targetId, target, { ...after, pin: undefined }, actor)
   }
   return db.users.get(targetId)
 }
@@ -807,8 +868,9 @@ export async function deleteUserProfile(targetId: string, actorId: string) {
   if (target.id === actor.id || target.role === 'manager') return false
   if (target.role === 'admin' && actor.role !== 'manager') return false
   if (target.role === 'employee' && !['manager', 'admin'].includes(actor.role)) return false
-  const after = { ...target, deletedAt: new Date().toISOString(), deletedBy: actor.id, active: false }
+  if (navigator.onLine) await deleteRemoteUser(targetId)
+  const after = { ...target, deletedAt: new Date().toISOString(), deletedBy: actor.id, active: false, updatedAt: new Date().toISOString() }
   await db.users.put(after)
-  await audit('USER_DELETED', 'USERS', 'user', targetId, target, after, actor)
+  await audit('USER_DELETED', 'USERS', 'user', targetId, { ...target, pin: undefined }, { ...after, pin: undefined }, actor)
   return true
 }

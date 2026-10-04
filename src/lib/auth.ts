@@ -1,6 +1,12 @@
 import type { PermissionKey, Role, User } from './types'
+import { db } from './db'
+import { supabase, supabaseConfigured } from './supabase'
+import { syncAfterLogin } from './sync'
 
 const SESSION_KEY = 'smaky-session'
+const DEFAULT_MANAGER_LEGACY_ID = 'u-owner'
+const AUTH_DOMAIN = 'smaky.local'
+const authPasswordFromPin = (pin: string) => `SmakyPOS#${pin}`
 
 export const PERMISSION_DEFINITIONS: Array<{ key: PermissionKey; label: string; description: string; group: string }> = [
   { key: 'dashboard.view', label: 'Inicio', description: 'Ver el resumen y actividad del negocio.', group: 'Navegación' },
@@ -26,7 +32,6 @@ export function getUserPermissions(user: User): PermissionKey[] {
   if (user.role === 'manager') return [...ALL_PERMISSION_KEYS]
   const stored = Array.isArray(user.permissions) ? user.permissions : defaultPermissionsForRole(user.role)
   const clean = stored.filter((key): key is PermissionKey => ALL_PERMISSION_KEYS.includes(key))
-  // El POS nunca puede quedar bloqueado: es la base operativa del sistema.
   return Array.from(new Set([...clean, 'pos.access']))
 }
 
@@ -52,7 +57,188 @@ export function setSessionUser(user: User) {
 
 export function clearSession() {
   localStorage.removeItem(SESSION_KEY)
+  if (supabase) void supabase.auth.signOut()
   window.dispatchEvent(new Event('smaky-auth-change'))
+}
+
+export async function validateRemoteSession() {
+  const local = getSessionUser()
+  if (!local || !supabaseConfigured || !supabase || !navigator.onLine) return
+  try {
+    const { data } = await supabase.auth.getSession()
+    if (!data.session) clearSession()
+  } catch {
+    // Si Supabase no responde, mantenemos el modo offline local.
+  }
+}
+
+export type LoginProfile = {
+  id: string
+  name: string
+  role: Role
+  rank: string
+  active: boolean
+  authEmail: string
+  legacyId?: string
+}
+
+export async function getLoginProfiles(activeOnly = true): Promise<LoginProfile[]> {
+  if (!supabaseConfigured || !supabase || !navigator.onLine) return []
+  const { data, error } = await supabase.from('pos_login_profiles').select('id, name, role, rank, active, auth_email, legacy_id').order('name')
+  if (error) {
+    console.warn('Smaky login profiles:', error)
+    return []
+  }
+  return ((data || []) as Record<string, unknown>[]).map(row => ({
+    id: String(row.id),
+    name: String(row.name || 'Usuario'),
+    role: (String(row.role || 'employee') as Role),
+    rank: String(row.rank || 'Trabajador'),
+    active: Boolean(row.active),
+    authEmail: String(row.auth_email || ''),
+    legacyId: row.legacy_id ? String(row.legacy_id) : undefined,
+  })).filter(item => item.authEmail && (!activeOnly || item.active))
+}
+
+function localLogin(user: User, pin: string): { user: User | null; error?: string } {
+  if (!user.active) return { user: null, error: 'Este perfil está desactivado.' }
+  if (pin !== user.pin) return { user: null, error: 'PIN incorrecto.' }
+  setSessionUser(user)
+  return { user }
+}
+
+function isNetworkError(error: { message?: string; status?: number } | null | undefined) {
+  if (!error) return false
+  const message = String(error.message || '').toLowerCase()
+  return !error.status || /fetch|network|failed to fetch|load failed|timeout|offline/.test(message)
+}
+
+export async function signInWithPin(user: User, pin: string): Promise<{ user: User | null; error?: string }> {
+  const localResult = () => localLogin(user, pin)
+  if (!user.active) return { user: null, error: 'Este perfil está desactivado.' }
+  if (!supabaseConfigured || !supabase || !navigator.onLine || !user.authEmail) return localResult()
+
+  const { data, error } = await supabase.auth.signInWithPassword({ email: user.authEmail, password: authPasswordFromPin(pin) })
+  if (error || !data.user) {
+    if (isNetworkError(error)) return localResult()
+    return { user: null, error: 'PIN incorrecto o cuenta no disponible.' }
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('id, name, role, rank, active, permissions, auth_email, legacy_id, updated_at')
+    .eq('id', data.user.id)
+    .maybeSingle()
+
+  if (profileError || !profile) {
+    await supabase.auth.signOut()
+    return { user: null, error: 'La cuenta existe, pero no tiene un perfil Smaky POS configurado.' }
+  }
+
+  if (!profile.active) {
+    await supabase.auth.signOut()
+    return { user: null, error: 'Este perfil está desactivado.' }
+  }
+
+  const permissions = Array.isArray(profile.permissions) ? profile.permissions as PermissionKey[] : getUserPermissions(user)
+  const currentLocal = (await db.users.get(user.id)) || (await db.users.get(data.user.id))
+  const legacyId = String(profile?.legacy_id || user.legacyId || user.id || DEFAULT_MANAGER_LEGACY_ID)
+  const normalized: User = {
+    ...(currentLocal || user),
+    id: data.user.id,
+    legacyId,
+    authEmail: String(profile?.auth_email || user.authEmail || `${legacyId}@${AUTH_DOMAIN}`),
+    name: String(profile?.name || user.name),
+    role: (String(profile?.role || user.role) as Role),
+    rank: String(profile?.rank || user.rank || 'Trabajador'),
+    active: profile?.active !== false,
+    permissions,
+    pin,
+    updatedAt: String(profile?.updated_at || new Date().toISOString()),
+  }
+  if (currentLocal && currentLocal.id !== normalized.id) await db.users.delete(currentLocal.id)
+  await db.users.put(normalized)
+  setSessionUser(normalized)
+  await migrateLocalUsersToSupabase()
+  await syncAfterLogin()
+  return { user: normalized }
+}
+
+export async function provisionRemoteUser(user: User) {
+  if (!supabaseConfigured || !supabase || !navigator.onLine) return null
+  if (user.role === 'manager') return null
+  if (!/^\d{4}$/.test(user.pin)) return null
+  const legacyId = user.legacyId || user.id
+  const { data, error } = await supabase.functions.invoke('admin-users', {
+    body: {
+      action: 'provision',
+      legacyId,
+      name: user.name,
+      pin: user.pin,
+      rank: user.rank,
+      role: user.role,
+      permissions: user.permissions || defaultPermissionsForRole(user.role),
+    },
+  })
+  if (error) throw new Error(error.message || 'No fue posible migrar el usuario a Supabase.')
+  return data as { id: string; name: string; role: Role; rank: string; active: boolean; permissions: PermissionKey[]; authEmail: string; legacyId?: string }
+}
+
+export async function migrateLocalUsersToSupabase() {
+  if (!supabaseConfigured || !supabase || !navigator.onLine) return
+  const actor = getSessionUser()
+  if (!actor || actor.role !== 'manager' || !actor.active) return
+  const locals = await db.users.toArray()
+  for (const user of locals) {
+    if (user.deletedAt || user.role === 'manager' || user.authEmail) continue
+    try {
+      const remote = await provisionRemoteUser(user)
+      if (!remote) continue
+      const migrated: User = {
+        ...user,
+        id: remote.id,
+        legacyId: remote.legacyId || user.legacyId || user.id,
+        authEmail: remote.authEmail,
+        name: remote.name,
+        role: remote.role,
+        rank: remote.rank,
+        active: remote.active,
+        permissions: remote.permissions,
+        updatedAt: new Date().toISOString(),
+      }
+      await db.users.delete(user.id)
+      await db.users.put(migrated)
+    } catch (error) {
+      console.warn('Smaky: no se pudo migrar un usuario local todavía.', error)
+    }
+  }
+}
+
+export async function createRemoteWorker(name: string, pin: string, rank: string) {
+  if (!supabaseConfigured || !supabase || !navigator.onLine) return null
+  const { data, error } = await supabase.functions.invoke('admin-users', {
+    body: { action: 'create', name, pin, rank, role: 'employee' },
+  })
+  if (error) throw new Error(error.message || 'No fue posible crear la cuenta remota.')
+  return data as { id: string; name: string; role: Role; rank: string; active: boolean; permissions: PermissionKey[]; authEmail: string; legacyId?: string }
+}
+
+export async function updateRemoteUser(targetId: string, changes: Partial<User>) {
+  if (!supabaseConfigured || !supabase || !navigator.onLine) return null
+  const { data, error } = await supabase.functions.invoke('admin-users', {
+    body: { action: 'update', targetId, changes },
+  })
+  if (error) throw new Error(error.message || 'No fue posible actualizar la cuenta remota.')
+  return data as { id: string; name: string; role: Role; rank: string; active: boolean; permissions: PermissionKey[]; authEmail: string; legacyId?: string }
+}
+
+export async function deleteRemoteUser(targetId: string) {
+  if (!supabaseConfigured || !supabase || !navigator.onLine) return false
+  const { data, error } = await supabase.functions.invoke('admin-users', {
+    body: { action: 'delete', targetId },
+  })
+  if (error) throw new Error(error.message || 'No fue posible eliminar la cuenta remota.')
+  return Boolean((data as { ok?: boolean } | null)?.ok)
 }
 
 export function initials(name: string) {

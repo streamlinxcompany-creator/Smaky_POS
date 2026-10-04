@@ -1,7 +1,7 @@
 import { ArrowRight, Command, Fingerprint, LockKeyhole, ShieldCheck, UserRound, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { initials, setSessionUser } from '../lib/auth'
+import { initials, signInWithPin } from '../lib/auth'
 import { getUsers } from '../lib/store'
 import type { User } from '../lib/types'
 
@@ -51,10 +51,11 @@ export function Login() {
   }, [streamlinxOpen])
 
   const selected = users.find(user => user.id === selectedId)
-  const submit = () => {
+  const submit = async () => {
     if (!selected) return
-    if (pin !== selected.pin) return setError('PIN incorrecto.')
-    setSessionUser(selected)
+    setError('')
+    const result = await signInWithPin(selected, pin)
+    if (!result.user) return setError(result.error || 'PIN incorrecto.')
     navigate('/', { replace: true })
   }
   const submitStreamLinx = () => {
