@@ -746,10 +746,146 @@ export async function replaceProducts(products: Product[]) {
 
 export async function getUsers() {
   const users = await db.users.toArray()
-  const visible = users.filter(user => !user.deletedAt).sort((a, b) => {
-    const roleOrder: Record<Role, number> = { manager: 0, admin: 1, employee: 2 }
-    return roleOrder[a.role] - roleOrder[b.role] || a.name.localeCompare(b.name, 'es')
-  })
+
+  const visible = users
+    .filter(user => !user.deletedAt)
+    .sort((a, b) => {
+      const roleOrder: Record<Role, number> = {
+        manager: 0,
+        admin: 1,
+        employee: 2,
+      }
+
+      return (
+        roleOrder[a.role] - roleOrder[b.role] ||
+        a.name.localeCompare(b.name, 'es')
+      )
+    })
+
+  const loginProfiles = await getLoginProfiles(false)
+
+  // Si Supabase responde, la lista remota es la fuente principal.
+  if (loginProfiles.length) {
+    const byId = new Map(
+      visible.map(user => [user.id, user])
+    )
+
+    const byLegacy = new Map(
+      visible
+        .filter(user => user.legacyId)
+        .map(user => [user.legacyId!, user])
+    )
+
+    const consumedLocalIds = new Set<string>()
+    const merged: User[] = []
+
+    for (const profile of loginProfiles) {
+      const local =
+        byId.get(profile.id) ||
+        (profile.legacyId
+          ? byLegacy.get(profile.legacyId)
+          : undefined)
+
+      if (
+        local &&
+        local.id !== profile.id
+      ) {
+        consumedLocalIds.add(local.id)
+      }
+
+      const next: User = {
+        ...(local || {
+          id: profile.id,
+          pin: '',
+        }),
+
+        id: profile.id,
+
+        legacyId:
+          profile.legacyId ||
+          local?.legacyId,
+
+        authEmail:
+          profile.authEmail,
+
+        name:
+          profile.name,
+
+        role:
+          profile.role,
+
+        rank:
+          profile.rank,
+
+        active:
+          profile.active,
+
+        pin:
+          local?.pin || '',
+
+        permissions:
+          local?.permissions,
+
+        updatedAt:
+          local?.updatedAt,
+      }
+
+      merged.push(next)
+    }
+
+    const remoteIds = new Set(
+      merged.map(user => user.id)
+    )
+
+    /*
+     * IMPORTANTE:
+     * Si Supabase ya tiene el gerente remoto,
+     * no mostramos gerentes locales antiguos.
+     */
+    const hasRemoteManager =
+      merged.some(
+        user => user.role === 'manager'
+      )
+
+    const remainingLocal = visible.filter(
+      user => {
+        if (
+          remoteIds.has(user.id) ||
+          consumedLocalIds.has(user.id)
+        ) {
+          return false
+        }
+
+        if (
+          hasRemoteManager &&
+          user.role === 'manager'
+        ) {
+          return false
+        }
+
+        return true
+      }
+    )
+
+    return [
+      ...merged,
+      ...remainingLocal,
+    ].sort((a, b) => {
+      const roleOrder: Record<Role, number> = {
+        manager: 0,
+        admin: 1,
+        employee: 2,
+      }
+
+      return (
+        roleOrder[a.role] - roleOrder[b.role] ||
+        a.name.localeCompare(b.name, 'es')
+      )
+    })
+  }
+
+  return visible
+}
 
   const loginProfiles = await getLoginProfiles(false)
   if (!loginProfiles.length) return visible
