@@ -12,17 +12,43 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 })
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL') || ''
-const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
-const publishableKey = Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_PUBLISHABLE_KEY') || (() => {
+
+// Supabase injects these key maps into hosted Edge Functions.
+// New API keys are JSON objects keyed by name (normally `default`).
+// Legacy variables are kept as fallbacks for older projects.
+const readKeyMap = (name: string): Record<string, string> => {
   try {
-    const values = JSON.parse(Deno.env.get('SUPABASE_PUBLISHABLE_KEYS') || '{}') as Record<string, string>
-    return Object.values(values)[0] || ''
+    return JSON.parse(Deno.env.get(name) || '{}') as Record<string, string>
   } catch {
-    return ''
+    return {}
   }
-})()
-const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } })
-const publicClient = createClient(supabaseUrl, publishableKey, { auth: { autoRefreshToken: false, persistSession: false } })
+}
+
+const secretKeys = readKeyMap('SUPABASE_SECRET_KEYS')
+const publishableKeys = readKeyMap('SUPABASE_PUBLISHABLE_KEYS')
+
+const serviceRoleKey =
+  secretKeys.default ||
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ||
+  ''
+
+const publishableKey =
+  publishableKeys.default ||
+  Deno.env.get('SUPABASE_ANON_KEY') ||
+  Deno.env.get('SUPABASE_PUBLISHABLE_KEY') ||
+  ''
+
+if (!supabaseUrl || !serviceRoleKey || !publishableKey) {
+  throw new Error('Faltan variables de Supabase para ejecutar admin-users.')
+}
+
+const admin = createClient(supabaseUrl, serviceRoleKey, {
+  auth: { autoRefreshToken: false, persistSession: false },
+})
+
+const publicClient = createClient(supabaseUrl, publishableKey, {
+  auth: { autoRefreshToken: false, persistSession: false },
+})
 
 const pinPassword = (pin: string) => `SmakyPOS#${pin}`
 const cleanName = (value: unknown) => String(value ?? '').trim().replace(/\s+/g, ' ')

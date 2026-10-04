@@ -1,127 +1,94 @@
-# Smaky POS — configuración final de Supabase
+# Smaky POS — configuración final Cloudflare + Supabase
 
-Esta versión integra Supabase sin eliminar Dexie.
+Este proyecto ya está preparado para usar Supabase desde el frontend y una Edge Function para operaciones administrativas.
 
-## Lo que ya quedó hecho en el código
+## 1. Supabase: ejecutar la base de datos
 
-- Cliente único de Supabase usando `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY`.
-- Supabase Auth para las cuentas remotas.
-- PIN de 4 dígitos convertido internamente en una contraseña de Auth (`SmakyPOS#XXXX`). El PIN no se guarda en tablas públicas de Supabase.
-- Dexie conservado como almacenamiento local/offline.
-- Sincronización automática de productos, clientes, pedidos, ventas, cierres, configuración, auditoría e historial.
-- Migración automática de usuarios antiguos de Dexie cuando el gerente inicia sesión online por primera vez.
-- RLS para las tablas remotas.
-- Administración de usuarios mediante Edge Function para no exponer `service_role` al navegador.
-- `.env.local` excluido de GitHub y `.env.example` incluido como plantilla.
+En el Dashboard de Supabase:
 
-## ÚNICAS acciones manuales
+`SQL Editor` → `New query`
 
-### 1. Crear el gerente inicial en Supabase Auth
-
-Haz esto **antes de ejecutar el SQL**.
-
-Supabase Dashboard → Authentication → Users → Add user.
-
-Usa exactamente:
-
-- Email: `u-owner@smaky.local`
-- Password: `SmakyPOS#1234`
-- Confirmar/Auto Confirm: activado
-
-Ese usuario será el gerente principal del Smaky POS.
-
-> El PIN que utilizarás dentro del POS seguirá siendo `1234`. La contraseña anterior es solamente el formato interno que usa Supabase Auth.
-
-### 2. Ejecutar la base de datos
-
-Abre Supabase Dashboard → SQL Editor.
-
-Abre este archivo:
+Ejecuta COMPLETO:
 
 `supabase/migrations/0001_smaky_pos.sql`
 
-Copia **todo su contenido**, pégalo en el SQL Editor y pulsa **Run**.
+El script crea las tablas, RLS, funciones auxiliares, trigger de perfiles y la vista `pos_login_profiles`.
 
-El SQL crea las tablas, índices, funciones, relaciones necesarias con Auth, políticas RLS y la vista segura que usa la pantalla de login.
+## 2. Supabase: crear el gerente inicial
 
-### 3. Publicar la Edge Function
+En:
 
-Supabase Dashboard → Edge Functions → crear una función llamada:
+`Authentication` → `Users` → `Add user`
+
+Crear:
+
+- Email: `u-owner@smaky.local`
+- Password: `SmakyPOS#1234`
+- Confirm/Auto Confirm: activado
+
+El SQL de este proyecto reconoce ese correo y crea el perfil `manager`.
+
+En la pantalla de Smaky POS el acceso será:
+
+- Perfil: `Gerente`
+- PIN: `1234`
+
+## 3. Supabase: Edge Function
+
+Crear/desplegar una función llamada exactamente:
 
 `admin-users`
 
-Reemplaza el contenido de la función por:
+Usar el archivo:
 
 `supabase/functions/admin-users/index.ts`
 
-Después pulsa **Deploy**.
+La función usa:
 
-No pongas una `service_role` key en el frontend.
+- `SUPABASE_URL`
+- `SUPABASE_PUBLISHABLE_KEYS`
+- `SUPABASE_SECRET_KEYS`
 
-### 4. Configurar Render
+Supabase Hosted Edge Functions proporciona esas variables automáticamente. La secret key no se copia al navegador ni al código frontend.
 
-En Render → Environment agrega exactamente estas variables:
+URL de la función:
+
+`https://jipmbegkgxnlqthmbvpp.supabase.co/functions/v1/admin-users`
+
+## 4. Cloudflare Pages
+
+Configuración de build:
+
+- Build command: `npm run build`
+- Output directory: `dist`
+
+Variables de entorno de producción:
 
 `VITE_SUPABASE_URL`
 
-Valor: la URL del proyecto Supabase.
+`https://jipmbegkgxnlqthmbvpp.supabase.co`
 
 `VITE_SUPABASE_PUBLISHABLE_KEY`
 
-Valor: la clave pública `sb_publishable_...` del proyecto.
+`sb_publishable_-zmFxlip9lpmMseQwtAZ2Q_Wns2hb5Q`
 
-No agregues `SUPABASE_SERVICE_ROLE_KEY` a las variables del frontend de Render.
+No agregues una variable `VITE_...` con una `sb_secret_...`.
 
-Build Command:
+## 5. Orden exacto
 
-`npm run build`
+1. Ejecutar el SQL.
+2. Crear el usuario `u-owner@smaky.local`.
+3. Desplegar `admin-users`.
+4. Configurar las dos variables en Cloudflare.
+5. Hacer un nuevo deploy de Cloudflare.
+6. Abrir la página e iniciar sesión como `Gerente` con PIN `1234`.
 
-Start Command:
+## 6. Verificación
 
-`node server.cjs`
+En Supabase revisa:
 
-## Primer arranque del POS después de la integración
+- Authentication → Users: debe existir `u-owner@smaky.local`.
+- Table Editor → `profiles`: debe aparecer el gerente.
+- Edge Functions: `admin-users` debe estar desplegada.
 
-1. Abre el POS con internet.
-2. Selecciona **Gerente**.
-3. Usa el PIN `1234`.
-4. El POS iniciará la sincronización y subirá a Supabase los datos locales existentes.
-5. Las sesiones y usuarios remotos posteriores quedarán gestionados por Supabase Auth.
-
-No necesitas insertar manualmente productos, clientes, pedidos o ventas existentes: el sincronizador utiliza los datos de Dexie como fuente local y los sube cuando el usuario tiene una sesión remota válida.
-
-## Usuarios existentes
-
-Los trabajadores creados anteriormente solamente en Dexie se migran automáticamente al primer inicio remoto del gerente, siempre que tengan un PIN válido de 4 dígitos.
-
-Los usuarios creados desde **Usuarios** mientras haya conexión se crean directamente en Supabase Auth y en el perfil remoto.
-
-## Offline
-
-Dexie no se eliminó. El POS puede seguir utilizando sus datos locales cuando no hay conexión.
-
-Cuando vuelve internet y existe una sesión remota válida, la sincronización se reanuda automáticamente.
-
-## Tablas que sí utiliza este código
-
-- `profiles`
-- `products`
-- `customers`
-- `orders`
-- `sales`
-- `cash_closures`
-- `settings`
-- `audit_events`
-- `history_records`
-
-No se crearon tablas independientes para métodos de pago, categorías, detalle de pedido, detalle de venta, facturas, comandas o mesas porque el modelo actual del POS ya los maneja como datos anidados/configuración. Esto evita reconstruir el sistema y duplicar lógica.
-
-Tampoco se creó una tabla de inventario independiente porque la pantalla actual de Inventario no utiliza todavía un almacén persistente de inventario en `store.ts`/Dexie. Crear una tabla ahora no conectaría ninguna funcionalidad real.
-
-## GitHub
-
-No subas `.env.local`.
-
-El repositorio ya está configurado para ignorar `.env.local` y otros `.env.*`.
-
-Sí se incluye `.env.example`, que solamente contiene los nombres de las variables sin credenciales.
+El frontend utiliza una clave publishable, que está diseñada para exponerse en aplicaciones web cuando RLS protege los datos. La secret key solo se utiliza en la Edge Function.

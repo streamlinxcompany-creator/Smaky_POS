@@ -1,23 +1,12 @@
 import { createClient } from '@supabase/supabase-js'
 
-const url = String(import.meta.env.VITE_SUPABASE_URL || '').trim()
-const publishableKey = String(import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '').trim()
+// Public project configuration. This key is safe to ship to the browser
+// when Row Level Security (RLS) is enabled in Supabase.
+const supabaseUrl = 'https://jipmbegkgxnlqthmbvpp.supabase.co'
+const supabaseKey = 'sb_publishable_-zmFxlip9lpmMseQwtAZ2Q_Wns2hb5Q'
 
-export const supabaseConfigured = Boolean(url && publishableKey)
+export const supabaseConfigured = Boolean(supabaseUrl && supabaseKey)
 
 export const supabase = supabaseConfigured
-  ? createClient(url, publishableKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-      },
-    })
+  ? createClient(supabaseUrl, supabaseKey)
   : null
-
-export function assertSupabaseConfigured() {
-  if (!supabase) {
-    throw new Error('Supabase no está configurado. Revisa VITE_SUPABASE_URL y VITE_SUPABASE_PUBLISHABLE_KEY.')
-  }
-  return supabase
-}
