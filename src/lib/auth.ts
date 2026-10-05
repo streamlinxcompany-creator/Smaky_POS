@@ -684,41 +684,120 @@ export async function createRemoteWorker(
     !supabase ||
     !navigator.onLine
   ) {
-    return null
-  }
-
-  const {
-    data,
-    error,
-  } = await supabase.functions.invoke(
-    'admin-users',
-    {
-      body: {
-        action: 'create',
-        name,
-        pin,
-        rank,
-        role: 'employee',
-      },
-    }
-  )
-
-  if (error) {
     throw new Error(
-      error.message ||
-      'No fue posible crear la cuenta remota.'
+      'Supabase no está disponible o el navegador está sin conexión.'
     )
   }
 
-  return data as {
-    id: string
-    name: string
-    role: Role
-    rank: string
-    active: boolean
-    permissions: PermissionKey[]
-    authEmail: string
-    legacyId?: string
+  try {
+    const {
+      data,
+      error,
+    } = await supabase.functions.invoke(
+      'admin-users',
+      {
+        body: {
+          action: 'create',
+          name: name.trim(),
+          pin,
+          rank: rank.trim(),
+          role: 'employee',
+        },
+      }
+    )
+
+    if (error) {
+      console.error(
+        'Smaky admin-users error:',
+        error
+      )
+
+      const context =
+        (error as { context?: Response }).context
+
+      if (context) {
+        let responseText = ''
+
+        try {
+          responseText = await context.text()
+        } catch (contextReadError) {
+          console.error(
+            'Smaky: no se pudo leer la respuesta de admin-users:',
+            contextReadError
+          )
+        }
+
+        if (responseText) {
+          console.error(
+            'Smaky admin-users response:',
+            responseText
+          )
+
+          try {
+            const parsed = JSON.parse(responseText) as {
+              error?: string
+              message?: string
+              code?: string
+            }
+
+            const detailedMessage =
+              parsed.error ||
+              parsed.message ||
+              (parsed.code
+                ? `${parsed.code}: ${responseText}`
+                : responseText)
+
+            throw new Error(
+              detailedMessage
+            )
+          } catch (parseError) {
+            if (parseError instanceof Error) {
+              throw parseError
+            }
+
+            throw new Error(
+              responseText
+            )
+          }
+        }
+      }
+
+      throw new Error(
+        error.message ||
+        'La Edge Function devolvió un error.'
+      )
+    }
+
+    if (!data) {
+      throw new Error(
+        'La Edge Function respondió correctamente pero no devolvió datos.'
+      )
+    }
+
+    console.log(
+      'Smaky trabajador remoto creado:',
+      data
+    )
+
+    return data as {
+      id: string
+      name: string
+      role: Role
+      rank: string
+      active: boolean
+      permissions: PermissionKey[]
+      authEmail: string
+      legacyId?: string
+    }
+  } catch (error) {
+    console.error(
+      'Smaky createRemoteWorker fatal:',
+      error
+    )
+
+    throw error instanceof Error
+      ? error
+      : new Error(String(error))
   }
 }
 
