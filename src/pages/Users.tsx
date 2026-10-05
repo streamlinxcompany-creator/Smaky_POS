@@ -97,6 +97,10 @@ export function Users({
   const [saving, setSaving] =
     useState(false)
 
+  // Bloqueo síncrono: evita que un doble clic/evento concurrente
+  // envíe dos solicitudes de creación al mismo tiempo.
+  const creatingWorkerRef = useRef(false)
+
   const [deleting, setDeleting] =
     useState(false)
 
@@ -268,11 +272,17 @@ export function Users({
    * directamente dentro del formulario.
    */
   const submit = async () => {
+    // setState es asíncrono; el ref bloquea inmediatamente cualquier
+    // segundo submit antes de que React alcance a re-renderizar.
+    if (creatingWorkerRef.current) return
+    creatingWorkerRef.current = true
+
     setError('')
 
     if (
       name.trim().length < 2
     ) {
+      creatingWorkerRef.current = false
       return setError(
         'Escribe un nombre válido.'
       )
@@ -281,6 +291,7 @@ export function Users({
     if (
       !/^\d{4}$/.test(pin)
     ) {
+      creatingWorkerRef.current = false
       return setError(
         'La contraseña debe tener exactamente 4 números.'
       )
@@ -289,6 +300,7 @@ export function Users({
     if (
       rank.trim().length < 2
     ) {
+      creatingWorkerRef.current = false
       return setError(
         'Escribe el rango del trabajador.'
       )
@@ -336,6 +348,7 @@ export function Users({
         `No se pudo crear el trabajador: ${message}`
       )
     } finally {
+      creatingWorkerRef.current = false
       setSaving(false)
     }
   }

@@ -677,7 +677,8 @@ export async function migrateLocalUsersToSupabase() {
 export async function createRemoteWorker(
   name: string,
   pin: string,
-  rank: string
+  rank: string,
+  legacyId = crypto.randomUUID()
 ) {
   if (
     !supabaseConfigured ||
@@ -698,6 +699,7 @@ export async function createRemoteWorker(
       {
         body: {
           action: 'create',
+          legacyId,
           name: name.trim(),
           pin,
           rank: rank.trim(),

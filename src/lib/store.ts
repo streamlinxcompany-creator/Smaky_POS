@@ -921,7 +921,7 @@ export async function getUsers() {
 export async function createWorker(name: string, pin: string, rank: string) {
   const legacyId = crypto.randomUUID()
   let remote: Awaited<ReturnType<typeof createRemoteWorker>> | null = null
-  if (navigator.onLine) remote = await createRemoteWorker(name.trim(), pin, rank.trim())
+  if (navigator.onLine) remote = await createRemoteWorker(name.trim(), pin, rank.trim(), legacyId)
 
   const user: User = {
     id: remote?.id || legacyId,
