@@ -66,11 +66,12 @@ Deno.serve(async (request) => {
   if (authError || !authData.user) return json({ error: 'Sesión no válida.' }, 401)
 
   const actorId = authData.user.id
-  const { data: actor, error: actorError } = await admin
+  const { data: actorRows, error: actorError } = await admin
     .from('profiles')
     .select('id, name, role, active')
     .eq('id', actorId)
-    .maybeSingle()
+    .limit(1)
+  const actor = actorRows?.[0]
   if (actorError || !actor?.active) return json({ error: 'Perfil no autorizado.' }, 403)
 
   let body: Record<string, unknown>
@@ -91,20 +92,22 @@ Deno.serve(async (request) => {
       return json({ error: 'Datos del perfil local inválidos.' }, 400)
     }
 
-    const { data: existingProfile } = await admin
+    const { data: existingRows } = await admin
       .from('profiles')
       .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
       .eq('legacy_id', legacyId)
-      .maybeSingle()
+      .limit(1)
+    const existingProfile = existingRows?.[0]
     if (existingProfile) {
       const { error: passwordError } = await admin.auth.admin.updateUserById(existingProfile.id, { password: pinPassword(pin) })
       if (passwordError) return json({ error: passwordError.message }, 400)
-      const { data: updatedExisting, error: updateExistingError } = await admin
+      const { data: updatedExistingRows, error: updateExistingError } = await admin
         .from('profiles')
         .update({ name, rank, role, active: true, permissions })
         .eq('id', existingProfile.id)
         .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
-        .maybeSingle()
+        .limit(1)
+      const updatedExisting = updatedExistingRows?.[0]
       if (updateExistingError || !updatedExisting) return json({ error: updateExistingError?.message || 'No fue posible actualizar el perfil migrado.' }, 400)
       return json({
         id: updatedExisting.id,
@@ -134,7 +137,7 @@ Deno.serve(async (request) => {
     })
     if (createError || !created.user) return json({ error: createError?.message || 'No fue posible migrar el usuario.' }, 400)
 
-    const { data: profile, error: profileError } = await admin
+    const { error: profileError } = await admin
       .from('profiles')
       .upsert({
         id: created.user.id,
@@ -146,11 +149,15 @@ Deno.serve(async (request) => {
         legacy_id: legacyId,
         auth_email: email,
       }, { onConflict: 'id' })
+    const { data: profileRows, error: profileReadError } = await admin
+      .from('profiles')
       .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
-      .maybeSingle()
-    if (profileError || !profile) {
+      .eq('id', created.user.id)
+      .limit(1)
+    const profile = profileRows?.[0]
+    if (profileError || profileReadError || !profile) {
       await admin.auth.admin.deleteUser(created.user.id)
-      return json({ error: profileError?.message || 'La cuenta se creó, pero no se pudo completar el perfil.' }, 500)
+      return json({ error: profileError?.message || profileReadError?.message || 'La cuenta se creó, pero no se pudo completar el perfil.' }, 500)
     }
 
     return json({
@@ -190,7 +197,7 @@ Deno.serve(async (request) => {
     })
     if (createError || !created.user) return json({ error: createError?.message || 'No fue posible crear la cuenta.' }, 400)
 
-    const { data: profile, error: profileError } = await admin
+    const { error: profileError } = await admin
       .from('profiles')
       .upsert({
         id: created.user.id,
@@ -202,11 +209,15 @@ Deno.serve(async (request) => {
         legacy_id: legacyId,
         auth_email: email,
       }, { onConflict: 'id' })
+    const { data: profileRows, error: profileReadError } = await admin
+      .from('profiles')
       .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
-      .maybeSingle()
-    if (profileError || !profile) {
+      .eq('id', created.user.id)
+      .limit(1)
+    const profile = profileRows?.[0]
+    if (profileError || profileReadError || !profile) {
       await admin.auth.admin.deleteUser(created.user.id)
-      return json({ error: profileError?.message || 'La cuenta se creó, pero no se pudo completar el perfil.' }, 500)
+      return json({ error: profileError?.message || profileReadError?.message || 'La cuenta se creó, pero no se pudo completar el perfil.' }, 500)
     }
 
     return json({
@@ -224,11 +235,12 @@ Deno.serve(async (request) => {
   if (action === 'update') {
     const targetId = String(body.targetId || '')
     if (!targetId) return json({ error: 'Perfil objetivo no especificado.' }, 400)
-    const { data: target, error: targetError } = await admin
+    const { data: targetRows, error: targetError } = await admin
       .from('profiles')
       .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
       .eq('id', targetId)
-      .maybeSingle()
+      .limit(1)
+    const target = targetRows?.[0]
     if (targetError || !target) return json({ error: 'No encontramos el perfil.' }, 404)
 
     const changes = (body.changes && typeof body.changes === 'object') ? body.changes as Record<string, unknown> : {}
@@ -260,12 +272,13 @@ Deno.serve(async (request) => {
       if (passwordError) return json({ error: passwordError.message }, 400)
     }
 
-    const { data: updated, error: updateError } = await admin
+    const { data: updatedRows, error: updateError } = await admin
       .from('profiles')
       .update(profileUpdate)
       .eq('id', targetId)
       .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
-      .maybeSingle()
+      .limit(1)
+    const updated = updatedRows?.[0]
     if (updateError || !updated) return json({ error: updateError?.message || 'No fue posible actualizar el perfil.' }, 400)
 
     return json({
@@ -284,7 +297,8 @@ Deno.serve(async (request) => {
     if (actor.role !== 'manager') return json({ error: 'Solo el gerente puede eliminar perfiles.' }, 403)
     const targetId = String(body.targetId || '')
     if (!targetId || targetId === actorId) return json({ error: 'Perfil no válido.' }, 400)
-    const { data: target } = await admin.from('profiles').select('id, role').eq('id', targetId).maybeSingle()
+    const { data: targetRows } = await admin.from('profiles').select('id, role').eq('id', targetId).limit(1)
+    const target = targetRows?.[0]
     if (!target || target.role === 'manager') return json({ error: 'Ese perfil no se puede eliminar.' }, 403)
     const { error } = await admin.auth.admin.deleteUser(targetId)
     if (error) return json({ error: error.message }, 400)
