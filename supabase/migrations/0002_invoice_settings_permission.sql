@@ -8,7 +8,10 @@ with check (
   (select private.is_active_user())
   and (
     (select private.is_manager_or_admin())
-    or (key = 'generalSettings' and (select private.has_permission('invoice.settings')))
+    or (key = 'generalSettings' and ((select private.has_permission('settings.general')) or (select private.has_permission('invoice.settings'))))
+    or (key = 'orderFields' and (select private.has_permission('settings.orders')))
+    or (key = 'paymentMethods' and (select private.has_permission('settings.payments')))
+    or (key = 'productCategories' and (select private.has_permission('settings.categories')))
   )
 );
 
@@ -17,13 +20,19 @@ using (
   (select private.is_active_user())
   and (
     (select private.is_manager_or_admin())
-    or (key = 'generalSettings' and (select private.has_permission('invoice.settings')))
+    or (key = 'generalSettings' and ((select private.has_permission('settings.general')) or (select private.has_permission('invoice.settings'))))
+    or (key = 'orderFields' and (select private.has_permission('settings.orders')))
+    or (key = 'paymentMethods' and (select private.has_permission('settings.payments')))
+    or (key = 'productCategories' and (select private.has_permission('settings.categories')))
   )
 )
 with check (
   (select private.is_active_user())
   and (
     (select private.is_manager_or_admin())
-    or (key = 'generalSettings' and (select private.has_permission('invoice.settings')))
+    or (key = 'generalSettings' and ((select private.has_permission('settings.general')) or (select private.has_permission('invoice.settings'))))
+    or (key = 'orderFields' and (select private.has_permission('settings.orders')))
+    or (key = 'paymentMethods' and (select private.has_permission('settings.payments')))
+    or (key = 'productCategories' and (select private.has_permission('settings.categories')))
   )
 );

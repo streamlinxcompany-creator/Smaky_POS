@@ -50,6 +50,10 @@ export function Settings() {
   const isManager = user?.role === 'manager'
   const canManageProducts = !!user && hasPermission(user, 'products.manage')
   const canManageInvoice = !!user && hasPermission(user, 'invoice.settings')
+  const canManageGeneral = !!user && hasPermission(user, 'settings.general')
+  const canManageOrders = !!user && hasPermission(user, 'settings.orders')
+  const canManagePayments = !!user && hasPermission(user, 'settings.payments')
+  const canManageCategories = !!user && hasPermission(user, 'settings.categories')
 
   const load = async () => {
     const [nextCategories, nextProducts, methods, fields, general] = await Promise.all([getProductCategories(), getAllProducts(), getPaymentMethods(), getOrderFields(), getGeneralSettings()])
@@ -66,7 +70,7 @@ export function Settings() {
   const flashError = (caught: unknown) => setError(caught instanceof Error ? caught.message : 'No fue posible guardar el cambio.')
 
   const addCategory = async () => {
-    if (!user || !canManage || saving) return
+    if (!user || !(canManage || canManageCategories) || saving) return
     setSaving(true); clearFeedback()
     try {
       setCategories(await addProductCategory(categoryName, user))
@@ -78,7 +82,7 @@ export function Settings() {
   const startCategoryEdit = (name: string) => { setEditingCategory(name); setEditingCategoryName(name); clearFeedback() }
 
   const saveCategory = async (oldName: string) => {
-    if (!user || !canManage || saving) return
+    if (!user || !(canManage || canManageCategories) || saving) return
     setSaving(true); clearFeedback()
     try {
       setCategories(await updateProductCategory(oldName, editingCategoryName, user))
@@ -90,7 +94,7 @@ export function Settings() {
   }
 
   const removeCategory = async (name: string) => {
-    if (!user || !canManage || saving) return
+    if (!user || !(canManage || canManageCategories) || saving) return
     if (!window.confirm(`¿Eliminar “${name}”?`)) return
     setSaving(true); clearFeedback()
     try { setCategories(await deleteProductCategory(name, user)); setMessage('Categoría eliminada.') }
@@ -98,21 +102,21 @@ export function Settings() {
   }
 
   const addPayment = async () => {
-    if (!user || !canManage || saving) return
+    if (!user || !(canManage || canManagePayments) || saving) return
     setSaving(true); clearFeedback()
     try { setPaymentMethods(await addPaymentMethod(paymentName, user)); setPaymentName(''); setMessage('Medio de pago agregado.') }
     catch (caught) { flashError(caught) } finally { setSaving(false) }
   }
 
   const savePayment = async (method: PaymentMethodConfig) => {
-    if (!user || !canManage || saving) return
+    if (!user || !(canManage || canManagePayments) || saving) return
     setSaving(true); clearFeedback()
     try { setPaymentMethods(await updatePaymentMethod(method.id, editingPaymentName, user)); setEditingPaymentId(null); setEditingPaymentName(''); setMessage('Medio de pago actualizado.') }
     catch (caught) { flashError(caught) } finally { setSaving(false) }
   }
 
   const removePayment = async (method: PaymentMethodConfig) => {
-    if (!user || !canManage || saving) return
+    if (!user || !(canManage || canManagePayments) || saving) return
     if (!window.confirm(`¿Quitar “${method.name}”?`)) return
     setSaving(true); clearFeedback()
     try { setPaymentMethods(await deletePaymentMethod(method.id, user)); setMessage('Medio de pago retirado.') }
@@ -120,14 +124,14 @@ export function Settings() {
   }
 
   const saveGeneral = async (changes: Partial<GeneralSettings>) => {
-    if (!user || !canManage || saving) return
+    if (!user || !((canManage || canManageInvoice) && Object.hasOwn(changes, 'receiptFontSize') || (canManage || canManageGeneral) && !Object.hasOwn(changes, 'receiptFontSize')) || saving) return
     setSaving(true); clearFeedback()
     try { setGeneralSettings(await updateGeneralSettings(changes, user)); setMessage('Preferencias generales actualizadas.') }
     catch (caught) { flashError(caught) } finally { setSaving(false) }
   }
 
   const toggleOrderField = async (field: OrderFieldConfig, changes: Partial<OrderFieldConfig>) => {
-    if (!user || !canManage || saving) return
+    if (!user || !(canManage || canManageOrders) || saving) return
     setSaving(true); clearFeedback()
     try { setOrderFields(await updateOrderFields(orderFields.map(item => item.id === field.id ? { ...item, ...changes } : item), user)); setMessage('Campo de pedido actualizado.') }
     catch (caught) { flashError(caught) } finally { setSaving(false) }
@@ -143,7 +147,7 @@ export function Settings() {
   }
 
   const saveOrderFieldEditor = async () => {
-    if (!user || !editingOrderField || saving) return
+    if (!user || !(canManage || canManageOrders) || !editingOrderField || saving) return
     const label = editingFieldLabel.trim()
     if (!label) { flashError(new Error('El nombre del campo no puede estar vacío.')); return }
     if (editingFieldType === 'select' && !editingFieldOptions.split(',').map(item => item.trim()).filter(Boolean).length) {
@@ -160,7 +164,7 @@ export function Settings() {
   }
 
   const addOrderField = async () => {
-    if (!user || !canManage || saving || !newFieldLabel.trim()) return
+    if (!user || !(canManage || canManageOrders) || saving || !newFieldLabel.trim()) return
     setSaving(true); clearFeedback()
     try {
       const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -173,7 +177,7 @@ export function Settings() {
   }
 
   const removeOrderField = async (field: OrderFieldConfig) => {
-    if (!user || !canManage || saving || field.system) return
+    if (!user || !(canManage || canManageOrders) || saving || field.system) return
     if (!window.confirm(`¿Eliminar el campo “${field.label}” de los nuevos pedidos?`)) return
     setSaving(true); clearFeedback()
     try { setOrderFields(await updateOrderFields(orderFields.filter(item => item.id !== field.id), user)); setMessage('Campo eliminado.') }
@@ -186,16 +190,24 @@ export function Settings() {
     return acc
   }, {}), [products])
 
-  if (!user || (!canManage && !canManageInvoice)) return null
+  if (!user || (!canManage && !canManageInvoice && !canManageGeneral && !canManageOrders && !canManagePayments && !canManageCategories && !canManageProducts)) return null
 
-  const activeSection = !canManage && section !== 'invoice' ? 'invoice' : (!isManager && section === 'users' ? 'general' : section)
+  const allowedSections: SettingsSection[] = [
+    ...(canManage || canManageGeneral ? ['general' as const] : []),
+    ...(canManage || canManageOrders ? ['orders' as const] : []),
+    ...(canManage || canManagePayments ? ['payments' as const] : []),
+    ...(canManage || canManageCategories ? ['categories' as const] : []),
+    ...(canManageProducts ? ['products' as const] : []),
+    ...(canManage || canManageInvoice ? ['invoice' as const] : []),
+  ]
+  const activeSection = allowedSections.includes(section) ? section : allowedSections[0]
   const contentTitle = activeSection === 'general' ? 'General' : activeSection === 'orders' ? 'Pedidos' : activeSection === 'payments' ? 'Medios de pago' : activeSection === 'categories' ? 'Categorías' : activeSection === 'products' ? 'Productos' : activeSection === 'invoice' ? 'Factura' : 'Usuarios'
 
   return <div className="settings-page">
     <aside className="settings-sidebar">
       <div className="settings-brand-row"><div className="settings-brand-icon"><Settings2 size={16}/></div><div><h1>Configuraciones</h1><span>Smaky POS</span></div></div>
       <div className="settings-nav">
-        {sectionMeta.filter(item => (item.id === 'invoice' ? canManageInvoice : canManage && (item.id !== 'products' || canManageProducts))).map(item => <button key={item.id} className={`settings-nav-item ${activeSection === item.id ? 'active' : ''}`} onClick={() => { setSection(item.id); clearFeedback() }}>
+        {sectionMeta.filter(item => allowedSections.includes(item.id)).map(item => <button key={item.id} className={`settings-nav-item ${activeSection === item.id ? 'active' : ''}`} onClick={() => { setSection(item.id); clearFeedback() }}>
           <div><b>{item.label}</b><small>{item.description}</small></div><ChevronRight size={14}/>
         </button>)}
         {isManager && <button className={`settings-nav-item ${activeSection === 'users' ? 'active' : ''}`} onClick={() => { setSection('users'); clearFeedback() }}>
@@ -234,10 +246,10 @@ export function Settings() {
         </section>
       </div>}
 
-      {activeSection === 'invoice' && canManageInvoice && <div className="settings-stack">
+      {activeSection === 'invoice' && (canManage || canManageInvoice) && <div className="settings-stack">
         <section className="settings-list-card settings-feature-card">
           <div className="settings-feature-head"><div className="settings-row-icon settings-feature-icon"><FileText size={17}/></div><div><b>Tamaño de letra de la factura</b><span>Se aplica a las próximas impresiones de comprobantes.</span></div></div>
-          <div className="settings-theme-grid">{[4, 5, 6, 7, 8, 9, 10, 12].map(size => <button key={size} className={`settings-theme-option ${generalSettings.receiptFontSize === size ? 'active' : ''}`} disabled={saving} onClick={() => void saveGeneral({ receiptFontSize: size })}><span>{size}px</span>{generalSettings.receiptFontSize === size && <Check size={14}/>}</button>)}</div>
+          <label className="settings-field-editor-label"><span>Tamaño</span><select value={generalSettings.receiptFontSize} disabled={saving} onChange={event => void saveGeneral({ receiptFontSize: Number(event.target.value) })}>{Array.from({ length: 17 }, (_, index) => index + 4).map(size => <option key={size} value={size}>{size}px</option>)}</select></label>
         </section>
       </div>}
 

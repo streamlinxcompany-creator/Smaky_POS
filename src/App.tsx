@@ -20,7 +20,7 @@ function PermissionArea({ permission, children, fallback = '/' }: { permission: 
 
 function ManagementArea({ children }: { children: ReactNode }) {
   const user = getSessionUser()
-  return user && (['manager', 'admin'].includes(user.role) || hasPermission(user, 'invoice.settings')) ? children : <Navigate to="/pos" replace />
+  return user && (['manager', 'admin'].includes(user.role) || ['settings.general','settings.orders','settings.payments','settings.categories','products.manage','invoice.settings'].some(permission => hasPermission(user, permission as PermissionKey))) ? children : <Navigate to="/pos" replace />
 }
 
 export default function App() {

@@ -6,7 +6,7 @@ const escapeHtml = (value: string | number | undefined | null) => String(value ?
 
 const receiptFontSize = () => {
   const size = Number(localStorage.getItem('smaky-receipt-font-size'))
-  return [4, 5, 6, 7, 8, 9, 10, 12].includes(size) ? size : 10
+  return Number.isInteger(size) && size >= 4 && size <= 20 ? size : 10
 }
 
 const buildPrintDocument = (title: string, body: string) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=88mm,initial-scale=1,maximum-scale=1"><title>${escapeHtml(title)}</title><style>

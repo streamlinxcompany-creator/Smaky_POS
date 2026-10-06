@@ -54,7 +54,31 @@ export const PERMISSION_DEFINITIONS: Array<{
     key: 'products.manage',
     label: 'Productos',
     description: 'Crear, editar y administrar productos.',
-    group: 'Catálogo',
+    group: 'Configuraciones',
+  },
+  {
+    key: 'settings.general',
+    label: 'General',
+    description: 'Modificar apariencia y preferencias generales.',
+    group: 'Configuraciones',
+  },
+  {
+    key: 'settings.orders',
+    label: 'Pedidos',
+    description: 'Modificar los campos de información de pedidos.',
+    group: 'Configuraciones',
+  },
+  {
+    key: 'settings.payments',
+    label: 'Medios de pago',
+    description: 'Administrar los medios disponibles al cobrar.',
+    group: 'Configuraciones',
+  },
+  {
+    key: 'settings.categories',
+    label: 'Categorías',
+    description: 'Administrar las categorías del catálogo.',
+    group: 'Configuraciones',
   },
   {
     key: 'reports.view',
@@ -72,7 +96,7 @@ export const PERMISSION_DEFINITIONS: Array<{
     key: 'invoice.settings',
     label: 'Configurar factura',
     description: 'Cambiar el tamaño de letra de los comprobantes y facturas.',
-    group: 'Factura',
+    group: 'Configuraciones',
   },
 ]
 

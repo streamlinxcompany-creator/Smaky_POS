@@ -9,6 +9,10 @@ export type PermissionKey =
   | 'products.manage'
   | 'reports.view'
   | 'cashClosing.access'
+  | 'settings.general'
+  | 'settings.orders'
+  | 'settings.payments'
+  | 'settings.categories'
   | 'invoice.settings'
 
 export type PaymentMethod = string

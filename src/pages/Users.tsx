@@ -126,7 +126,19 @@ export function Users({
     currentUser?.role === 'manager'
 
   const load = () =>
-    getUsers().then(setUsers)
+    getUsers().then(nextUsers => {
+      // Cloudflare puede devolver durante un instante el perfil remoto y su
+      // espejo local recién creado. La vista nunca debe mostrar dos tarjetas.
+      const seen = new Set<string>()
+      setUsers(nextUsers.filter(user => {
+        const key = `${user.role}|${user.name.trim().toLocaleLowerCase('es')}|${user.rank.trim().toLocaleLowerCase('es')}`
+        if (user.role !== 'employee' || !seen.has(key)) {
+          seen.add(key)
+          return true
+        }
+        return false
+      }))
+    })
 
   useEffect(() => {
     void load()

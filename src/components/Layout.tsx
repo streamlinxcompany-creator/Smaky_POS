@@ -89,7 +89,7 @@ export function Layout() {
     '/reportes': 'reports.view',
     '/cierre-caja': 'cashClosing.access',
   }
-  const nav = allNav.filter(item => item.roles.includes(user.role) && (item.to === '/configuraciones' ? (['manager', 'admin'].includes(user.role) || hasPermission(user, 'invoice.settings')) : hasPermission(user, permissionForRoute[item.to]!)))
+  const nav = allNav.filter(item => item.roles.includes(user.role) && (item.to === '/configuraciones' ? (['manager', 'admin'].includes(user.role) || ['settings.general','settings.orders','settings.payments','settings.categories','products.manage','invoice.settings'].some(permission => hasPermission(user, permission as Parameters<typeof hasPermission>[1]))) : hasPermission(user, permissionForRoute[item.to]!)))
   const isAdminArea = user.role !== 'employee'
   const logout = () => setConfirmLogout(true)
   const confirmLogoutNow = () => {
