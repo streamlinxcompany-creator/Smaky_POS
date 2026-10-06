@@ -39,3 +39,8 @@ Los eventos de auditoría, historial y backups son append-only y ya no se coales
 ## Verificación
 
 La sintaxis y el tipado interno de los módulos críticos (`db`, `sync`, `store`, `auth`, `main`, `Layout`, `CashClosing`) fueron revisados con TypeScript. El `npm run build` completo no puede ejecutarse dentro de este entorno porque el ZIP original no contiene las dependencias instaladas en `node_modules`; las dependencias deben instalarse con `npm install`/`npm ci` antes del build.
+
+## Cierre de caja e impresión
+- El comprobante impreso del cierre ya no lista factura por factura. Presenta resumen del período, cantidad de ventas, total, desglose de medios de pago, arqueo de efectivo, diferencia, observaciones y período siguiente.
+- El botón de impresión del cierre usa `GeneralSettings.receiptFontSize`, la misma variable configurable desde Configuración > Factura.
+- La vista de detalle del cierre también muestra sólo el resumen y permite imprimir el comprobante.

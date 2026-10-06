@@ -1,6 +1,6 @@
 import { ArrowRight, FileText, Printer, ShieldAlert, Trash2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
-import { deleteSale, getPaymentMethods, getSales } from '../lib/store'
+import { deleteSale, getGeneralSettings, getPaymentMethods, getSales } from '../lib/store'
 import { money, time, date } from '../lib/format'
 import type { PaymentMethod, Sale } from '../lib/types'
 import { getSessionUser, hasPermission } from '../lib/auth'
@@ -11,6 +11,7 @@ const fallbackPaymentLabel = (payment: PaymentMethod) => payment === 'cash' ? 'E
 export function Sales() {
   const [sales, setSales] = useState<Sale[]>([])
   const [paymentLabels, setPaymentLabels] = useState<Record<string,string>>({})
+  const [receiptFontSize, setReceiptFontSize] = useState(10)
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteProgress, setDeleteProgress] = useState(0)
@@ -24,7 +25,7 @@ export function Sales() {
   const canDelete = hasPermission(sessionUser, 'sales.delete')
   const paymentLabel = (payment: PaymentMethod, sale?: Sale) => sale?.paymentLabel || paymentLabels[payment] || fallbackPaymentLabel(payment)
 
-  useEffect(() => { Promise.all([getSales(), getPaymentMethods()]).then(([salesData, methods]) => { setSales(salesData); setPaymentLabels(Object.fromEntries(methods.map(method => [method.id, method.name]))) }) }, [])
+  useEffect(() => { Promise.all([getSales(), getPaymentMethods(), getGeneralSettings()]).then(([salesData, methods, settings]) => { setSales(salesData); setPaymentLabels(Object.fromEntries(methods.map(method => [method.id, method.name]))); setReceiptFontSize(settings.receiptFontSize) }) }, [])
 
   const closeReceipt = () => {
     setSelectedSale(null)
@@ -88,7 +89,7 @@ export function Sales() {
           <td>{sale.userName}</td>
           <td><span className="badge">{paymentLabel(sale.payment, sale)}</span></td>
           <td><b>{money(sale.total)}</b></td>
-          <td><button className="sales-print-btn" title="Imprimir factura" onClick={(event) => { event.stopPropagation(); printSaleReceipt(sale) }}><Printer size={14}/> Factura</button></td>
+          <td><button className="sales-print-btn" title="Imprimir factura" onClick={(event) => { event.stopPropagation(); printSaleReceipt(sale, receiptFontSize) }}><Printer size={14}/> Factura</button></td>
         </tr>)}</tbody>
       </table>}
     </div>
@@ -122,7 +123,7 @@ export function Sales() {
           <div><span>Subtotal</span><b>{money(selectedSale.subtotal)}</b></div>
           <div className="grand"><span>Total</span><strong>{money(selectedSale.total)}</strong></div>
         </div>
-        <button className="secondary receipt-print-btn" onClick={() => printSaleReceipt(selectedSale)}><Printer size={15}/> Imprimir factura</button>
+        <button className="secondary receipt-print-btn" onClick={() => printSaleReceipt(selectedSale, receiptFontSize)}><Printer size={15}/> Imprimir factura</button>
         {canDelete && <div className="receipt-danger">
           <button className="delete-sale-btn" onClick={() => { setConfirmDelete(true); deleteProgressRef.current = 0; setDeleteProgress(0) }}><Trash2 size={15}/> Eliminar esta venta</button>
         </div>}

@@ -1618,3 +1618,7 @@ html[data-theme='light'] .streamlinx-command-center{color-scheme:dark}
 
 
 .live-status.pending{color:#d9a27f}.live-status .dot{width:7px;height:7px;border-radius:50%;display:inline-block}.live-status .dot.online{background:#73c98b;box-shadow:0 0 0 3px rgba(115,201,139,.08)}
+
+/* Cierre de caja: acciones de impresión y resumen limpio */
+.closing-print-btn{white-space:nowrap;flex:0 0 auto}.closure-history-row .closure-print-history-btn{width:34px;justify-content:center;padding-inline:0}.closure-detail-subtitle{font-size:12px;font-weight:900;letter-spacing:.8px;color:#85807c;text-transform:uppercase;margin:2px 0 7px}.closure-detail-summary-block{border:1px solid #2b2e2f;background:#111314;border-radius:10px;padding:11px}.closure-detail-payment-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid #242627}.closure-detail-payment-row:first-of-type{border-top:0}.closure-detail-payment-row span{color:#b4afaa;font-size:13px}.closure-detail-payment-row strong{font-size:13px;color:#eee}.closure-detail-footer{justify-content:flex-end}
+@media(max-width:760px){.closing-closed-banner{align-items:flex-start;flex-wrap:wrap}.closing-closed-banner>div{min-width:180px}.closing-print-btn{margin-left:30px}.closure-history-row .closure-print-history-btn{grid-column:2;justify-self:start}.closure-detail-footer{justify-content:stretch}.closure-detail-footer button{flex:1}}
