@@ -1,4 +1,6 @@
 import { db } from './db'
+import type { Table } from 'dexie'
+import { enqueueEntityUpsert, enqueueResetOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, isNetworkError, resetRemoteData, withSyncSuppressed } from './sync'
 import { products as seedProducts } from './demoData'
 import { createRemoteWorker, deleteRemoteUser, getLoginProfiles, getSessionUser, hasPermission, setSessionUser, updateRemoteUser } from './auth'
 import type { AuditEvent, BackupSnapshot, CashClosure, Customer, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
@@ -12,24 +14,41 @@ const redact = (value: unknown): unknown => {
     .map(([key, item]) => [key, redact(item)]))
 }
 const actorFromSession = () => getSessionUser()
+type SyncableRecord = { id: string }
+
+async function persistPut<T extends SyncableRecord>(table: Table<T, string>, entity: Parameters<typeof enqueueEntityUpsert>[0], value: T) {
+  await db.transaction('rw', [table, db.syncQueue], async () => {
+    await table.put(value)
+    await enqueueEntityUpsert(entity, value.id, value)
+  })
+  return value
+}
+
+async function persistAdd<T extends SyncableRecord>(table: Table<T, string>, entity: Parameters<typeof enqueueEntityUpsert>[0], value: T) {
+  await db.transaction('rw', [table, db.syncQueue], async () => {
+    await table.add(value)
+    await enqueueEntityUpsert(entity, value.id, value)
+  })
+  return value
+}
+
 async function audit(action: string, module: string, recordType: string, recordId?: string, before?: unknown, after?: unknown, actor = actorFromSession(), reason?: string) {
   const event: AuditEvent = { id: crypto.randomUUID(), timestamp: new Date().toISOString(), actorId: actor?.id, actorName: actor?.name || 'Sistema', role: actor?.role, module, action, recordType, recordId, before: (redact(before) as Auditable | null) ?? null, after: (redact(after) as Auditable | null) ?? null, reason }
   try {
     await db.auditEvents.add(event)
+    await enqueueEntityUpsert('audit_events', event.id, event)
     if (recordId && after && typeof after === 'object') {
       const versions = await db.historyRecords.where('[entity+recordId]').equals([recordType, recordId]).count()
       const snapshot: HistoryRecord = { id: crypto.randomUUID(), entity: recordType, recordId, version: versions + 1, capturedAt: event.timestamp, eventId: event.id, snapshot: redact(after) as Auditable, deleted: Boolean((after as { deletedAt?: string }).deletedAt) }
       await db.historyRecords.add(snapshot)
+      await enqueueEntityUpsert('history_records', snapshot.id, snapshot)
     }
   } catch (error) {
-    // Compatibilidad con una instalación local que todavía no haya aplicado la migración.
-    // La operación del POS no se revierte por no poder escribir su telemetría.
-    console.warn('StreamLinx audit pending migration:', error)
-    try {
-      const key = 'streamlinx-pending-audit'
-      const queued = JSON.parse(localStorage.getItem(key) || '[]') as AuditEvent[]
-      localStorage.setItem(key, JSON.stringify([event, ...queued].slice(0, 200)))
-    } catch { /* almacenamiento de compatibilidad no disponible */ }
+    // La auditoría nunca debe borrar ni bloquear la operación principal.
+    // A diferencia de la versión anterior, ya no se usa localStorage: si IndexedDB
+    // falla, el error queda visible para diagnóstico y la operación de negocio ya
+    // permanece protegida en sus propias tablas/outbox transaccionales.
+    console.warn('Smaky audit write failed:', error)
   }
   return event
 }
@@ -47,24 +66,76 @@ export async function createBackupSnapshot(actor: User, kind: BackupSnapshot['ki
   const payload = redact({ sales, orders, products, users, closures, customers, events, history, settings }) as Record<string, unknown>
   const contents = { sales: sales.length, orders: orders.length, products: products.length, users: users.length, closures: closures.length, customers: customers.length, audit: events.length, history: history.length, settings: settings.length }
   const backup: BackupSnapshot = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), createdBy: actor.name, kind, label, contents, size: new Blob([JSON.stringify(payload)]).size, payload }
-  await db.backups.add(backup)
+  await persistAdd(db.backups, 'backups', backup)
   await audit('SYSTEM_BACKUP_CREATED', 'BACKUPS', 'backup', backup.id, null, { id: backup.id, label, contents, size: backup.size }, actor)
   return backup
 }
 export async function getBackupSnapshots() { return db.backups.orderBy('createdAt').reverse().toArray() }
 
 export async function restoreArchivedRecord(entity: string, recordId: string, actor: User) {
-  const table = entity === 'sale' ? db.sales : entity === 'order' ? db.orders : entity === 'product' ? db.products : entity === 'user' ? db.users : entity === 'customer' ? db.customers : db.closures
+  const now = new Date().toISOString()
+
+  if (entity === 'user') {
+    const record = await db.users.get(recordId)
+    if (!record?.deletedAt) return false
+
+    const before = { ...record, pin: undefined }
+    const restoredLocal: User = {
+      ...record,
+      active: true,
+      deletedAt: undefined,
+      deletedBy: undefined,
+      updatedAt: now,
+    }
+
+    let finalUser = restoredLocal
+    let remote: Awaited<ReturnType<typeof createRemoteWorker>> | null = null
+    if (navigator.onLine && await ensureRemoteSession()) {
+      try {
+        remote = await createRemoteWorker(restoredLocal.name, restoredLocal.pin, restoredLocal.rank, restoredLocal.legacyId || restoredLocal.id)
+      } catch (error) {
+        if (!isNetworkError(error)) throw error
+      }
+    }
+
+    if (remote) {
+      finalUser = {
+        ...restoredLocal,
+        id: remote.id,
+        legacyId: remote.legacyId || restoredLocal.legacyId || restoredLocal.id,
+        authEmail: remote.authEmail,
+        name: remote.name,
+        role: remote.role,
+        rank: remote.rank,
+        active: remote.active,
+        permissions: remote.permissions,
+        updatedAt: now,
+      }
+      await withSyncSuppressed(async () => {
+        if (finalUser.id !== record.id) await db.users.delete(record.id)
+        await db.users.put(finalUser)
+      })
+    } else {
+      await withSyncSuppressed(async () => { await db.users.put(restoredLocal) })
+      await enqueueUserProvision(restoredLocal)
+    }
+
+    await audit('USER_RESTORED', 'RECOVERY', 'user', recordId, before, { ...finalUser, pin: undefined }, actor)
+    return true
+  }
+
+  const table = entity === 'sale' ? db.sales : entity === 'order' ? db.orders : entity === 'product' ? db.products : entity === 'customer' ? db.customers : db.closures
   const record = await table.get(recordId) as (Auditable & { deletedAt?: string }) | undefined
   if (!record?.deletedAt) return false
   const before = { ...record }
   const after = { ...record }; delete after.deletedAt; delete after.deletedBy
-  if ('updatedAt' in after) (after as Record<string, unknown>).updatedAt = new Date().toISOString()
-  await table.put(after as never)
+  if ('updatedAt' in after) (after as Record<string, unknown>).updatedAt = now
+  await persistPut(table as Table<{ id: string }, string>, entity as Parameters<typeof enqueueEntityUpsert>[0], after as { id: string })
   await audit(`${entity.toUpperCase()}_RESTORED`, 'RECOVERY', entity, recordId, before, after, actor)
   return true
 }
 
+const SEED_BASELINE_UPDATED_AT = '2000-01-01T00:00:00.000Z'
 export const DEFAULT_PRODUCT_CATEGORIES = ['Hamburguesas', 'Combos', 'Acompañamientos', 'Bebidas']
 const CATEGORY_SETTING_KEY = 'productCategories'
 const PAYMENT_METHODS_SETTING_KEY = 'paymentMethods'
@@ -128,7 +199,7 @@ export async function seed() {
   if (!(await db.users.get(seedManager.id))) await db.users.add(seedManager)
 
   const currentUsers = await db.users.toArray()
-  const allPermissionKeys: PermissionKey[] = ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access','settings.general','settings.orders','settings.payments','settings.categories','invoice.settings']
+  const allPermissionKeys: PermissionKey[] = ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access']
   for (const user of currentUsers) {
     const permissions = user.permissions?.length
       ? Array.from(new Set([...user.permissions, 'customers.manage' as PermissionKey, ...(user.role === 'admin' ? ['customers.export' as PermissionKey] : [])]))
@@ -142,21 +213,21 @@ export async function seed() {
 
   const categorySetting = await db.settings.get(CATEGORY_SETTING_KEY)
   if (!categorySetting) {
-    const setting: SystemSetting = { id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: DEFAULT_PRODUCT_CATEGORIES, updatedAt: new Date().toISOString() }
+    const setting: SystemSetting = { id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: DEFAULT_PRODUCT_CATEGORIES, updatedAt: SEED_BASELINE_UPDATED_AT }
     await db.settings.put(setting)
   }
   const orderFieldsSetting = await db.settings.get(ORDER_FIELDS_SETTING_KEY)
   if (!orderFieldsSetting || !Array.isArray(orderFieldsSetting.value)) {
-    await db.settings.put({ id: ORDER_FIELDS_SETTING_KEY, key: ORDER_FIELDS_SETTING_KEY, value: DEFAULT_ORDER_FIELDS, updatedAt: new Date().toISOString() })
+    await db.settings.put({ id: ORDER_FIELDS_SETTING_KEY, key: ORDER_FIELDS_SETTING_KEY, value: DEFAULT_ORDER_FIELDS, updatedAt: SEED_BASELINE_UPDATED_AT })
   }
   const generalSetting = await db.settings.get(GENERAL_SETTINGS_KEY)
   if (!generalSetting || !generalSetting.value || typeof generalSetting.value !== 'object') {
-    await db.settings.put({ id: GENERAL_SETTINGS_KEY, key: GENERAL_SETTINGS_KEY, value: DEFAULT_GENERAL_SETTINGS, updatedAt: new Date().toISOString() })
+    await db.settings.put({ id: GENERAL_SETTINGS_KEY, key: GENERAL_SETTINGS_KEY, value: DEFAULT_GENERAL_SETTINGS, updatedAt: SEED_BASELINE_UPDATED_AT })
   }
 
   const paymentSetting = await db.settings.get(PAYMENT_METHODS_SETTING_KEY)
   if (!paymentSetting || !Array.isArray(paymentSetting.value)) {
-    await db.settings.put({ id: PAYMENT_METHODS_SETTING_KEY, key: PAYMENT_METHODS_SETTING_KEY, value: DEFAULT_PAYMENT_METHODS, updatedAt: new Date().toISOString() })
+    await db.settings.put({ id: PAYMENT_METHODS_SETTING_KEY, key: PAYMENT_METHODS_SETTING_KEY, value: DEFAULT_PAYMENT_METHODS, updatedAt: SEED_BASELINE_UPDATED_AT })
   }
 
   const demoSales = await db.sales.toCollection().filter(sale => sale.id.startsWith('demo-')).primaryKeys()
@@ -221,7 +292,7 @@ export async function updateOrderFields(fields: import('./types').OrderFieldConf
   }
   const before = await getOrderFields()
   const now = new Date().toISOString()
-  await db.settings.put({ id: ORDER_FIELDS_SETTING_KEY, key: ORDER_FIELDS_SETTING_KEY, value: normalized, updatedAt: now })
+  await persistPut(db.settings, 'settings', { id: ORDER_FIELDS_SETTING_KEY, key: ORDER_FIELDS_SETTING_KEY, value: normalized, updatedAt: now })
   await audit('ORDER_FIELDS_UPDATED', 'SETTINGS', 'setting', ORDER_FIELDS_SETTING_KEY, { fields: before }, { fields: normalized }, actor)
   window.dispatchEvent(new CustomEvent('smaky-settings-change', { detail: { key: ORDER_FIELDS_SETTING_KEY } }))
   return normalized
@@ -230,13 +301,8 @@ export async function updateOrderFields(fields: import('./types').OrderFieldConf
 export async function getGeneralSettings(): Promise<import('./types').GeneralSettings> {
   const setting = await db.settings.get(GENERAL_SETTINGS_KEY)
   const value = setting?.value
-  const settings = value && typeof value === 'object'
-    ? { ...DEFAULT_GENERAL_SETTINGS, ...(value as Partial<import('./types').GeneralSettings>) }
-    : { ...DEFAULT_GENERAL_SETTINGS }
-  // La impresión debe poder abrirse en el mismo gesto del usuario; guardar esta
-  // pequeña preferencia en caché evita convertirla en una operación asíncrona.
-  localStorage.setItem('smaky-receipt-font-size', String(settings.receiptFontSize))
-  return settings
+  if (value && typeof value === 'object') return { ...DEFAULT_GENERAL_SETTINGS, ...(value as Partial<import('./types').GeneralSettings>) }
+  return { ...DEFAULT_GENERAL_SETTINGS }
 }
 
 export async function updateGeneralSettings(changes: Partial<import('./types').GeneralSettings>, actor: User) {
@@ -248,11 +314,9 @@ export async function updateGeneralSettings(changes: Partial<import('./types').G
     autoDarkFrom: /^([01]\d|2[0-3]):[0-5]\d$/.test(changes.autoDarkFrom || '') ? changes.autoDarkFrom! : before.autoDarkFrom,
     autoLightFrom: /^([01]\d|2[0-3]):[0-5]\d$/.test(changes.autoLightFrom || '') ? changes.autoLightFrom! : before.autoLightFrom,
     showConsumerFinal: changes.showConsumerFinal ?? before.showConsumerFinal,
-    receiptFontSize: Number.isInteger(Number(changes.receiptFontSize)) && Number(changes.receiptFontSize) >= 4 && Number(changes.receiptFontSize) <= 20 ? Number(changes.receiptFontSize) : before.receiptFontSize,
   }
   const now = new Date().toISOString()
-  await db.settings.put({ id: GENERAL_SETTINGS_KEY, key: GENERAL_SETTINGS_KEY, value: next, updatedAt: now })
-  localStorage.setItem('smaky-receipt-font-size', String(next.receiptFontSize))
+  await persistPut(db.settings, 'settings', { id: GENERAL_SETTINGS_KEY, key: GENERAL_SETTINGS_KEY, value: next, updatedAt: now })
   await audit('GENERAL_SETTINGS_UPDATED', 'SETTINGS', 'setting', GENERAL_SETTINGS_KEY, before, next, actor)
   window.dispatchEvent(new CustomEvent('smaky-settings-change', { detail: { key: GENERAL_SETTINGS_KEY } }))
   return next
@@ -276,7 +340,7 @@ export async function addProductCategory(name: string, actor: User) {
   if (cleanName.toLowerCase() === 'todos') throw new Error('Ese nombre está reservado para el filtro general del punto de venta.')
   if (current.some(item => item.toLowerCase() === cleanName.toLowerCase())) throw new Error('Esa categoría ya existe.')
   const next = [...current, cleanName]
-  await db.settings.put({ id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: next, updatedAt: new Date().toISOString() })
+  await persistPut(db.settings, 'settings', { id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: next, updatedAt: new Date().toISOString() })
   await audit('PRODUCT_CATEGORY_CREATED', 'SETTINGS', 'setting', CATEGORY_SETTING_KEY, { categories: current }, { categories: next, added: cleanName }, actor)
   return next
 }
@@ -290,7 +354,7 @@ export async function deleteProductCategory(name: string, actor: User) {
   const inUse = products.some(product => !product.deletedAt && product.category.toLowerCase() === found.toLowerCase())
   if (inUse) throw new Error('No puedes eliminar una categoría que está asignada a un producto.')
   const next = current.filter(item => item !== found)
-  await db.settings.put({ id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: next, updatedAt: new Date().toISOString() })
+  await persistPut(db.settings, 'settings', { id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: next, updatedAt: new Date().toISOString() })
   await audit('PRODUCT_CATEGORY_DELETED', 'SETTINGS', 'setting', CATEGORY_SETTING_KEY, { categories: current }, { categories: next, removed: found }, actor)
   return next
 }
@@ -313,12 +377,12 @@ export async function updateProductCategory(oldName: string, newName: string, ac
   let updatedProducts = 0
   for (const product of products) {
     if (product.category.toLowerCase() === found.toLowerCase()) {
-      await db.products.put({ ...product, category: cleanName })
+      await persistPut(db.products, 'products', { ...product, category: cleanName, updatedAt: new Date().toISOString() })
       updatedProducts += 1
     }
   }
   const now = new Date().toISOString()
-  await db.settings.put({ id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: next, updatedAt: now })
+  await persistPut(db.settings, 'settings', { id: CATEGORY_SETTING_KEY, key: CATEGORY_SETTING_KEY, value: next, updatedAt: now })
   await audit('PRODUCT_CATEGORY_UPDATED', 'SETTINGS', 'setting', CATEGORY_SETTING_KEY, { categories: current }, { categories: next, renamedFrom: found, renamedTo: cleanName, updatedProducts }, actor)
   return next
 }
@@ -348,7 +412,7 @@ export async function addPaymentMethod(name: string, actor: User) {
   if (current.some(item => item.name.toLowerCase() === cleanName.toLowerCase())) throw new Error('Ese medio de pago ya existe.')
   const now = new Date().toISOString()
   const next = [...current, { id: `custom-${crypto.randomUUID().slice(0, 12)}`, name: cleanName, createdAt: now, updatedAt: now }]
-  await db.settings.put({ id: PAYMENT_METHODS_SETTING_KEY, key: PAYMENT_METHODS_SETTING_KEY, value: next, updatedAt: now })
+  await persistPut(db.settings, 'settings', { id: PAYMENT_METHODS_SETTING_KEY, key: PAYMENT_METHODS_SETTING_KEY, value: next, updatedAt: now })
   await audit('PAYMENT_METHOD_CREATED', 'SETTINGS', 'setting', PAYMENT_METHODS_SETTING_KEY, { paymentMethods: current }, { paymentMethods: next, added: cleanName }, actor)
   return next
 }
@@ -361,7 +425,7 @@ export async function updatePaymentMethod(id: string, name: string, actor: User)
   if (current.some(item => item.id !== id && item.name.toLowerCase() === cleanName.toLowerCase())) throw new Error('Ya existe otro medio de pago con ese nombre.')
   const now = new Date().toISOString()
   const next = current.map(item => item.id === id ? { ...item, name: cleanName, updatedAt: now } : item)
-  await db.settings.put({ id: PAYMENT_METHODS_SETTING_KEY, key: PAYMENT_METHODS_SETTING_KEY, value: next, updatedAt: now })
+  await persistPut(db.settings, 'settings', { id: PAYMENT_METHODS_SETTING_KEY, key: PAYMENT_METHODS_SETTING_KEY, value: next, updatedAt: now })
   await audit('PAYMENT_METHOD_UPDATED', 'SETTINGS', 'setting', PAYMENT_METHODS_SETTING_KEY, { paymentMethods: current }, { paymentMethods: next, updated: id }, actor)
   return next
 }
@@ -373,7 +437,7 @@ export async function deletePaymentMethod(id: string, actor: User) {
   const removed = current.find(item => item.id === id)
   const next = current.filter(item => item.id !== id)
   const now = new Date().toISOString()
-  await db.settings.put({ id: PAYMENT_METHODS_SETTING_KEY, key: PAYMENT_METHODS_SETTING_KEY, value: next, updatedAt: now })
+  await persistPut(db.settings, 'settings', { id: PAYMENT_METHODS_SETTING_KEY, key: PAYMENT_METHODS_SETTING_KEY, value: next, updatedAt: now })
   await audit('PAYMENT_METHOD_DELETED', 'SETTINGS', 'setting', PAYMENT_METHODS_SETTING_KEY, { paymentMethods: current }, { paymentMethods: next, removed }, actor)
   return next
 }
@@ -381,7 +445,7 @@ export async function deletePaymentMethod(id: string, actor: User) {
 export async function saveProduct(product: Product) {
   const previous = await db.products.get(product.id)
   const nextProduct: Product = { ...product, updatedAt: new Date().toISOString() }
-  await db.products.put(nextProduct)
+  await persistPut(db.products, 'products', nextProduct)
   await audit(previous ? 'PRODUCT_UPDATED' : 'PRODUCT_CREATED', 'PRODUCTS', 'product', product.id, previous, nextProduct)
   return nextProduct
 }
@@ -393,7 +457,7 @@ export async function getSales() {
 
 export async function addSale(sale: Sale) {
   const nextSale: Sale = { ...sale, updatedAt: new Date().toISOString() }
-  await db.sales.add(nextSale)
+  await persistAdd(db.sales, 'sales', nextSale)
   await audit('INVOICE_CREATED', 'SALES', 'sale', nextSale.id, null, nextSale)
   return nextSale
 }
@@ -425,21 +489,37 @@ export async function getClosures() {
 }
 
 export async function resetTestData(actor: User) {
-  const result: false | { now: string; sales: number; orders: number; closures: number } = await db.transaction('rw', db.sales, db.orders, db.closures, db.users, async () => {
-    const freshActor = await db.users.get(actor.id)
-    if (!freshActor?.active || freshActor.role !== 'manager') return false
+  const freshActor = await db.users.get(actor.id)
+  if (!freshActor?.active || freshActor.role !== 'manager') return false
 
-    const now = new Date().toISOString()
+  if (navigator.onLine) await ensureRemoteSession()
+  const remote = await resetRemoteData()
+  if (!remote.ok && (!('offline' in remote) || !remote.offline)) return false
+
+  const now = new Date().toISOString()
+  let counts = { sales: 0, orders: 0, closures: 0 }
+
+  await db.transaction('rw', [db.sales, db.orders, db.closures, db.syncQueue], async () => {
     const [sales, orders, closures] = await Promise.all([db.sales.toArray(), db.orders.toArray(), db.closures.toArray()])
-    await Promise.all(sales.filter(x => !x.deletedAt).map(x => db.sales.put({ ...x, deletedAt: now, deletedBy: actor.id })))
-    await Promise.all(orders.filter(x => !x.deletedAt).map(x => db.orders.put({ ...x, deletedAt: now, deletedBy: actor.id })))
-    await Promise.all(closures.filter(x => !x.deletedAt).map(x => db.closures.put({ ...x, deletedAt: now, deletedBy: actor.id })))
-    return { now, sales: sales.length, orders: orders.length, closures: closures.length }
+    const liveSales = sales.filter(item => !item.deletedAt)
+    const liveOrders = orders.filter(item => !item.deletedAt)
+    const liveClosures = closures.filter(item => !item.deletedAt)
+    counts = { sales: liveSales.length, orders: liveOrders.length, closures: liveClosures.length }
+
+    await Promise.all(liveSales.map(item => db.sales.put({ ...item, deletedAt: now, deletedBy: actor.id, updatedAt: now })))
+    await Promise.all(liveOrders.map(item => db.orders.put({ ...item, deletedAt: now, deletedBy: actor.id, updatedAt: now })))
+    await Promise.all(liveClosures.map(item => db.closures.put({ ...item, deletedAt: now, deletedBy: actor.id, updatedAt: now })))
+
+    // If the server was unavailable, one single ordered reset command is enough
+    // to reproduce the same operation remotely. We intentionally do not enqueue
+    // every individual tombstone as well, which would create duplicate work.
+    if ('offline' in remote && remote.offline) await enqueueResetOperation(actor.id)
   })
-  if (!result) return false
-  await audit('SYSTEM_RESET_EXECUTED', 'SYSTEM', 'reset', 'operational-data', { sales: result.sales, orders: result.orders, closures: result.closures }, { deletedAt: result.now }, actor)
+
+  await audit('SYSTEM_RESET_EXECUTED', 'SYSTEM', 'reset', 'operational-data', counts, { deletedAt: now, remote: remote.ok ? 'completed' : 'pending' }, actor)
   return true
 }
+
 
 
 export async function getClosureByDate(dateKey: string) {
@@ -448,7 +528,7 @@ export async function getClosureByDate(dateKey: string) {
 }
 
 export async function deletePreviousDayClosure(closureId: string, actor: User) {
-  return db.transaction('rw', db.closures, db.users, db.auditEvents, db.historyRecords, async () => {
+  return db.transaction('rw', [db.closures, db.users, db.auditEvents, db.historyRecords, db.syncQueue], async () => {
     const freshActor = await db.users.get(actor.id)
     if (!freshActor?.active || freshActor.role !== 'manager') return false
 
@@ -457,14 +537,15 @@ export async function deletePreviousDayClosure(closureId: string, actor: User) {
     if (!closure || closure.dateKey !== yesterdayKey) return false
 
     const after = { ...closure, deletedAt: new Date().toISOString(), deletedBy: actor.id, updatedAt: new Date().toISOString() }
-    await db.closures.put(after)
+      await db.closures.put(after)
+    await enqueueEntityUpsert('cash_closures', after.id, after)
     await audit('CASH_CLOSE_DELETED', 'CASH', 'closure', closureId, closure, after, actor)
     return true
   })
 }
 
 export async function createDailyClosure(dateKey: string, actor: User, cashCounted: number, notes = ''): Promise<CashClosure | null> {
-  return db.transaction('rw', [db.closures, db.sales, db.users, db.auditEvents, db.historyRecords, db.settings], async () => {
+  return db.transaction('rw', [db.closures, db.sales, db.users, db.auditEvents, db.historyRecords, db.settings, db.syncQueue], async () => {
     const freshActor = await db.users.get(actor.id)
     if (!freshActor?.active || !hasPermission(freshActor, 'cashClosing.access')) return null
     const existingClosure = await db.closures.where('dateKey').equals(dateKey).first()
@@ -511,6 +592,7 @@ export async function createDailyClosure(dateKey: string, actor: User, cashCount
     }
 
     await db.closures.add(closure)
+    await enqueueEntityUpsert('cash_closures', closure.id, closure)
     await audit('CASH_CLOSE_CREATED', 'CASH', 'closure', closure.id, null, closure, freshActor)
     return closure
   })
@@ -542,7 +624,7 @@ export async function createCustomer(input: Pick<Customer, 'name' | 'phone' | 'a
   const now = new Date().toISOString()
   const customFields = Object.fromEntries(Object.entries(input.customFields || {}).map(([key, value]) => [key, String(value ?? '').trim()]).filter(([, value]) => value))
   const customer: Customer = { id: crypto.randomUUID(), name, phone, address, notes, customFields, createdAt: now, updatedAt: now, active: true }
-  await db.customers.add(customer)
+  await persistAdd(db.customers, 'customers', customer)
   await audit('CUSTOMER_CREATED', 'CUSTOMERS', 'customer', customer.id, null, customer, actor)
   return customer
 }
@@ -560,7 +642,7 @@ export async function updateCustomer(id: string, input: Pick<Customer, 'name' | 
   if (duplicate && duplicate.id !== id && duplicate.active) throw new Error(`Ya existe un cliente con el celular ${phone}.`)
   const customFields = Object.fromEntries(Object.entries(input.customFields || {}).map(([key, value]) => [key, String(value ?? '').trim()]).filter(([, value]) => value))
   const after: Customer = { ...current, name, phone, address, notes, customFields, updatedAt: new Date().toISOString() }
-  await db.customers.put(after)
+  await persistPut(db.customers, 'customers', after)
   await audit('CUSTOMER_UPDATED', 'CUSTOMERS', 'customer', id, current, after, actor)
   return after
 }
@@ -569,7 +651,7 @@ export async function deactivateCustomer(id: string, actor: User) {
   const current = await db.customers.get(id)
   if (!current) return false
   const after = { ...current, active: false, updatedAt: new Date().toISOString() }
-  await db.customers.put(after)
+  await persistPut(db.customers, 'customers', after)
   await audit('CUSTOMER_DEACTIVATED', 'CUSTOMERS', 'customer', id, current, after, actor)
   return true
 }
@@ -619,7 +701,7 @@ export async function createOrder(items: Order['items'], delivery: DeliveryInfo,
     status: 'pending',
     businessDateKey
   }
-  await db.orders.add(order)
+  await persistAdd(db.orders, 'orders', order)
   await audit('ORDER_CREATED', 'ORDERS', 'order', order.id, null, order, user)
   return order
 }
@@ -630,7 +712,7 @@ export async function updateOrderItems(orderId: string, items: Order['items'], n
   const cleanItems = items.map(item => ({ ...item, modification: item.modification?.trim() || undefined }))
   const subtotal = cleanItems.reduce((sum, item) => sum + item.total, 0)
   const after = { ...order, items: cleanItems, subtotal, total: subtotal, ...(notes !== undefined ? { notes: notes.trim() } : {}), updatedAt: new Date().toISOString() }
-  await db.orders.put(after)
+  await persistPut(db.orders, 'orders', after)
   await audit('ORDER_UPDATED', 'ORDERS', 'order', orderId, order, after)
   return after
 }
@@ -643,7 +725,7 @@ export async function updateOrderStatus(orderId: string, status: OrderStatus) {
   const order = await db.orders.get(orderId)
   if (!order || ['paid', 'cancelled'].includes(order.status)) return order ?? null
   const after = { ...order, status, updatedAt: new Date().toISOString() }
-  await db.orders.put(after)
+  await persistPut(db.orders, 'orders', after)
   await audit('ORDER_UPDATED', 'ORDERS', 'order', orderId, order, after)
   return after
 }
@@ -658,13 +740,13 @@ export async function updateOrderComandaStatus(orderId: string, status: 'printed
     ...(status === 'printed' ? { comandaPrintedAt: now, comandaSkippedAt: undefined } : { comandaSkippedAt: now }),
     updatedAt: now,
   }
-  await db.orders.put(after)
+  await persistPut(db.orders, 'orders', after)
   await audit(status === 'printed' ? 'ORDER_TICKET_PRINTED' : 'ORDER_TICKET_SKIPPED', 'ORDERS', 'order', orderId, order, after)
   return after
 }
 
 export async function completeOrder(orderId: string, payment: PaymentMethod, actor: User, discount?: { type: 'percent' | 'fixed'; value: number }, paymentLabel?: string) {
-  return db.transaction('rw', [db.orders, db.sales, db.users, db.closures, db.auditEvents, db.historyRecords], async () => {
+  return db.transaction('rw', [db.orders, db.sales, db.users, db.closures, db.auditEvents, db.historyRecords, db.syncQueue], async () => {
     const [order, freshActor] = await Promise.all([db.orders.get(orderId), db.users.get(actor.id)])
     if (!order || !freshActor?.active || !hasPermission(freshActor, 'pos.access') || ['paid', 'cancelled'].includes(order.status)) return null
     const businessDateKey = recordBusinessDayKey(order)
@@ -707,7 +789,10 @@ export async function completeOrder(orderId: string, payment: PaymentMethod, act
     }
 
     await db.sales.add(sale)
-    await db.orders.update(order.id, { status: 'paid', updatedAt: new Date().toISOString() })
+    await enqueueEntityUpsert('sales', sale.id, sale)
+    const updatedOrder = { ...order, status: 'paid' as const, updatedAt: new Date().toISOString() }
+    await db.orders.put(updatedOrder)
+    await enqueueEntityUpsert('orders', updatedOrder.id, updatedOrder)
     await audit('INVOICE_CREATED', 'SALES', 'sale', sale.id, null, sale, freshActor)
     await audit('ORDER_UPDATED', 'ORDERS', 'order', order.id, order, { ...order, status: 'paid' }, freshActor)
     return { sale, order: await db.orders.get(order.id) as Order }
@@ -720,7 +805,7 @@ export async function deleteSale(targetId: string, actorId: string) {
   const sale = await db.sales.get(targetId)
   if (!sale) return false
   const after = { ...sale, deletedAt: new Date().toISOString(), deletedBy: actor.id, updatedAt: new Date().toISOString() }
-  await db.sales.put(after)
+  await persistPut(db.sales, 'sales', after)
   await audit('INVOICE_DELETED', 'SALES', 'sale', targetId, sale, after, actor)
   return true
 }
@@ -731,7 +816,7 @@ export async function deleteProduct(targetId: string, actorId: string) {
   const product = await db.products.get(targetId)
   if (!product) return false
   const after = { ...product, deletedAt: new Date().toISOString(), deletedBy: actor.id, updatedAt: new Date().toISOString() }
-  await db.products.put(after)
+  await persistPut(db.products, 'products', after)
   await audit('PRODUCT_DELETED', 'PRODUCTS', 'product', targetId, product, after, actor)
   return true
 }
@@ -742,21 +827,23 @@ export async function deleteOrder(targetId: string, actorId: string) {
   const order = await db.orders.get(targetId)
   if (!order || order.status === 'paid') return false
   const after = { ...order, deletedAt: new Date().toISOString(), deletedBy: actor.id, updatedAt: new Date().toISOString() }
-  await db.orders.put(after)
+  await persistPut(db.orders, 'orders', after)
   await audit('ORDER_DELETED', 'ORDERS', 'order', targetId, order, after, actor)
   return true
 }
 
 export async function replaceProducts(products: Product[]) {
-  await db.products.clear()
-  await db.products.bulkAdd(products)
+  await db.transaction('rw', [db.products, db.syncQueue], async () => {
+    await db.products.clear()
+    for (const product of products) {
+      await db.products.add(product)
+      await enqueueEntityUpsert('products', product.id, product)
+    }
+  })
 }
 
 export async function getUsers() {
   const users = await db.users.toArray()
-  const deletedIds = new Set(users.filter(user => user.deletedAt).map(user => user.id))
-  const deletedLegacyIds = new Set(users.filter(user => user.deletedAt && user.legacyId).map(user => user.legacyId!))
-  const deletedEmails = new Set(users.filter(user => user.deletedAt && user.authEmail).map(user => user.authEmail!.toLowerCase()))
   const visible = users
     .filter(user => !user.deletedAt)
     .sort((a, b) => {
@@ -785,15 +872,6 @@ export async function getUsers() {
       .map(user => [user.legacyId!, user])
   )
 
-  // Mientras el perfil recién creado se propaga por Supabase, legacy_id puede
-  // llegar vacío en una lectura puntual. authEmail es el mismo identificador
-  // técnico estable y evita que esa ventana muestre dos trabajadores.
-  const byAuthEmail = new Map(
-    visible
-      .filter(user => user.authEmail)
-      .map(user => [user.authEmail!.toLowerCase(), user])
-  )
-
   const consumedLocalIds = new Set<string>()
   const merged: User[] = []
   const remoteKeys = new Set<string>()
@@ -804,24 +882,12 @@ export async function getUsers() {
    * una copia local y otra remota.
    */
   for (const profile of loginProfiles) {
-    // Si se acaba de eliminar localmente, la respuesta de Supabase puede seguir
-    // incluyendo el perfil por unos instantes. No lo reinsertamos en pantalla.
-    if (
-      deletedIds.has(profile.id) ||
-      (profile.legacyId && deletedLegacyIds.has(profile.legacyId)) ||
-      (profile.authEmail && deletedEmails.has(profile.authEmail.toLowerCase()))
-    ) {
-      continue
-    }
-
     const identityKey =
       profile.role === 'manager'
         ? 'manager'
         : profile.legacyId
           ? `legacy:${profile.legacyId}`
-          : profile.authEmail
-            ? `email:${profile.authEmail.toLowerCase()}`
-            : `id:${profile.id}`
+          : `id:${profile.id}`
 
     // Evita duplicados que vengan desde la propia consulta remota.
     if (remoteKeys.has(identityKey)) {
@@ -834,9 +900,6 @@ export async function getUsers() {
       byId.get(profile.id) ||
       (profile.legacyId
         ? byLegacy.get(profile.legacyId)
-        : undefined) ||
-      (profile.authEmail
-        ? byAuthEmail.get(profile.authEmail.toLowerCase())
         : undefined)
 
     if (local && local.id !== profile.id) {
@@ -898,9 +961,7 @@ export async function getUsers() {
           ? 'manager'
           : user.legacyId
             ? `legacy:${user.legacyId}`
-            : user.authEmail
-              ? `email:${user.authEmail.toLowerCase()}`
-              : `id:${user.id}`
+            : `id:${user.id}`
       )
     ) {
       return false
@@ -933,9 +994,7 @@ export async function getUsers() {
         ? 'manager'
         : user.legacyId
           ? `legacy:${user.legacyId}`
-          : user.authEmail
-            ? `email:${user.authEmail.toLowerCase()}`
-            : `id:${user.id}`
+          : `id:${user.id}`
 
     if (finalKeys.has(key)) {
       continue
@@ -960,21 +1019,31 @@ export async function getUsers() {
 export async function createWorker(name: string, pin: string, rank: string) {
   const legacyId = crypto.randomUUID()
   let remote: Awaited<ReturnType<typeof createRemoteWorker>> | null = null
-  if (navigator.onLine) remote = await createRemoteWorker(name.trim(), pin, rank.trim(), legacyId)
+
+  if (navigator.onLine) {
+    try {
+      await ensureRemoteSession()
+      remote = await createRemoteWorker(name.trim(), pin, rank.trim(), legacyId)
+    } catch (error) {
+      if (!isNetworkError(error)) throw error
+    }
+  }
 
   const user: User = {
     id: remote?.id || legacyId,
-    legacyId,
+    legacyId: remote?.legacyId || legacyId,
     authEmail: remote?.authEmail || `${legacyId}@smaky.local`,
     name: remote?.name || name.trim(),
     role: remote?.role || 'employee',
     pin,
     rank: remote?.rank || rank.trim(),
     active: remote?.active ?? true,
-    permissions: remote?.permissions || ['dashboard.view','pos.access','sales.view','cashClosing.access'],
+    permissions: remote?.permissions || ['dashboard.view','pos.access','customers.manage','sales.view','cashClosing.access'],
     updatedAt: new Date().toISOString()
   }
-  await db.users.put(user)
+
+  await withSyncSuppressed(() => db.users.put(user))
+  if (!remote) await enqueueUserProvision(user)
   await audit('USER_CREATED', 'USERS', 'user', user.id, null, { ...user, pin: undefined })
   return user
 }
@@ -989,7 +1058,7 @@ export async function updateUserSettings(targetId: string, changes: Partial<User
   if (typeof changes.name === 'string' && changes.name.trim().length >= 2) safeChanges.name = changes.name.trim()
   if (typeof changes.pin === 'string' && /^\d{4}$/.test(changes.pin)) safeChanges.pin = changes.pin
   if (typeof changes.rank === 'string' && changes.rank.trim().length >= 2) safeChanges.rank = changes.rank.trim()
-  if (actor.role === 'manager' && Array.isArray(changes.permissions)) safeChanges.permissions = Array.from(new Set(changes.permissions.filter((key): key is PermissionKey => ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access','settings.general','settings.orders','settings.payments','settings.categories','invoice.settings'].includes(key)))) as PermissionKey[]
+  if (actor.role === 'manager' && Array.isArray(changes.permissions)) safeChanges.permissions = Array.from(new Set([...changes.permissions.filter((key): key is PermissionKey => ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access'].includes(key)), 'pos.access'])) as PermissionKey[]
 
   const wantsRoleChange = changes.role !== undefined && changes.role !== target.role
   const wantsActiveChange = changes.active !== undefined && changes.active !== target.active
@@ -999,55 +1068,34 @@ export async function updateUserSettings(targetId: string, changes: Partial<User
     if (target.id !== actor.id) return target
     if (wantsRoleChange || wantsActiveChange) return target
   }
-
   if (wantsRoleChange && !actorIsManager) return target
   if (wantsRoleChange && !['admin', 'employee'].includes(changes.role as string)) return target
   if (target.role === 'admin' && changes.role === 'employee' && !actorIsManager) return target
-
   if (target.id === actor.id && wantsActiveChange) return target
-
   if (wantsActiveChange && target.role === 'admin' && !actorIsManager) return target
   if (wantsActiveChange && target.role === 'manager') return target
-
   if (wantsRoleChange) safeChanges.role = changes.role
   if (wantsActiveChange) safeChanges.active = changes.active
+  if (!Object.keys(safeChanges).length) return target
 
-  if (Object.keys(safeChanges).length) {
-    let remote: Awaited<ReturnType<typeof updateRemoteUser>> | null = null
-    if (navigator.onLine) remote = await updateRemoteUser(targetId, safeChanges)
-
-    // Si Cloudflare se actualizó pero la Edge Function quedó en una versión
-    // anterior, Supabase filtra las claves nuevas y parecía que el botón
-    // Guardar no hacía nada. Mostramos la causa en vez de perder el cambio.
-    const requestedConfigurationPermissions = (safeChanges.permissions || []).filter(key =>
-      key === 'invoice.settings' || key.startsWith('settings.')
-    )
-    if (
-      remote &&
-      requestedConfigurationPermissions.some(key => !remote!.permissions.includes(key))
-    ) {
-      throw new Error(
-        'Supabase rechazó permisos de Configuraciones. Despliega la Edge Function admin-users actualizada y vuelve a guardar.'
-      )
+  const after: User = { ...target, ...safeChanges, updatedAt: new Date().toISOString() }
+  let remote: Awaited<ReturnType<typeof updateRemoteUser>> | null = null
+  if (navigator.onLine) {
+    try {
+      await ensureRemoteSession()
+      remote = await updateRemoteUser(targetId, safeChanges)
+    } catch (error) {
+      if (!isNetworkError(error)) throw error
     }
-
-    const after: User = {
-      ...target,
-      ...(remote ? {
-        id: remote.id,
-        authEmail: remote.authEmail,
-        legacyId: remote.legacyId || target.legacyId,
-        name: remote.name,
-        role: remote.role,
-        rank: remote.rank,
-        active: remote.active,
-        permissions: remote.permissions,
-      } : safeChanges),
-      updatedAt: new Date().toISOString()
-    }
-    await db.users.put(after)
-    await audit(wantsActiveChange && changes.active === false ? 'USER_DISABLED' : 'USER_UPDATED', 'USERS', 'user', targetId, target, { ...after, pin: undefined }, actor)
   }
+
+  if (remote) {
+    Object.assign(after, { id: remote.id, authEmail: remote.authEmail, legacyId: remote.legacyId || after.legacyId, name: remote.name, role: remote.role, rank: remote.rank, active: remote.active, permissions: remote.permissions, updatedAt: new Date().toISOString() })
+  }
+
+  await withSyncSuppressed(() => db.users.put(after))
+  if (!remote) await enqueueUserUpdate(targetId, safeChanges)
+  await audit(wantsActiveChange && changes.active === false ? 'USER_DISABLED' : 'USER_UPDATED', 'USERS', 'user', targetId, { ...target, pin: undefined }, { ...after, pin: undefined }, actor)
   return db.users.get(targetId)
 }
 
@@ -1057,15 +1105,20 @@ export async function deleteUserProfile(targetId: string, actorId: string) {
   if (target.id === actor.id || target.role === 'manager') return false
   if (target.role === 'admin' && actor.role !== 'manager') return false
   if (target.role === 'employee' && !['manager', 'admin'].includes(actor.role)) return false
-  const after = { ...target, deletedAt: new Date().toISOString(), deletedBy: actor.id, active: false, updatedAt: new Date().toISOString() }
-  await db.users.put(after)
-  await audit('USER_DELETED', 'USERS', 'user', targetId, { ...target, pin: undefined }, { ...after, pin: undefined }, actor)
-  // El cierre visual no debe esperar a Cloudflare/Supabase. El perfil se oculta
-  // localmente de inmediato y la eliminación remota continúa en segundo plano.
+
+  let remoteDeleted = false
   if (navigator.onLine) {
-    void deleteRemoteUser(targetId).catch(error => {
-      console.error('Smaky: no se pudo eliminar remotamente el perfil:', error)
-    })
+    try {
+      await ensureRemoteSession()
+      remoteDeleted = await deleteRemoteUser(targetId)
+    } catch (error) {
+      if (!isNetworkError(error)) throw error
+    }
   }
+
+  const after = { ...target, deletedAt: new Date().toISOString(), deletedBy: actor.id, active: false, updatedAt: new Date().toISOString() }
+  await withSyncSuppressed(() => db.users.put(after))
+  if (!remoteDeleted) await enqueueUserDelete(targetId)
+  await audit('USER_DELETED', 'USERS', 'user', targetId, { ...target, pin: undefined }, { ...after, pin: undefined }, actor)
   return true
 }

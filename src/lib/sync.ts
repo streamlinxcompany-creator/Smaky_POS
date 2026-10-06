@@ -1,362 +1,717 @@
-import { db, setDbMutationListener, setDbSyncApplying } from './db'
+import type { Table } from 'dexie'
+import { db, type DataSyncOperation, type SyncEntity, type SyncOperation, type UserSyncOperation } from './db'
+import type {
+  AuditEvent,
+  BackupSnapshot,
+  CashClosure,
+  Customer,
+  HistoryRecord,
+  Order,
+  Product,
+  Sale,
+  SystemSetting,
+  User,
+} from './types'
 import { supabase, supabaseConfigured } from './supabase'
-import type { AuditEvent, CashClosure, Customer, HistoryRecord, Order, Product, Sale, SystemSetting, User } from './types'
 
-let syncTimer: number | null = null
-let periodicTimer: number | null = null
-let syncing = false
+const PAGE_SIZE = 1000
+const SYNC_EVENT = 'smaky-sync-change'
+let suppressionDepth = 0
+let syncRunning = false
 let started = false
+let retryTimer: number | null = null
+let intervalTimer: number | null = null
+let scheduledSyncTimer: number | null = null
+let lastError: string | undefined
+let lastSyncedAt: string | undefined
 
-const delay = (ms: number) => new Promise(resolve => window.setTimeout(resolve, ms))
-
-function asObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' ? value as Record<string, unknown> : {}
+export type SyncState = {
+  syncing: boolean
+  pending: number
+  lastError?: string
+  lastSyncedAt?: string
 }
 
-function timestampOf(value: unknown): number {
-  const row = asObject(value)
-  const candidates = [row.updatedAt, row.deletedAt, row.createdAt, row.closedAt, row.timestamp, row.capturedAt]
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string') {
-      const time = Date.parse(candidate)
-      if (Number.isFinite(time)) return time
-    }
+export type SyncResult = SyncState & { ok: boolean }
+
+export const isSyncSuppressed = () => suppressionDepth > 0
+
+export async function withSyncSuppressed<T>(work: () => Promise<T> | T): Promise<T> {
+  suppressionDepth += 1
+  try {
+    return await work()
+  } finally {
+    suppressionDepth = Math.max(0, suppressionDepth - 1)
   }
-  return 0
 }
 
-function rowTimestamp(value: Record<string, unknown>): number {
-  const time = Date.parse(String(value.updated_at || value.deleted_at || value.created_at || value.closed_at || value.timestamp || value.captured_at || ''))
-  return Number.isFinite(time) ? time : 0
+function emitSyncChange() {
+  if (typeof window === 'undefined') return
+  void getSyncState().then(state => window.dispatchEvent(new CustomEvent(SYNC_EVENT, { detail: state })))
 }
 
-function remoteRecord(id: string, data: Record<string, unknown>, deletedAt?: string) {
-  const updatedAt = String(data.updatedAt || data.deletedAt || data.createdAt || data.closedAt || data.timestamp || data.capturedAt || '1970-01-01T00:00:00.000Z')
-  return { id, updated_at: updatedAt, deleted_at: deletedAt || null, data }
+async function pendingCount() {
+  return db.syncQueue.count()
 }
 
-async function syncJsonTable<T extends { id: string }>(
-  table: string,
-  readLocal: () => Promise<T[]>,
-  putLocal: (row: T) => Promise<void>,
-  mapRemoteToLocal: (row: Record<string, unknown>) => T | null,
-  mapLocalToRemote: (row: T) => Record<string, unknown>,
-) {
-  if (!supabase) return
-  const { data: remoteRows, error } = await supabase.from(table).select('*').limit(5000)
+export async function getSyncState(): Promise<SyncState> {
+  return {
+    syncing: syncRunning,
+    pending: await pendingCount(),
+    lastError,
+    lastSyncedAt,
+  }
+}
+
+function randomId(prefix: string) {
+  return `${prefix}-${crypto.randomUUID()}`
+}
+
+function stamp() {
+  return new Date().toISOString()
+}
+
+function cleanError(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  try { return JSON.stringify(error) } catch { return String(error) }
+}
+
+export function isNetworkError(error: unknown) {
+  const value = error as { message?: string; status?: number; name?: string; code?: string } | null | undefined
+  const message = String(value?.message || error || '').toLowerCase()
+  const name = String(value?.name || '').toLowerCase()
+  const code = String(value?.code || '').toLowerCase()
+  const status = Number(value?.status || 0)
+  if (status >= 500) return true
+  if (status >= 400 && status < 500) return false
+  return /fetch|network|failed to fetch|load failed|timeout|offline|abort|connection|cors|networkerror/.test(message)
+    || /networkerror|aborterror/.test(name)
+    || /econn|etimedout|enetwork|fetch/.test(code)
+}
+
+function scheduleSyncSoon() {
+  if (typeof window === 'undefined' || !navigator.onLine || !supabaseConfigured || !supabase) return
+  if (scheduledSyncTimer !== null) window.clearTimeout(scheduledSyncTimer)
+  scheduledSyncTimer = window.setTimeout(() => {
+    scheduledSyncTimer = null
+    void syncNow()
+  }, 250)
+}
+
+async function enqueueOperation(operation: SyncOperation) {
+  if (isSyncSuppressed()) return
+
+  // Solo las entidades de estado mutable se pueden coalescer.
+  // Auditoría, historial y backups son append-only: cada evento debe llegar
+  // al servidor y jamás se debe descartar uno por compartir recordId.
+  const coalescible = new Set<SyncEntity>(['products', 'customers', 'orders', 'sales', 'cash_closures', 'settings'])
+  if (operation.operation === 'upsert' && coalescible.has(operation.entity as SyncEntity) && operation.recordId) {
+    await db.syncQueue.where('[entity+recordId]').equals([operation.entity, operation.recordId]).delete()
+  }
+  await db.syncQueue.put(operation)
+  emitSyncChange()
+  scheduleSyncSoon()
+}
+
+export async function enqueueEntityUpsert(entity: SyncEntity, recordId: string, payload: unknown, createdAt = stamp()) {
+  await enqueueOperation({
+    id: randomId('sync'),
+    entity,
+    operation: 'upsert',
+    recordId,
+    payload,
+    createdAt,
+    attempts: 0,
+  })
+}
+
+export async function enqueueUserProvision(user: User) {
+  const operation: UserSyncOperation = {
+    id: randomId('user-sync'),
+    entity: 'users',
+    operation: 'provision',
+    recordId: user.id,
+    payload: { user },
+    createdAt: stamp(),
+    attempts: 0,
+  }
+  await enqueueOperation(operation)
+}
+
+export async function enqueueUserUpdate(targetId: string, changes: Partial<User>) {
+  const operation: UserSyncOperation = {
+    id: randomId('user-sync'),
+    entity: 'users',
+    operation: 'update',
+    recordId: targetId,
+    payload: { changes },
+    createdAt: stamp(),
+    attempts: 0,
+  }
+  await enqueueOperation(operation)
+}
+
+export async function enqueueUserDelete(targetId: string) {
+  const operation: UserSyncOperation = {
+    id: randomId('user-sync'),
+    entity: 'users',
+    operation: 'delete',
+    recordId: targetId,
+    payload: {},
+    createdAt: stamp(),
+    attempts: 0,
+  }
+  await enqueueOperation(operation)
+}
+
+export async function enqueueResetOperation(actorId: string) {
+  await enqueueOperation({
+    id: randomId('reset'),
+    entity: 'system',
+    operation: 'reset',
+    createdAt: stamp(),
+    attempts: 0,
+    payload: { actorId },
+  })
+}
+
+export async function markSyncFailure(operationId: string, error: unknown) {
+  await db.syncQueue.update(operationId, {
+    attempts: ((await db.syncQueue.get(operationId))?.attempts || 0) + 1,
+    lastError: cleanError(error),
+  })
+  lastError = cleanError(error)
+  emitSyncChange()
+}
+
+async function markSyncSuccess(operationId: string) {
+  await db.syncQueue.delete(operationId)
+  emitSyncChange()
+}
+
+function redact(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redact)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter(([key]) => !/(pin|password|token|secret|cookie)/i.test(key))
+    .map(([key, item]) => [key, redact(item)]))
+}
+
+function productRow(product: Product) {
+  return {
+    id: product.id,
+    name: product.name,
+    category: product.category,
+    price: product.price,
+    active: product.active,
+    deleted_at: product.deletedAt ?? null,
+    deleted_by: product.deletedBy ?? null,
+    updated_at: product.updatedAt || stamp(),
+    data: redact(product),
+  }
+}
+
+function customerRow(customer: Customer) {
+  return {
+    id: customer.id,
+    name: customer.name,
+    phone: customer.phone,
+    address: customer.address,
+    notes: customer.notes,
+    active: customer.active,
+    custom_fields: customer.customFields || {},
+    created_at: customer.createdAt,
+    updated_at: customer.updatedAt,
+    data: redact(customer),
+  }
+}
+
+function orderRow(order: Order) {
+  return {
+    id: order.id,
+    order_number: order.orderNumber,
+    created_at: order.createdAt,
+    updated_at: order.updatedAt,
+    user_id: order.userId,
+    customer_id: order.customerId ?? null,
+    status: order.status,
+    business_date_key: order.businessDateKey ?? null,
+    total: order.total,
+    deleted_at: order.deletedAt ?? null,
+    deleted_by: order.deletedBy ?? null,
+    data: redact(order),
+  }
+}
+
+function saleRow(sale: Sale) {
+  return {
+    id: sale.id,
+    created_at: sale.createdAt,
+    updated_at: sale.updatedAt || stamp(),
+    user_id: sale.userId,
+    customer_id: sale.customerId ?? null,
+    payment: sale.payment,
+    order_id: sale.orderId ?? null,
+    order_number: sale.orderNumber ?? null,
+    business_date_key: sale.businessDateKey ?? null,
+    total: sale.total,
+    deleted_at: sale.deletedAt ?? null,
+    deleted_by: sale.deletedBy ?? null,
+    data: redact(sale),
+  }
+}
+
+function closureRow(closure: CashClosure) {
+  return {
+    id: closure.id,
+    date_key: closure.dateKey,
+    closed_at: closure.closedAt,
+    user_id: closure.userId,
+    total: closure.total,
+    deleted_at: closure.deletedAt ?? null,
+    deleted_by: closure.deletedBy ?? null,
+    updated_at: closure.updatedAt || stamp(),
+    data: redact(closure),
+  }
+}
+
+function settingRow(setting: SystemSetting) {
+  return {
+    id: setting.id,
+    key: setting.key,
+    updated_at: setting.updatedAt,
+    data: redact(setting),
+  }
+}
+
+function auditRow(event: AuditEvent) {
+  return {
+    id: event.id,
+    timestamp: event.timestamp,
+    actor_id: event.actorId ?? null,
+    actor_name: event.actorName,
+    role: event.role ?? null,
+    module: event.module,
+    action: event.action,
+    record_type: event.recordType,
+    record_id: event.recordId ?? null,
+    before_data: redact(event.before) ?? null,
+    after_data: redact(event.after) ?? null,
+    reason: event.reason ?? null,
+    data: redact(event),
+  }
+}
+
+function historyRow(history: HistoryRecord) {
+  return {
+    id: history.id,
+    entity: history.entity,
+    record_id: history.recordId,
+    version: history.version,
+    captured_at: history.capturedAt,
+    event_id: history.eventId,
+    deleted: Boolean(history.deleted),
+    snapshot: redact(history.snapshot),
+    data: redact(history),
+  }
+}
+
+function backupRow(backup: BackupSnapshot) {
+  return {
+    id: backup.id,
+    created_at: backup.createdAt,
+    created_by: backup.createdBy,
+    kind: backup.kind,
+    label: backup.label,
+    size: backup.size,
+    contents: backup.contents,
+    payload: redact(backup.payload),
+  }
+}
+
+async function upsertRemote(entity: SyncEntity, payload: unknown) {
+  if (!supabase) throw new Error('Supabase no está configurado.')
+  let query: any
+  switch (entity) {
+    case 'products': query = supabase.from('products').upsert(productRow(payload as Product), { onConflict: 'id' }).select('*').single(); break
+    case 'customers': query = supabase.from('customers').upsert(customerRow(payload as Customer), { onConflict: 'id' }).select('*').single(); break
+    case 'orders': query = supabase.from('orders').upsert(orderRow(payload as Order), { onConflict: 'id' }).select('*').single(); break
+    case 'sales': query = supabase.from('sales').upsert(saleRow(payload as Sale), { onConflict: 'id' }).select('*').single(); break
+    case 'cash_closures': query = supabase.from('cash_closures').upsert(closureRow(payload as CashClosure), { onConflict: 'id' }).select('*').single(); break
+    case 'settings': query = supabase.from('settings').upsert(settingRow(payload as SystemSetting), { onConflict: 'id' }).select('*').single(); break
+    case 'audit_events': query = supabase.from('audit_events').insert(auditRow(payload as AuditEvent)); break
+    case 'history_records': query = supabase.from('history_records').insert(historyRow(payload as HistoryRecord)); break
+    case 'backups': query = supabase.from('backup_snapshots').insert(backupRow(payload as BackupSnapshot)); break
+    default: throw new Error(`Entidad no soportada: ${entity}`)
+  }
+  const { data, error } = await query
   if (error) throw error
+  return data
+}
 
-  const localRows = await readLocal()
-  const remoteMap = new Map<string, Record<string, unknown>>()
-  for (const row of (remoteRows || []) as Record<string, unknown>[]) {
-    const id = String(row.id || '')
-    if (id) remoteMap.set(id, row)
+function rowTimestamp(entity: SyncEntity, row: any) {
+  if (entity === 'audit_events') return String(row.timestamp || '')
+  if (entity === 'history_records') return String(row.captured_at || '')
+  if (entity === 'backups') return String(row.created_at || '')
+  if (entity === 'settings') return String(row.updated_at || '')
+  if (entity === 'orders' || entity === 'sales') return String(row.updated_at || row.created_at || '')
+  if (entity === 'customers') return String(row.updated_at || row.created_at || '')
+  if (entity === 'products' || entity === 'cash_closures') return String(row.updated_at || row.closed_at || '')
+  return ''
+}
+
+function localTimestamp(entity: SyncEntity, record: any) {
+  if (entity === 'audit_events') return String(record.timestamp || '')
+  if (entity === 'history_records') return String(record.capturedAt || '')
+  if (entity === 'backups') return String(record.createdAt || '')
+  return String(record.updatedAt || record.createdAt || '')
+}
+
+function remoteToLocal(entity: SyncEntity, row: any) {
+  const base = (row?.data && typeof row.data === 'object') ? row.data : {}
+  switch (entity) {
+    case 'products': return {
+      ...(base as Product),
+      id: String(row.id), name: String(row.name || base.name || ''), category: String(row.category || base.category || ''),
+      price: Number(row.price ?? base.price ?? 0), active: Boolean(row.active),
+      deletedAt: row.deleted_at || undefined, deletedBy: row.deleted_by || undefined,
+      updatedAt: String(row.updated_at || base.updatedAt || stamp()),
+    } as Product
+    case 'customers': return {
+      ...(base as Customer), id: String(row.id), name: String(row.name || ''), phone: String(row.phone || ''),
+      address: String(row.address || ''), notes: String(row.notes || ''), active: Boolean(row.active),
+      customFields: (row.custom_fields || base.customFields || {}) as Record<string, string>,
+      createdAt: String(row.created_at || base.createdAt || stamp()), updatedAt: String(row.updated_at || base.updatedAt || stamp()),
+    } as Customer
+    case 'orders': return {
+      ...(base as Order), id: String(row.id), orderNumber: Number(row.order_number || base.orderNumber || 0),
+      createdAt: String(row.created_at || base.createdAt || stamp()), updatedAt: String(row.updated_at || base.updatedAt || stamp()),
+      userId: String(row.user_id || base.userId || ''), customerId: row.customer_id || undefined, status: row.status || base.status,
+      businessDateKey: row.business_date_key || base.businessDateKey || undefined, total: Number(row.total ?? base.total ?? 0),
+      deletedAt: row.deleted_at || undefined, deletedBy: row.deleted_by || undefined,
+    } as Order
+    case 'sales': return {
+      ...(base as Sale), id: String(row.id), createdAt: String(row.created_at || base.createdAt || stamp()),
+      updatedAt: String(row.updated_at || base.updatedAt || stamp()), userId: String(row.user_id || base.userId || ''),
+      customerId: row.customer_id || undefined, payment: String(row.payment || base.payment || ''), orderId: row.order_id || undefined,
+      orderNumber: row.order_number ?? base.orderNumber ?? undefined, businessDateKey: row.business_date_key || base.businessDateKey || undefined,
+      total: Number(row.total ?? base.total ?? 0), deletedAt: row.deleted_at || undefined, deletedBy: row.deleted_by || undefined,
+    } as Sale
+    case 'cash_closures': return {
+      ...(base as CashClosure), id: String(row.id), dateKey: String(row.date_key || base.dateKey || ''),
+      closedAt: String(row.closed_at || base.closedAt || stamp()), userId: String(row.user_id || base.userId || ''), total: Number(row.total ?? base.total ?? 0),
+      deletedAt: row.deleted_at || undefined, deletedBy: row.deleted_by || undefined, updatedAt: String(row.updated_at || base.updatedAt || stamp()),
+    } as CashClosure
+    case 'settings': return {
+      ...(base as SystemSetting), id: String(row.id), key: String(row.key || base.key || row.id),
+      value: (row.data && Object.hasOwn(row.data, 'value')) ? row.data.value : (base as SystemSetting).value,
+      updatedAt: String(row.updated_at || base.updatedAt || stamp()),
+    } as SystemSetting
+    case 'audit_events': return {
+      ...(base as AuditEvent), id: String(row.id), timestamp: String(row.timestamp || base.timestamp || stamp()), actorId: row.actor_id || undefined,
+      actorName: String(row.actor_name || base.actorName || 'Sistema'), role: row.role || undefined, module: String(row.module || base.module || ''),
+      action: String(row.action || base.action || ''), recordType: String(row.record_type || base.recordType || ''), recordId: row.record_id || undefined,
+      before: (row.before_data ?? base.before ?? null) as Record<string, unknown> | null, after: (row.after_data ?? base.after ?? null) as Record<string, unknown> | null,
+      reason: row.reason || undefined,
+    } as AuditEvent
+    case 'history_records': return {
+      ...(base as HistoryRecord), id: String(row.id), entity: String(row.entity || base.entity || ''), recordId: String(row.record_id || base.recordId || ''),
+      version: Number(row.version || base.version || 1), capturedAt: String(row.captured_at || base.capturedAt || stamp()),
+      eventId: String(row.event_id || base.eventId || ''), snapshot: (row.snapshot || base.snapshot || {}) as Record<string, unknown>, deleted: Boolean(row.deleted),
+    } as HistoryRecord
+    case 'backups': return {
+      id: String(row.id), createdAt: String(row.created_at || stamp()), createdBy: String(row.created_by || ''), kind: row.kind,
+      label: String(row.label || ''), size: Number(row.size || 0), contents: (row.contents || {}) as Record<string, number>, payload: (row.payload || {}) as Record<string, unknown>,
+    } as BackupSnapshot
   }
+}
 
-  const pendingRemote: Record<string, unknown>[] = []
-  const localMap = new Map(localRows.map(row => [row.id, row]))
+function entityTable(entity: SyncEntity) {
+  switch (entity) {
+    case 'products': return db.products
+    case 'customers': return db.customers
+    case 'orders': return db.orders
+    case 'sales': return db.sales
+    case 'cash_closures': return db.closures
+    case 'settings': return db.settings
+    case 'audit_events': return db.auditEvents
+    case 'history_records': return db.historyRecords
+    case 'backups': return db.backups
+  }
+}
 
-  for (const local of localRows) {
-    const remote = remoteMap.get(local.id)
+async function putLocalRemote(entity: SyncEntity, remoteRow: any) {
+  const table = entityTable(entity) as Table<any, string>
+  const local = remoteToLocal(entity, remoteRow)
+  if (!local) return
+  await withSyncSuppressed(() => table.put(local))
+}
+
+async function fetchAll(entity: SyncEntity) {
+  if (!supabase) throw new Error('Supabase no está configurado.')
+  const tableName = entity === 'cash_closures' ? 'cash_closures' : entity === 'backups' ? 'backup_snapshots' : entity
+  const rows: any[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const to = from + PAGE_SIZE - 1
+    const { data, error } = await supabase.from(tableName).select('*').range(from, to)
+    if (error) throw error
+    rows.push(...(data || []))
+    if (!data || data.length < PAGE_SIZE) break
+  }
+  return rows
+}
+
+function isPermissionError(error: unknown) {
+  const value = error as { status?: number; code?: string; message?: string } | null | undefined
+  const status = Number(value?.status || 0)
+  const code = String(value?.code || '')
+  return status === 401 || status === 403 || code === '42501' || /permission denied|row-level security|not allowed/i.test(String(value?.message || ''))
+}
+
+function localRecordsFor(entity: SyncEntity) {
+  if (entity === 'products') return db.products.toArray()
+  if (entity === 'customers') return db.customers.toArray()
+  if (entity === 'orders') return db.orders.toArray()
+  if (entity === 'sales') return db.sales.toArray()
+  if (entity === 'cash_closures') return db.closures.toArray()
+  if (entity === 'settings') return db.settings.toArray()
+  if (entity === 'audit_events') return db.auditEvents.toArray()
+  if (entity === 'history_records') return db.historyRecords.toArray()
+  return db.backups.toArray()
+}
+
+function hasPendingFor(entity: SyncEntity, recordId: string | undefined) {
+  if (!recordId) return Promise.resolve(false)
+  return db.syncQueue.where('[entity+recordId]').equals([entity, recordId]).count().then(count => count > 0)
+}
+
+async function reconcileEntity(entity: SyncEntity) {
+  let remoteRows: any[]
+  try {
+    remoteRows = await fetchAll(entity)
+  } catch (error) {
+    if (isPermissionError(error)) return
+    throw error
+  }
+  const [localRows, pending] = await Promise.all([
+    localRecordsFor(entity),
+    db.syncQueue.toArray(),
+  ])
+  const remoteById = new Map(remoteRows.map(row => [String(row.id), row]))
+  const pendingIds = new Set(pending.filter(op => op.entity === entity && op.operation === 'upsert' && op.recordId).map(op => String(op.recordId)))
+
+  for (const local of localRows as any[]) {
+    const id = String(local.id)
+    if (pendingIds.has(id)) continue
+    const remote = remoteById.get(id)
     if (!remote) {
-      pendingRemote.push(mapLocalToRemote(local))
+      await upsertRemote(entity, local)
       continue
     }
-    if (timestampOf(local) > rowTimestamp(remote)) {
-      pendingRemote.push(mapLocalToRemote(local))
-    } else if (timestampOf(local) < rowTimestamp(remote)) {
-      const converted = mapRemoteToLocal(remote)
-      if (converted) await putLocal(converted)
+    const localTime = Date.parse(localTimestamp(entity, local)) || 0
+    const remoteTime = Date.parse(rowTimestamp(entity, remote)) || 0
+    if (localTime > remoteTime && entity !== 'audit_events' && entity !== 'history_records' && entity !== 'backups') {
+      await upsertRemote(entity, local)
+    } else {
+      await putLocalRemote(entity, remote)
     }
   }
 
-  for (const remote of remoteMap.values()) {
-    const id = String(remote.id || '')
-    if (id && !localMap.has(id)) {
-      const converted = mapRemoteToLocal(remote)
-      if (converted) await putLocal(converted)
-    }
-  }
-
-  if (pendingRemote.length) {
-    const { error: upsertError } = await supabase.from(table).upsert(pendingRemote, { onConflict: 'id' })
-    if (upsertError) throw upsertError
+  // Remote-only records must appear in the cache so reads remain identical
+  // online/offline. For audit/history, this also respects the user's RLS scope.
+  for (const remote of remoteRows) {
+    const id = String(remote.id)
+    if (pendingIds.has(id)) continue
+    const local = (localRows as any[]).find(item => String(item.id) === id)
+    if (!local) await putLocalRemote(entity, remote)
   }
 }
 
-function productRemote(row: Product) {
-  const updatedAt = row.updatedAt || row.deletedAt || new Date().toISOString()
-  const data = { ...row, updatedAt }
-  return {
-    id: row.id,
-    name: row.name,
-    category: row.category,
-    price: row.price,
-    active: row.active,
-    deleted_at: row.deletedAt || null,
-    deleted_by: row.deletedBy || null,
-    updated_at: updatedAt,
-    data,
+async function processDataOperation(operation: DataSyncOperation) {
+  if (operation.operation === 'reset') {
+    const { data, error } = await supabase!.rpc('reset_test_data')
+    if (error) throw error
+    return data
   }
+  if (!operation.entity || operation.entity === 'system' || !operation.payload) return
+  const remote = await upsertRemote(operation.entity, operation.payload)
+  if (remote) await putLocalRemote(operation.entity, remote)
 }
 
-function customerRemote(row: Customer) {
-  return {
-    id: row.id,
-    name: row.name,
-    phone: row.phone,
-    address: row.address,
-    notes: row.notes,
-    active: row.active,
-    custom_fields: row.customFields || {},
-    created_at: row.createdAt,
-    updated_at: row.updatedAt,
-    data: row,
-  }
-}
+async function processUserOperation(operation: UserSyncOperation) {
+  if (!supabase) throw new Error('Supabase no está configurado.')
+  const payload = operation.payload as { user?: User; changes?: Partial<User> } | undefined
+  const localTarget = operation.operation === 'provision'
+    ? null
+    : (await db.users.get(operation.recordId)) || (await db.users.where('legacyId').equals(operation.recordId).first())
+  const resolvedTargetId = localTarget?.id || operation.recordId
 
-function orderRemote(row: Order) {
-  return {
-    id: row.id,
-    order_number: row.orderNumber,
-    created_at: row.createdAt,
-    updated_at: row.updatedAt,
-    user_id: row.userId || null,
-    customer_id: row.customerId || null,
-    status: row.status,
-    business_date_key: row.businessDateKey || null,
-    total: row.total,
-    deleted_at: row.deletedAt || null,
-    deleted_by: row.deletedBy || null,
-    data: row,
-  }
-}
-
-function saleRemote(row: Sale) {
-  const updatedAt = row.updatedAt || row.deletedAt || row.createdAt
-  const data = { ...row, updatedAt }
-  return {
-    id: row.id,
-    created_at: row.createdAt,
-    updated_at: updatedAt,
-    user_id: row.userId || null,
-    customer_id: row.customerId || null,
-    payment: row.payment,
-    order_id: row.orderId || null,
-    order_number: row.orderNumber ?? null,
-    business_date_key: row.businessDateKey || null,
-    total: row.total,
-    deleted_at: row.deletedAt || null,
-    deleted_by: row.deletedBy || null,
-    data,
-  }
-}
-
-function closureRemote(row: CashClosure) {
-  const updatedAt = row.updatedAt || row.deletedAt || row.closedAt
-  const data = { ...row, updatedAt }
-  return {
-    id: row.id,
-    date_key: row.dateKey,
-    closed_at: row.closedAt,
-    user_id: row.userId || null,
-    total: row.total,
-    deleted_at: row.deletedAt || null,
-    deleted_by: row.deletedBy || null,
-    updated_at: updatedAt,
-    data,
-  }
-}
-
-function settingRemote(row: SystemSetting) {
-  return { id: row.id, key: row.key, updated_at: row.updatedAt, data: row }
-}
-
-function auditRemote(row: AuditEvent) {
-  return {
-    id: row.id,
-    timestamp: row.timestamp,
-    actor_id: row.actorId || null,
-    actor_name: row.actorName,
-    role: row.role || null,
-    module: row.module,
-    action: row.action,
-    record_type: row.recordType,
-    record_id: row.recordId || null,
-    before_data: row.before || null,
-    after_data: row.after || null,
-    reason: row.reason || null,
-    data: row,
-  }
-}
-
-function historyRemote(row: HistoryRecord) {
-  return {
-    id: row.id,
-    entity: row.entity,
-    record_id: row.recordId,
-    version: row.version,
-    captured_at: row.capturedAt,
-    event_id: row.eventId || null,
-    deleted: Boolean(row.deleted),
-    snapshot: row.snapshot,
-    data: row,
-  }
-}
-
-function fromData<T>(row: Record<string, unknown>): T | null {
-  const data = row.data
-  return data && typeof data === 'object' ? data as T : null
-}
-
-async function syncAppendOnlyTable<T extends { id: string }>(
-  table: string,
-  readLocal: () => Promise<T[]>,
-  putLocal: (row: T) => Promise<void>,
-  mapRemoteToLocal: (row: Record<string, unknown>) => T | null,
-  mapLocalToRemote: (row: T) => Record<string, unknown>,
-) {
-  if (!supabase) return
-  const { data: remoteRows, error } = await supabase.from(table).select('*').limit(5000)
+  const body = operation.operation === 'provision'
+    ? {
+        action: 'provision',
+        legacyId: payload?.user?.legacyId || payload?.user?.id || operation.recordId,
+        name: payload?.user?.name,
+        pin: payload?.user?.pin,
+        rank: payload?.user?.rank,
+        role: payload?.user?.role || 'employee',
+        permissions: payload?.user?.permissions,
+      }
+    : operation.operation === 'update'
+      ? { action: 'update', targetId: resolvedTargetId, changes: payload?.changes || {} }
+      : { action: 'delete', targetId: resolvedTargetId }
+  const { data, error } = await supabase.functions.invoke('admin-users', { body })
   if (error) throw error
-  const localRows = await readLocal()
-  const remoteMap = new Map(((remoteRows || []) as Record<string, unknown>[]).map(row => [String(row.id || ''), row]))
-  const localMap = new Map(localRows.map(row => [row.id, row]))
-
-  for (const remote of remoteMap.values()) {
-    const id = String(remote.id || '')
-    if (id && !localMap.has(id)) {
-      const converted = mapRemoteToLocal(remote)
-      if (converted) await putLocal(converted)
+  if (operation.operation === 'delete') {
+    await withSyncSuppressed(async () => {
+      const local = (await db.users.get(resolvedTargetId)) || (await db.users.get(operation.recordId)) || (await db.users.where('legacyId').equals(operation.recordId).first())
+      if (local) await db.users.put({ ...local, active: false, deletedAt: local.deletedAt || stamp(), deletedBy: local.deletedBy || local.id, updatedAt: stamp() })
+    })
+  } else if (data && typeof data === 'object' && 'id' in data) {
+    const remote = data as Record<string, unknown>
+    const current = await db.users.get(String(remote.id))
+    const localByLegacy = await db.users.where('legacyId').equals(String(remote.legacyId || '')).first()
+    const merged: User = {
+      ...current,
+      ...(localByLegacy || {}),
+      id: String(remote.id),
+      legacyId: remote.legacyId ? String(remote.legacyId) : (localByLegacy?.legacyId || operation.recordId),
+      authEmail: remote.authEmail ? String(remote.authEmail) : (localByLegacy?.authEmail || `${operation.recordId}@smaky.local`),
+      name: String(remote.name || current?.name || localByLegacy?.name || 'Usuario'),
+      role: (String(remote.role || current?.role || 'employee') as User['role']),
+      rank: String(remote.rank || current?.rank || 'Trabajador'),
+      active: remote.active !== false,
+      permissions: Array.isArray(remote.permissions) ? remote.permissions as User['permissions'] : (current?.permissions || localByLegacy?.permissions),
+      pin: current?.pin || localByLegacy?.pin || payload?.user?.pin || '',
+      updatedAt: String(remote.updatedAt || stamp()),
     }
-  }
-
-  const missing = localRows.filter(row => !remoteMap.has(row.id)).map(mapLocalToRemote)
-  if (missing.length) {
-    const { error: insertError } = await supabase.from(table).insert(missing)
-    if (insertError && !/duplicate|23505/i.test(insertError.message)) throw insertError
+    await withSyncSuppressed(async () => {
+      if (localByLegacy && localByLegacy.id !== merged.id) await db.users.delete(localByLegacy.id)
+      await db.users.put(merged)
+    })
   }
 }
 
-async function syncProfiles() {
-  if (!supabase) return
-  const { data, error } = await supabase.from('profiles').select('id, name, role, rank, active, permissions, auth_email, legacy_id, updated_at').limit(500)
-  if (error) throw error
-
-  const remoteProfiles = (data || []) as Record<string, unknown>[]
-  const localUsers = await db.users.toArray()
-  const localById = new Map(localUsers.map(user => [user.id, user]))
-  const localByLegacy = new Map(localUsers.filter(user => user.legacyId).map(user => [user.legacyId!, user]))
-  let session: User | null = null
-  try {
-    const rawSession = localStorage.getItem('smaky-session')
-    session = rawSession ? JSON.parse(rawSession) as User : null
-  } catch {
-    session = null
-  }
-
-  setDbSyncApplying(true)
-  try {
-    for (const profile of remoteProfiles) {
-      const id = String(profile.id || '')
-      if (!id) continue
-      const legacyId = String(profile.legacy_id || '') || undefined
-      const current: User | undefined = localById.get(id) || (legacyId ? localByLegacy.get(legacyId) : undefined)
-      const role = String(profile.role || 'employee') as 'manager' | 'admin' | 'employee'
-      const next: User = {
-        ...(current || {}),
-        id,
-        legacyId: legacyId || current?.legacyId,
-        authEmail: String(profile.auth_email || current?.authEmail || ''),
-        name: String(profile.name || current?.name || 'Usuario'),
-        role: role === 'manager' || role === 'admin' ? role : 'employee',
-        rank: String(profile.rank || current?.rank || 'Trabajador'),
-        active: Boolean(profile.active),
-        permissions: Array.isArray(profile.permissions) ? profile.permissions as import('./types').PermissionKey[] : current?.permissions,
-        pin: current?.pin || '',
-        updatedAt: String(profile.updated_at || current?.updatedAt || new Date().toISOString()),
-      }
-      if (current && current.id !== id) await db.users.delete(current.id)
-      await db.users.put(next)
-
-      if (session && (session.id === id || session.id === current?.id || (legacyId && session.legacyId === legacyId))) {
-        if (!next.active) {
-          localStorage.removeItem('smaky-session')
-          await supabase.auth.signOut()
-          window.dispatchEvent(new Event('smaky-auth-change'))
-          session = null
-        } else {
-          localStorage.setItem('smaky-session', JSON.stringify(next))
-          window.dispatchEvent(new Event('smaky-auth-change'))
-          session = next
-        }
-      }
+async function flushQueue() {
+  const operations = await db.syncQueue.orderBy('createdAt').toArray()
+  for (const operation of operations) {
+    try {
+      if (operation.entity === 'users') await processUserOperation(operation as UserSyncOperation)
+      else await processDataOperation(operation as DataSyncOperation)
+      await markSyncSuccess(operation.id)
+    } catch (error) {
+      await markSyncFailure(operation.id, error)
+      if (isNetworkError(error)) throw error
+      // Authorization/validation errors stay in the outbox so the data is not
+      // discarded. The next sync can retry after the account/permissions change.
+      continue
     }
+  }
+}
+
+export async function ensureRemoteSession() {
+  if (!supabaseConfigured || !supabase || !navigator.onLine) return false
+  try {
+    const { data } = await supabase.auth.getSession()
+    if (data.session) return true
+
+    // Offline login uses the durable local profile as the credential cache.
+    // When connectivity comes back we establish the real Supabase session
+    // automatically so the outbox can drain without forcing a second login.
+    const { getSessionUser } = await import('./auth')
+    const local = getSessionUser()
+    if (!local?.authEmail || !/^\d{4}$/.test(local.pin)) return false
+    const result = await supabase.auth.signInWithPassword({
+      email: local.authEmail,
+      password: `SmakyPOS#${local.pin}`,
+    })
+    if (result.error || !result.data.user) {
+      lastError = result.error?.message || 'No fue posible restaurar la sesión Supabase.'
+      return false
+    }
+    return true
+  } catch (error) {
+    lastError = cleanError(error)
+    return false
+  }
+}
+
+export async function resetRemoteData(): Promise<{ ok: true; counts?: Record<string, number> } | { ok: false; offline: boolean; error?: string }> {
+  if (!supabaseConfigured || !supabase || !navigator.onLine) return { ok: false, offline: true }
+  try {
+    if (!(await ensureRemoteSession())) {
+      return { ok: false, offline: isNetworkError(lastError), error: lastError || 'No hay una sesión remota activa.' }
+    }
+
+    // Antes de ejecutar un reset remoto, vaciamos la outbox posible para que
+    // operaciones antiguas no vuelvan a crear datos justo después del reset.
+    await flushQueue()
+
+    const { data, error } = await supabase.rpc('reset_test_data')
+    if (error) {
+      if (isNetworkError(error)) return { ok: false, offline: true, error: error.message }
+      return { ok: false, offline: false, error: error.message }
+    }
+    const counts = data && typeof data === 'object'
+      ? Object.fromEntries(Object.entries(data).filter(([, value]) => typeof value === 'number').map(([key, value]) => [key, Number(value)]))
+      : undefined
+    return { ok: true, counts }
+  } catch (error) {
+    return isNetworkError(error)
+      ? { ok: false, offline: true, error: cleanError(error) }
+      : { ok: false, offline: false, error: cleanError(error) }
+  }
+}
+
+export async function syncNow(): Promise<SyncResult> {
+  if (syncRunning) return { ...(await getSyncState()), ok: !lastError }
+  if (!supabaseConfigured || !supabase) return { ...(await getSyncState()), ok: false }
+  if (!navigator.onLine) return { ...(await getSyncState()), ok: false }
+  if (!(await ensureRemoteSession())) return { ...(await getSyncState()), ok: false }
+
+  syncRunning = true
+  lastError = undefined
+  emitSyncChange()
+  try {
+    // Flush first so an offline mutation is never overwritten by a fresh pull.
+    await flushQueue()
+    const entities: SyncEntity[] = ['products', 'customers', 'orders', 'sales', 'cash_closures', 'settings', 'audit_events', 'history_records', 'backups']
+    for (const entity of entities) await reconcileEntity(entity)
+    lastSyncedAt = stamp()
+    return { ...(await getSyncState()), ok: true }
+  } catch (error) {
+    lastError = cleanError(error)
+    return { ...(await getSyncState()), ok: false }
   } finally {
-    setDbSyncApplying(false)
+    syncRunning = false
+    emitSyncChange()
   }
-}
-
-export async function syncNow() {
-  if (!supabaseConfigured || !supabase || !navigator.onLine || syncing) return
-  const { data: sessionData } = await supabase.auth.getSession()
-  if (!sessionData.session) return
-
-  syncing = true
-  try {
-    await syncProfiles()
-
-    const tasks = [
-      syncJsonTable<Product>('products', () => db.products.toArray(), async row => { await db.products.put(row) }, row => fromData<Product>(row), productRemote),
-      syncJsonTable<Customer>('customers', () => db.customers.toArray(), async row => { await db.customers.put(row) }, row => fromData<Customer>(row), customerRemote),
-      syncJsonTable<Order>('orders', () => db.orders.toArray(), async row => { await db.orders.put(row) }, row => fromData<Order>(row), orderRemote),
-      syncJsonTable<Sale>('sales', () => db.sales.toArray(), async row => { await db.sales.put(row) }, row => fromData<Sale>(row), saleRemote),
-      syncJsonTable<CashClosure>('cash_closures', () => db.closures.toArray(), async row => { await db.closures.put(row) }, row => fromData<CashClosure>(row), closureRemote),
-      syncJsonTable<SystemSetting>('settings', () => db.settings.toArray(), async row => { await db.settings.put(row) }, row => fromData<SystemSetting>(row), settingRemote),
-      syncAppendOnlyTable<AuditEvent>('audit_events', () => db.auditEvents.toArray(), async row => { await db.auditEvents.put(row) }, row => fromData<AuditEvent>(row), auditRemote),
-      syncAppendOnlyTable<HistoryRecord>('history_records', () => db.historyRecords.toArray(), async row => { await db.historyRecords.put(row) }, row => fromData<HistoryRecord>(row), historyRemote),
-    ]
-
-    for (const task of tasks) {
-      setDbSyncApplying(true)
-      try {
-        await task
-      } catch (error) {
-        console.warn('Smaky Supabase sync skipped:', error)
-      } finally {
-        setDbSyncApplying(false)
-      }
-    }
-  } finally {
-    syncing = false
-  }
-}
-
-export function scheduleSync(delayMs = 1200) {
-  if (!supabaseConfigured) return
-  if (syncTimer !== null) window.clearTimeout(syncTimer)
-  syncTimer = window.setTimeout(() => { syncTimer = null; void syncNow() }, delayMs)
-}
-
-export function startSync() {
-  if (started) return
-  started = true
-  setDbMutationListener(() => scheduleSync())
-  window.addEventListener('online', () => scheduleSync(300))
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') scheduleSync(300)
-  })
-  periodicTimer = window.setInterval(() => { void syncNow() }, 15_000)
-}
-
-export function stopSync() {
-  if (syncTimer !== null) window.clearTimeout(syncTimer)
-  if (periodicTimer !== null) window.clearInterval(periodicTimer)
-  syncTimer = null
-  periodicTimer = null
 }
 
 export async function syncAfterLogin() {
-  await delay(0)
   await syncNow()
 }
+
+function scheduleRetry() {
+  if (retryTimer !== null) window.clearTimeout(retryTimer)
+  retryTimer = window.setTimeout(() => {
+    retryTimer = null
+    void syncNow()
+  }, 1500)
+}
+
+export function startSync() {
+  if (started || typeof window === 'undefined') return
+  started = true
+  window.addEventListener('online', () => { scheduleRetry() })
+  window.addEventListener('offline', () => { emitSyncChange() })
+  window.addEventListener('focus', () => { scheduleRetry() })
+  window.addEventListener('smaky-auth-change', () => { scheduleRetry() })
+  intervalTimer = window.setInterval(() => {
+    if (navigator.onLine) void syncNow()
+  }, 15_000)
+  void syncNow()
+  void intervalTimer
+}
+
+export const SYNC_CHANGE_EVENT = SYNC_EVENT

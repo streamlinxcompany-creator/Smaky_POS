@@ -1616,3 +1616,5 @@ html[data-theme='light'] .done{color:#2f7746}
 /* La consola StreamLinx conserva deliberadamente su estética oscura. */
 html[data-theme='light'] .streamlinx-command-center{color-scheme:dark}
 
+
+.live-status.pending{color:#d9a27f}.live-status .dot{width:7px;height:7px;border-radius:50%;display:inline-block}.live-status .dot.online{background:#73c98b;box-shadow:0 0 0 3px rgba(115,201,139,.08)}

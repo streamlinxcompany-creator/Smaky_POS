@@ -1,7 +1,7 @@
 import type { PermissionKey, Role, User } from './types'
 import { db } from './db'
 import { supabase, supabaseConfigured } from './supabase'
-import { syncAfterLogin } from './sync'
+import { isNetworkError, syncAfterLogin } from './sync'
 
 const SESSION_KEY = 'smaky-session'
 const DEFAULT_MANAGER_LEGACY_ID = 'u-owner'
@@ -257,8 +257,18 @@ export async function getLoginProfiles(
       'Smaky login profiles error:',
       error
     )
-
-    return []
+    const cached = await db.users.toArray()
+    return cached
+      .filter(item => !item.deletedAt && (!activeOnly || item.active))
+      .map(item => ({
+        id: item.id,
+        name: item.name,
+        role: item.role,
+        rank: item.rank || 'Trabajador',
+        active: item.active,
+        authEmail: item.authEmail || `${item.legacyId || item.id}@${AUTH_DOMAIN}`,
+        legacyId: item.legacyId,
+      }))
   }
 
   return ((data || []) as Record<string, unknown>[])
@@ -397,6 +407,10 @@ export async function signInWithPin(
       'Smaky Supabase login error:',
       error
     )
+
+    if (isNetworkError(error)) {
+      return localLogin(user, pin)
+    }
 
     return {
       user: null,
@@ -708,7 +722,7 @@ export async function createRemoteWorker(
   name: string,
   pin: string,
   rank: string,
-  legacyId = crypto.randomUUID()
+  legacyId: string = crypto.randomUUID()
 ) {
   if (
     !supabaseConfigured ||

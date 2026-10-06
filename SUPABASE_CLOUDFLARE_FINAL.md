@@ -19,7 +19,7 @@ El frontend usa únicamente la publishable key.
 
 ## Supabase
 
-1. Ejecuta `supabase/migrations/0001_smaky_pos.sql` en SQL Editor.
+1. Aplica en orden `0001_smaky_pos.sql`, `0002_invoice_settings_permission.sql` y `0003_offline_sync.sql` (o usa `supabase db push`).
 2. En Authentication > Users crea `u-owner@smaky.local` y confirma el usuario.
 3. Despliega `supabase/functions/admin-users/index.ts` como la función `admin-users`.
 

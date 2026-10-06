@@ -8,9 +8,9 @@ En el Dashboard de Supabase:
 
 `SQL Editor` → `New query`
 
-Ejecuta COMPLETO:
+Aplica todas las migraciones en orden:
 
-`supabase/migrations/0001_smaky_pos.sql`
+`supabase/migrations/0001_smaky_pos.sql` → `0002_invoice_settings_permission.sql` → `0003_offline_sync.sql`, `0002_invoice_settings_permission.sql` y `0003_offline_sync.sql`
 
 El script crea las tablas, RLS, funciones auxiliares, trigger de perfiles y la vista `pos_login_profiles`.
 
@@ -76,7 +76,7 @@ No agregues una variable `VITE_...` con una `sb_secret_...`.
 
 ## 5. Orden exacto
 
-1. Ejecutar el SQL.
+1. Aplicar las tres migraciones en orden (o ejecutar `supabase db push`).
 2. Crear el usuario `u-owner@smaky.local`.
 3. Desplegar `admin-users`.
 4. Configurar las dos variables en Cloudflare.

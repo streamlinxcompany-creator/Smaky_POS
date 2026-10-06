@@ -5,7 +5,7 @@ POS web/PWA para Smaky Burgers. Base administrativa con dashboard, punto de vent
 ## Arquitectura actual
 - Frontend: React + TypeScript + Vite.
 - PWA: vite-plugin-pwa para instalar en PC/celular y tener shell offline.
-- Offline-first: IndexedDB mediante Dexie. Las ventas y los productos se guardan localmente.
+- Offline-first seguro: IndexedDB/Dexie se usa como caché durable + cola outbox; Supabase es la fuente de verdad. Las operaciones offline se sincronizan automáticamente al recuperar conexión.
 - Backend: Supabase (Postgres + Auth + Realtime) queda preparado para una siguiente fase de autenticación, multiusuario y sincronización.
 - Hosting: Cloudflare Pages para el frontend estático.
 

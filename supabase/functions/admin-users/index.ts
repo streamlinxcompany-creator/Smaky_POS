@@ -376,9 +376,26 @@ Deno.serve(async (request) => {
     if (!targetId || targetId === actorId) return json({ error: 'Perfil no válido.' }, 400)
     const { data: target } = await admin.from('profiles').select('id, role').eq('id', targetId).maybeSingle()
     if (!target || target.role === 'manager') return json({ error: 'Ese perfil no se puede eliminar.' }, 403)
-    const { error } = await admin.auth.admin.deleteUser(targetId)
-    if (error) return json({ error: error.message }, 400)
-    return json({ ok: true })
+    // Soft-delete remoto: conservamos la identidad Auth para que la cuenta
+    // pueda ser restaurada posteriormente mediante la acción `provision`.
+    const { data: updated, error } = await admin
+      .from('profiles')
+      .update({ active: false })
+      .eq('id', targetId)
+      .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
+      .maybeSingle()
+    if (error || !updated) return json({ error: error?.message || 'No fue posible desactivar el perfil.' }, 400)
+    return json({
+      ok: true,
+      id: updated.id,
+      name: updated.name,
+      role: updated.role,
+      rank: updated.rank,
+      active: updated.active,
+      permissions: updated.permissions,
+      authEmail: updated.auth_email,
+      legacyId: updated.legacy_id,
+    })
   }
 
   return json({ error: 'Acción no reconocida.' }, 400)

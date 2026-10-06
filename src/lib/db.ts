@@ -1,119 +1,120 @@
 import Dexie, { type Table } from 'dexie'
-import type { AuditEvent, BackupSnapshot, CashClosure, Customer, HistoryRecord, Order, Product, Sale, SystemSetting, User } from './types'
+import type {
+  AuditEvent,
+  BackupSnapshot,
+  CashClosure,
+  Customer,
+  HistoryRecord,
+  Order,
+  Product,
+  Sale,
+  SystemSetting,
+  User,
+} from './types'
 
-class SmakyDB extends Dexie {
-  sales!: Table<Sale, string>
-  orders!: Table<Order, string>
+export type SyncEntity =
+  | 'products'
+  | 'customers'
+  | 'orders'
+  | 'sales'
+  | 'cash_closures'
+  | 'settings'
+  | 'audit_events'
+  | 'history_records'
+  | 'backups'
+
+export type UserSyncOperation = {
+  id: string
+  entity: 'users'
+  operation: 'provision' | 'update' | 'delete'
+  recordId: string
+  payload: unknown
+  createdAt: string
+  attempts: number
+  lastError?: string
+}
+
+export type DataSyncOperation = {
+  id: string
+  entity: SyncEntity | 'system'
+  operation: 'upsert' | 'reset'
+  recordId?: string
+  payload?: unknown
+  createdAt: string
+  attempts: number
+  lastError?: string
+}
+
+export type SyncOperation = DataSyncOperation | UserSyncOperation
+
+export type SyncMeta = {
+  id: string
+  value: unknown
+  updatedAt: string
+}
+
+export class SmakyDatabase extends Dexie {
   products!: Table<Product, string>
+  customers!: Table<Customer, string>
+  orders!: Table<Order, string>
+  sales!: Table<Sale, string>
   users!: Table<User, string>
-  closures!: Table<import('./types').CashClosure, string>
+  closures!: Table<CashClosure, string>
+  settings!: Table<SystemSetting, string>
   auditEvents!: Table<AuditEvent, string>
   historyRecords!: Table<HistoryRecord, string>
   backups!: Table<BackupSnapshot, string>
-  settings!: Table<SystemSetting, string>
-  customers!: Table<Customer, string>
+  syncQueue!: Table<SyncOperation, string>
+  syncMeta!: Table<SyncMeta, string>
+
   constructor() {
-    super('smaky-pos-db')
-    this.version(1).stores({ sales: 'id, createdAt, payment, userId', products: 'id, category, active' })
-    this.version(2).stores({ sales: 'id, createdAt, payment, userId', products: 'id, category, active', users: 'id, name, role, active, deletedAt' })
-    this.version(3).stores({
-      sales: 'id, createdAt, payment, userId, orderId, orderNumber',
-      orders: 'id, createdAt, updatedAt, orderNumber, status, userId',
-      products: 'id, category, active',
-      users: 'id, name, role, active, deletedAt'
-    })
-    this.version(4).stores({
-      sales: 'id, createdAt, payment, userId, orderId, orderNumber',
-      orders: 'id, createdAt, updatedAt, orderNumber, status, userId',
-      products: 'id, category, active',
-      users: 'id, name, role, active, deletedAt',
-      closures: 'id, dateKey, closedAt, userId, deletedAt'
-    })
-    this.version(5).stores({
-      sales: 'id, createdAt, businessDateKey, payment, userId, orderId, orderNumber',
-      orders: 'id, createdAt, businessDateKey, updatedAt, orderNumber, status, userId',
-      products: 'id, category, active',
-      users: 'id, name, role, active, deletedAt',
-      closures: 'id, dateKey, closedAt, userId, deletedAt'
-    })
-    this.version(6).stores({
-      sales: 'id, createdAt, businessDateKey, payment, userId, orderId, orderNumber, deletedAt',
-      orders: 'id, createdAt, businessDateKey, updatedAt, orderNumber, status, userId, deletedAt',
-      products: 'id, category, active, deletedAt',
-      users: 'id, name, role, active, deletedAt',
-      closures: 'id, dateKey, closedAt, userId, deletedAt',
-      auditEvents: 'id, timestamp, actorId, module, action, recordType, recordId',
-      historyRecords: 'id, entity, recordId, version, capturedAt, eventId, [entity+recordId]',
-      backups: 'id, createdAt, kind'
-    })
-    // Fuerza la creación de las tablas internas en instalaciones que ya abrieron
-    // una versión previa del Command Center antes de que existieran estos stores.
-    this.version(7).stores({
-      sales: 'id, createdAt, businessDateKey, payment, userId, orderId, orderNumber, deletedAt',
-      orders: 'id, createdAt, businessDateKey, updatedAt, orderNumber, status, userId, deletedAt',
-      products: 'id, category, active, deletedAt',
-      users: 'id, name, role, active, deletedAt',
-      closures: 'id, dateKey, closedAt, userId, deletedAt',
-      auditEvents: 'id, timestamp, actorId, module, action, recordType, recordId',
-      historyRecords: 'id, entity, recordId, version, capturedAt, eventId, [entity+recordId]',
-      backups: 'id, createdAt, kind'
-    })
-    this.version(8).stores({
-      sales: 'id, createdAt, businessDateKey, payment, userId, orderId, orderNumber, deletedAt',
-      orders: 'id, createdAt, businessDateKey, updatedAt, orderNumber, status, userId, deletedAt',
-      products: 'id, category, active, deletedAt',
-      users: 'id, name, role, active, deletedAt',
-      closures: 'id, dateKey, closedAt, userId, deletedAt',
-      auditEvents: 'id, timestamp, actorId, module, action, recordType, recordId',
-      historyRecords: 'id, entity, recordId, capturedAt, eventId, [entity+recordId]',
-      backups: 'id, createdAt, kind',
-      settings: 'id, key, updatedAt'
-    })
-    this.version(9).stores({
-      sales: 'id, createdAt, businessDateKey, payment, userId, orderId, orderNumber, deletedAt',
-      orders: 'id, createdAt, businessDateKey, updatedAt, orderNumber, status, userId, deletedAt',
-      products: 'id, category, active, deletedAt',
-      users: 'id, name, role, active, deletedAt',
-      closures: 'id, dateKey, closedAt, userId, deletedAt',
-      auditEvents: 'id, timestamp, actorId, module, action, recordType, recordId',
-      historyRecords: 'id, entity, recordId, capturedAt, eventId, [entity+recordId]',
-      backups: 'id, createdAt, kind',
+    super('smaky-pos')
+
+    this.version(1).stores({
+      products: 'id, name, category, active, updatedAt, deletedAt',
+      customers: 'id, phone, name, active, updatedAt',
+      orders: 'id, orderNumber, createdAt, updatedAt, status, businessDateKey, customerId, userId, deletedAt',
+      sales: 'id, createdAt, updatedAt, payment, orderId, businessDateKey, customerId, userId, deletedAt',
+      users: 'id, legacyId, role, active, updatedAt, deletedAt',
+      closures: 'id, dateKey, closedAt, updatedAt, deletedAt',
       settings: 'id, key, updatedAt',
-      customers: 'id, phone, name, active, updatedAt'
-    })
-    this.version(10).stores({
-      sales: 'id, createdAt, businessDateKey, payment, userId, orderId, orderNumber, deletedAt, updatedAt',
-      orders: 'id, createdAt, businessDateKey, updatedAt, orderNumber, status, userId, deletedAt',
-      products: 'id, category, active, deletedAt, updatedAt',
-      users: 'id, name, role, active, deletedAt, updatedAt',
-      closures: 'id, dateKey, closedAt, userId, deletedAt, updatedAt',
       auditEvents: 'id, timestamp, actorId, module, action, recordType, recordId',
-      historyRecords: 'id, entity, recordId, capturedAt, eventId, [entity+recordId]',
+      historyRecords: 'id, [entity+recordId], capturedAt, eventId, deleted',
       backups: 'id, createdAt, kind',
+      syncQueue: 'id, entity, operation, recordId, createdAt, attempts, [entity+recordId]',
+      syncMeta: 'id, updatedAt',
+    })
+
+    // Version 2 formalizes the outbox/meta stores used by the current
+    // offline-first synchronization layer. Existing installations are upgraded
+    // without clearing their local records.
+    this.version(2).stores({
+      products: 'id, name, category, active, updatedAt, deletedAt',
+      customers: 'id, phone, name, active, updatedAt',
+      orders: 'id, orderNumber, createdAt, updatedAt, status, businessDateKey, customerId, userId, deletedAt',
+      sales: 'id, createdAt, updatedAt, payment, orderId, businessDateKey, customerId, userId, deletedAt',
+      users: 'id, legacyId, role, active, updatedAt, deletedAt',
+      closures: 'id, dateKey, closedAt, updatedAt, deletedAt',
       settings: 'id, key, updatedAt',
-      customers: 'id, phone, name, active, updatedAt'
+      auditEvents: 'id, timestamp, actorId, module, action, recordType, recordId',
+      historyRecords: 'id, [entity+recordId], capturedAt, eventId, deleted',
+      backups: 'id, createdAt, kind',
+      syncQueue: 'id, entity, operation, recordId, createdAt, attempts, [entity+recordId]',
+      syncMeta: 'id, updatedAt',
     })
   }
 }
 
-export const db = new SmakyDB()
+export const db = new SmakyDatabase()
 
+export type DbTable =
+  | typeof db.products
+  | typeof db.customers
+  | typeof db.orders
+  | typeof db.sales
+  | typeof db.closures
+  | typeof db.settings
+  | typeof db.auditEvents
+  | typeof db.historyRecords
+  | typeof db.backups
 
-type DbMutationListener = () => void
-let mutationListener: DbMutationListener | null = null
-let applyingRemoteSync = false
-
-export function setDbMutationListener(listener: DbMutationListener | null) {
-  mutationListener = listener
-}
-
-export function setDbSyncApplying(value: boolean) {
-  applyingRemoteSync = value
-}
-
-const mutationTables = [db.sales, db.orders, db.products, db.users, db.closures, db.auditEvents, db.historyRecords, db.settings, db.customers]
-for (const table of mutationTables) {
-  table.hook('creating').subscribe(() => { if (!applyingRemoteSync) mutationListener?.() })
-  table.hook('updating').subscribe(() => { if (!applyingRemoteSync) mutationListener?.() })
-  table.hook('deleting').subscribe(() => { if (!applyingRemoteSync) mutationListener?.() })
-}

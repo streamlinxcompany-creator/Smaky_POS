@@ -8,7 +8,10 @@ Write-Host ''
 Write-Host '2) Enlazando proyecto: jipmbegkgxnlqthmbvpp'
 supabase link --project-ref jipmbegkgxnlqthmbvpp
 Write-Host ''
-Write-Host '3) Desplegando admin-users...'
+Write-Host '3) Aplicando migraciones SQL (incluye soporte offline/outbox)...' -ForegroundColor Cyan
+supabase db push
+Write-Host ''
+Write-Host '4) Desplegando admin-users...' -ForegroundColor Cyan
 supabase functions deploy admin-users
 Write-Host ''
 Write-Host 'Listo. La función usa las claves que Supabase inyecta en el entorno de Edge Functions.' -ForegroundColor Green
