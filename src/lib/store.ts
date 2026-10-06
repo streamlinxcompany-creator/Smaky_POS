@@ -1016,6 +1016,21 @@ export async function updateUserSettings(targetId: string, changes: Partial<User
     let remote: Awaited<ReturnType<typeof updateRemoteUser>> | null = null
     if (navigator.onLine) remote = await updateRemoteUser(targetId, safeChanges)
 
+    // Si Cloudflare se actualizó pero la Edge Function quedó en una versión
+    // anterior, Supabase filtra las claves nuevas y parecía que el botón
+    // Guardar no hacía nada. Mostramos la causa en vez de perder el cambio.
+    const requestedConfigurationPermissions = (safeChanges.permissions || []).filter(key =>
+      key === 'invoice.settings' || key.startsWith('settings.')
+    )
+    if (
+      remote &&
+      requestedConfigurationPermissions.some(key => !remote!.permissions.includes(key))
+    ) {
+      throw new Error(
+        'Supabase rechazó permisos de Configuraciones. Despliega la Edge Function admin-users actualizada y vuelve a guardar.'
+      )
+    }
+
     const after: User = {
       ...target,
       ...(remote ? {
