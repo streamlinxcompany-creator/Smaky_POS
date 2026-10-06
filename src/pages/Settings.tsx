@@ -199,6 +199,7 @@ export function Settings() {
     ...(canManage || canManageCategories ? ['categories' as const] : []),
     ...(canManageProducts ? ['products' as const] : []),
     ...(canManage || canManageInvoice ? ['invoice' as const] : []),
+    ...(isManager ? ['users' as const] : []),
   ]
   const activeSection = allowedSections.includes(section) ? section : allowedSections[0]
   const contentTitle = activeSection === 'general' ? 'General' : activeSection === 'orders' ? 'Pedidos' : activeSection === 'payments' ? 'Medios de pago' : activeSection === 'categories' ? 'Categorías' : activeSection === 'products' ? 'Productos' : activeSection === 'invoice' ? 'Factura' : 'Usuarios'
