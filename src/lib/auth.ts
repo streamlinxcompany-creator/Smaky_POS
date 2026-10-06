@@ -68,6 +68,12 @@ export const PERMISSION_DEFINITIONS: Array<{
     description: 'Preparar y realizar el cierre de caja.',
     group: 'Caja',
   },
+  {
+    key: 'invoice.settings',
+    label: 'Configurar factura',
+    description: 'Cambiar el tamaño de letra de los comprobantes y facturas.',
+    group: 'Factura',
+  },
 ]
 
 const ALL_PERMISSION_KEYS = PERMISSION_DEFINITIONS.map(item => item.key)
@@ -96,7 +102,7 @@ export function getUserPermissions(user: User): PermissionKey[] {
     (key): key is PermissionKey => ALL_PERMISSION_KEYS.includes(key)
   )
 
-  return Array.from(new Set([...clean, 'pos.access']))
+  return Array.from(new Set(clean))
 }
 
 export function hasPermission(

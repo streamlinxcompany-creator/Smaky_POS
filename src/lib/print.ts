@@ -4,50 +4,56 @@ import { money, date, time } from './format'
 const escapeHtml = (value: string | number | undefined | null) => String(value ?? '')
   .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;')
 
+const receiptFontSize = () => {
+  const size = Number(localStorage.getItem('smaky-receipt-font-size'))
+  return [4, 5, 6, 7, 8, 9, 10, 12].includes(size) ? size : 10
+}
+
 const buildPrintDocument = (title: string, body: string) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=88mm,initial-scale=1,maximum-scale=1"><title>${escapeHtml(title)}</title><style>
+  :root{--receipt-font-scale:${receiptFontSize() / 10}}
   @page{size:88mm auto;margin:0}
   html,body{width:88mm;min-width:88mm;height:auto;min-height:0;margin:0;padding:0;background:#fff;color:#000;overflow:visible}
   *{box-sizing:border-box;color:#000!important}
-  body{font-family:Arial,Helvetica,sans-serif;font-size:10px;line-height:1.18;font-weight:500;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+  body{font-family:Arial,Helvetica,sans-serif;font-size:calc(10px * var(--receipt-font-scale));line-height:1.18;font-weight:500;print-color-adjust:exact;-webkit-print-color-adjust:exact}
   .receipt{width:88mm;max-width:88mm;margin:0 auto;padding:2.5mm 4.2mm 1.8mm;background:#fff}
   .center{text-align:center}
-  .brand{font-size:21px;font-weight:900;letter-spacing:2.4px;line-height:1}
-  .subbrand{font-size:9px;font-weight:700;letter-spacing:.9px;margin-top:3px;text-transform:uppercase}
-  .doc-label{font-size:8px;font-weight:800;letter-spacing:1px;text-transform:uppercase;margin-top:6px}
-  .order-no{font-size:17px;font-weight:900;line-height:1;margin-top:4px}
-  .meta{font-size:8px;margin-top:5px;font-weight:600;line-height:1.25}
+  .brand{font-size:calc(21px * var(--receipt-font-scale));font-weight:900;letter-spacing:2.4px;line-height:1}
+  .subbrand{font-size:calc(9px * var(--receipt-font-scale));font-weight:700;letter-spacing:.9px;margin-top:3px;text-transform:uppercase}
+  .doc-label{font-size:calc(8px * var(--receipt-font-scale));font-weight:800;letter-spacing:1px;text-transform:uppercase;margin-top:6px}
+  .order-no{font-size:calc(17px * var(--receipt-font-scale));font-weight:900;line-height:1;margin-top:4px}
+  .meta{font-size:calc(8px * var(--receipt-font-scale));margin-top:5px;font-weight:600;line-height:1.25}
   .line{border-top:1px dashed #000;margin:7px 0}
-  .section{font-size:8.5px;font-weight:900;letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid #000;padding:4px 0 3px;margin-top:2px;break-inside:avoid;page-break-inside:avoid}
+  .section{font-size:calc(8.5px * var(--receipt-font-scale));font-weight:900;letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid #000;padding:4px 0 3px;margin-top:2px;break-inside:avoid;page-break-inside:avoid}
   .item{display:grid;grid-template-columns:20px minmax(0,1fr) auto;column-gap:5px;align-items:start;padding:4px 0;break-inside:avoid;page-break-inside:avoid}
   .item-main{min-width:0}
-  .qty{font-size:10px;font-weight:900;white-space:nowrap}
-  .item-name{font-size:10px;font-weight:800;line-height:1.18;overflow-wrap:anywhere}
-  .item-sub{font-size:8px;font-weight:500;margin-top:2px;line-height:1.18;overflow-wrap:anywhere}
-  .mod{font-size:8.5px;font-weight:800;margin-top:3px;line-height:1.18;overflow-wrap:anywhere}
-  .amount{font-size:10px;font-weight:900;white-space:nowrap;text-align:right}
+  .qty{font-size:calc(10px * var(--receipt-font-scale));font-weight:900;white-space:nowrap}
+  .item-name{font-size:calc(10px * var(--receipt-font-scale));font-weight:800;line-height:1.18;overflow-wrap:anywhere}
+  .item-sub{font-size:calc(8px * var(--receipt-font-scale));font-weight:500;margin-top:2px;line-height:1.18;overflow-wrap:anywhere}
+  .mod{font-size:calc(8.5px * var(--receipt-font-scale));font-weight:800;margin-top:3px;line-height:1.18;overflow-wrap:anywhere}
+  .amount{font-size:calc(10px * var(--receipt-font-scale));font-weight:900;white-space:nowrap;text-align:right}
   .client-box{border:1px solid #000;padding:5px 6px;margin:5px 0 6px;break-inside:avoid;page-break-inside:avoid}
-  .client-title{font-size:7.5px;font-weight:900;letter-spacing:1px;text-transform:uppercase;margin-bottom:3px}
+  .client-title{font-size:calc(7.5px * var(--receipt-font-scale));font-weight:900;letter-spacing:1px;text-transform:uppercase;margin-bottom:3px}
   .client-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 10px}
   .client-field{min-width:0}
-  .client-label{font-size:7px;font-weight:800;text-transform:uppercase}
-  .client-value{font-size:8.5px;font-weight:600;line-height:1.2;overflow-wrap:anywhere}
+  .client-label{font-size:calc(7px * var(--receipt-font-scale));font-weight:800;text-transform:uppercase}
+  .client-value{font-size:calc(8.5px * var(--receipt-font-scale));font-weight:600;line-height:1.2;overflow-wrap:anywhere}
   .client-wide{grid-column:1 / -1}
   .totals{border-top:1px solid #000;margin-top:5px;padding-top:5px;break-inside:avoid;page-break-inside:avoid}
-  .total-row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:2px 0;font-size:9px}
+  .total-row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:2px 0;font-size:calc(9px * var(--receipt-font-scale))}
   .total-row span{font-weight:700}
   .total-row b{font-weight:900;white-space:nowrap}
   .total-row.grand{padding-top:5px;margin-top:2px;border-top:1px dashed #000}
-  .total-row.grand span{font-size:11px;font-weight:900}
-  .total-row.grand strong{font-size:16px;font-weight:900;white-space:nowrap}
-  .note{border:1px solid #000;padding:5px 6px;margin-top:6px;font-size:8.5px;line-height:1.25;break-inside:avoid;page-break-inside:avoid}
-  .note b{font-size:7.5px;letter-spacing:.8px}
-  .footer{text-align:center;border-top:1px dashed #000;margin-top:7px;padding-top:5px;font-size:7.5px;font-weight:700;line-height:1.2;break-inside:avoid;page-break-inside:avoid}
+  .total-row.grand span{font-size:calc(11px * var(--receipt-font-scale));font-weight:900}
+  .total-row.grand strong{font-size:calc(16px * var(--receipt-font-scale));font-weight:900;white-space:nowrap}
+  .note{border:1px solid #000;padding:5px 6px;margin-top:6px;font-size:calc(8.5px * var(--receipt-font-scale));line-height:1.25;break-inside:avoid;page-break-inside:avoid}
+  .note b{font-size:calc(7.5px * var(--receipt-font-scale));letter-spacing:.8px}
+  .footer{text-align:center;border-top:1px dashed #000;margin-top:7px;padding-top:5px;font-size:calc(7.5px * var(--receipt-font-scale));font-weight:700;line-height:1.2;break-inside:avoid;page-break-inside:avoid}
   .kitchen-item{display:grid;grid-template-columns:23px minmax(0,1fr);column-gap:6px;align-items:start;padding:5px 0;border-bottom:1px dotted #777;break-inside:avoid;page-break-inside:avoid}
   .kitchen-item:last-child{border-bottom:0}
-  .kitchen-qty{font-size:13px;font-weight:900;line-height:1}
-  .kitchen-name{font-size:11.5px;font-weight:900;line-height:1.16;overflow-wrap:anywhere}
-  .kitchen-category{font-size:7.5px;font-weight:700;margin-top:2px;text-transform:uppercase;letter-spacing:.4px}
-  .kitchen-mod{font-size:9px;font-weight:800;margin-top:4px;padding-top:3px;border-top:1px solid #000;line-height:1.18;overflow-wrap:anywhere}
+  .kitchen-qty{font-size:calc(13px * var(--receipt-font-scale));font-weight:900;line-height:1}
+  .kitchen-name{font-size:calc(11.5px * var(--receipt-font-scale));font-weight:900;line-height:1.16;overflow-wrap:anywhere}
+  .kitchen-category{font-size:calc(7.5px * var(--receipt-font-scale));font-weight:700;margin-top:2px;text-transform:uppercase;letter-spacing:.4px}
+  .kitchen-mod{font-size:calc(9px * var(--receipt-font-scale));font-weight:800;margin-top:4px;padding-top:3px;border-top:1px solid #000;line-height:1.18;overflow-wrap:anywhere}
   @media print{
     html,body{width:88mm!important;min-width:88mm!important;height:auto!important;min-height:0!important;margin:0!important;padding:0!important;overflow:visible!important}
     .receipt{width:88mm!important;max-width:none!important;margin:0 auto!important;padding:2.5mm 4.2mm 1.8mm!important}

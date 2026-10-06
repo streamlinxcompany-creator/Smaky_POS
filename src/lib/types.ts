@@ -9,6 +9,7 @@ export type PermissionKey =
   | 'products.manage'
   | 'reports.view'
   | 'cashClosing.access'
+  | 'invoice.settings'
 
 export type PaymentMethod = string
 
@@ -31,6 +32,8 @@ export type GeneralSettings = {
   autoDarkFrom: string
   autoLightFrom: string
   showConsumerFinal: boolean
+  /** Tamaño base de letra para los comprobantes térmicos, en píxeles. */
+  receiptFontSize: number
 }
 
 export type Customer = {

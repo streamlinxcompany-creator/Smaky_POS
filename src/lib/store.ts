@@ -83,6 +83,7 @@ export const DEFAULT_GENERAL_SETTINGS: import('./types').GeneralSettings = {
   autoDarkFrom: '19:00',
   autoLightFrom: '07:00',
   showConsumerFinal: false,
+  receiptFontSize: 10,
 }
 
 export const DEFAULT_PAYMENT_METHODS: PaymentMethodConfig[] = [
@@ -127,7 +128,7 @@ export async function seed() {
   if (!(await db.users.get(seedManager.id))) await db.users.add(seedManager)
 
   const currentUsers = await db.users.toArray()
-  const allPermissionKeys: PermissionKey[] = ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access']
+  const allPermissionKeys: PermissionKey[] = ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access','invoice.settings']
   for (const user of currentUsers) {
     const permissions = user.permissions?.length
       ? Array.from(new Set([...user.permissions, 'customers.manage' as PermissionKey, ...(user.role === 'admin' ? ['customers.export' as PermissionKey] : [])]))
@@ -229,8 +230,13 @@ export async function updateOrderFields(fields: import('./types').OrderFieldConf
 export async function getGeneralSettings(): Promise<import('./types').GeneralSettings> {
   const setting = await db.settings.get(GENERAL_SETTINGS_KEY)
   const value = setting?.value
-  if (value && typeof value === 'object') return { ...DEFAULT_GENERAL_SETTINGS, ...(value as Partial<import('./types').GeneralSettings>) }
-  return { ...DEFAULT_GENERAL_SETTINGS }
+  const settings = value && typeof value === 'object'
+    ? { ...DEFAULT_GENERAL_SETTINGS, ...(value as Partial<import('./types').GeneralSettings>) }
+    : { ...DEFAULT_GENERAL_SETTINGS }
+  // La impresión debe poder abrirse en el mismo gesto del usuario; guardar esta
+  // pequeña preferencia en caché evita convertirla en una operación asíncrona.
+  localStorage.setItem('smaky-receipt-font-size', String(settings.receiptFontSize))
+  return settings
 }
 
 export async function updateGeneralSettings(changes: Partial<import('./types').GeneralSettings>, actor: User) {
@@ -242,9 +248,11 @@ export async function updateGeneralSettings(changes: Partial<import('./types').G
     autoDarkFrom: /^([01]\d|2[0-3]):[0-5]\d$/.test(changes.autoDarkFrom || '') ? changes.autoDarkFrom! : before.autoDarkFrom,
     autoLightFrom: /^([01]\d|2[0-3]):[0-5]\d$/.test(changes.autoLightFrom || '') ? changes.autoLightFrom! : before.autoLightFrom,
     showConsumerFinal: changes.showConsumerFinal ?? before.showConsumerFinal,
+    receiptFontSize: [4, 5, 6, 7, 8, 9, 10, 12].includes(Number(changes.receiptFontSize)) ? Number(changes.receiptFontSize) : before.receiptFontSize,
   }
   const now = new Date().toISOString()
   await db.settings.put({ id: GENERAL_SETTINGS_KEY, key: GENERAL_SETTINGS_KEY, value: next, updatedAt: now })
+  localStorage.setItem('smaky-receipt-font-size', String(next.receiptFontSize))
   await audit('GENERAL_SETTINGS_UPDATED', 'SETTINGS', 'setting', GENERAL_SETTINGS_KEY, before, next, actor)
   window.dispatchEvent(new CustomEvent('smaky-settings-change', { detail: { key: GENERAL_SETTINGS_KEY } }))
   return next
@@ -746,6 +754,9 @@ export async function replaceProducts(products: Product[]) {
 
 export async function getUsers() {
   const users = await db.users.toArray()
+  const deletedIds = new Set(users.filter(user => user.deletedAt).map(user => user.id))
+  const deletedLegacyIds = new Set(users.filter(user => user.deletedAt && user.legacyId).map(user => user.legacyId!))
+  const deletedEmails = new Set(users.filter(user => user.deletedAt && user.authEmail).map(user => user.authEmail!.toLowerCase()))
   const visible = users
     .filter(user => !user.deletedAt)
     .sort((a, b) => {
@@ -774,6 +785,15 @@ export async function getUsers() {
       .map(user => [user.legacyId!, user])
   )
 
+  // Mientras el perfil recién creado se propaga por Supabase, legacy_id puede
+  // llegar vacío en una lectura puntual. authEmail es el mismo identificador
+  // técnico estable y evita que esa ventana muestre dos trabajadores.
+  const byAuthEmail = new Map(
+    visible
+      .filter(user => user.authEmail)
+      .map(user => [user.authEmail!.toLowerCase(), user])
+  )
+
   const consumedLocalIds = new Set<string>()
   const merged: User[] = []
   const remoteKeys = new Set<string>()
@@ -784,12 +804,24 @@ export async function getUsers() {
    * una copia local y otra remota.
    */
   for (const profile of loginProfiles) {
+    // Si se acaba de eliminar localmente, la respuesta de Supabase puede seguir
+    // incluyendo el perfil por unos instantes. No lo reinsertamos en pantalla.
+    if (
+      deletedIds.has(profile.id) ||
+      (profile.legacyId && deletedLegacyIds.has(profile.legacyId)) ||
+      (profile.authEmail && deletedEmails.has(profile.authEmail.toLowerCase()))
+    ) {
+      continue
+    }
+
     const identityKey =
       profile.role === 'manager'
         ? 'manager'
         : profile.legacyId
           ? `legacy:${profile.legacyId}`
-          : `id:${profile.id}`
+          : profile.authEmail
+            ? `email:${profile.authEmail.toLowerCase()}`
+            : `id:${profile.id}`
 
     // Evita duplicados que vengan desde la propia consulta remota.
     if (remoteKeys.has(identityKey)) {
@@ -802,6 +834,9 @@ export async function getUsers() {
       byId.get(profile.id) ||
       (profile.legacyId
         ? byLegacy.get(profile.legacyId)
+        : undefined) ||
+      (profile.authEmail
+        ? byAuthEmail.get(profile.authEmail.toLowerCase())
         : undefined)
 
     if (local && local.id !== profile.id) {
@@ -863,7 +898,9 @@ export async function getUsers() {
           ? 'manager'
           : user.legacyId
             ? `legacy:${user.legacyId}`
-            : `id:${user.id}`
+            : user.authEmail
+              ? `email:${user.authEmail.toLowerCase()}`
+              : `id:${user.id}`
       )
     ) {
       return false
@@ -896,7 +933,9 @@ export async function getUsers() {
         ? 'manager'
         : user.legacyId
           ? `legacy:${user.legacyId}`
-          : `id:${user.id}`
+          : user.authEmail
+            ? `email:${user.authEmail.toLowerCase()}`
+            : `id:${user.id}`
 
     if (finalKeys.has(key)) {
       continue
@@ -950,7 +989,7 @@ export async function updateUserSettings(targetId: string, changes: Partial<User
   if (typeof changes.name === 'string' && changes.name.trim().length >= 2) safeChanges.name = changes.name.trim()
   if (typeof changes.pin === 'string' && /^\d{4}$/.test(changes.pin)) safeChanges.pin = changes.pin
   if (typeof changes.rank === 'string' && changes.rank.trim().length >= 2) safeChanges.rank = changes.rank.trim()
-  if (actor.role === 'manager' && Array.isArray(changes.permissions)) safeChanges.permissions = Array.from(new Set([...changes.permissions.filter((key): key is PermissionKey => ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access'].includes(key)), 'pos.access'])) as PermissionKey[]
+  if (actor.role === 'manager' && Array.isArray(changes.permissions)) safeChanges.permissions = Array.from(new Set(changes.permissions.filter((key): key is PermissionKey => ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access','invoice.settings'].includes(key)))) as PermissionKey[]
 
   const wantsRoleChange = changes.role !== undefined && changes.role !== target.role
   const wantsActiveChange = changes.active !== undefined && changes.active !== target.active
@@ -1003,9 +1042,15 @@ export async function deleteUserProfile(targetId: string, actorId: string) {
   if (target.id === actor.id || target.role === 'manager') return false
   if (target.role === 'admin' && actor.role !== 'manager') return false
   if (target.role === 'employee' && !['manager', 'admin'].includes(actor.role)) return false
-  if (navigator.onLine) await deleteRemoteUser(targetId)
   const after = { ...target, deletedAt: new Date().toISOString(), deletedBy: actor.id, active: false, updatedAt: new Date().toISOString() }
   await db.users.put(after)
   await audit('USER_DELETED', 'USERS', 'user', targetId, { ...target, pin: undefined }, { ...after, pin: undefined }, actor)
+  // El cierre visual no debe esperar a Cloudflare/Supabase. El perfil se oculta
+  // localmente de inmediato y la eliminación remota continúa en segundo plano.
+  if (navigator.onLine) {
+    void deleteRemoteUser(targetId).catch(error => {
+      console.error('Smaky: no se pudo eliminar remotamente el perfil:', error)
+    })
+  }
   return true
 }

@@ -11,7 +11,7 @@ const allNav = [
   { to: '/clientes', label: 'Clientes', icon: ContactRound, roles: ['manager', 'admin', 'employee'] },
   { to: '/reportes', label: 'Reportes', icon: BarChart3, roles: ['manager', 'admin'] },
   { to: '/cierre-caja', label: 'Cierre de caja', icon: LockKeyhole, roles: ['manager', 'admin', 'employee'] },
-  { to: '/configuraciones', label: 'Configuraciones', icon: Settings, roles: ['manager', 'admin'] }
+  { to: '/configuraciones', label: 'Configuraciones', icon: Settings, roles: ['manager', 'admin', 'employee'] }
 ]
 
 const roleLabel = (role: string) => role === 'manager' ? 'Gerente' : role === 'admin' ? 'Administrador' : 'Trabajador'
@@ -89,7 +89,7 @@ export function Layout() {
     '/reportes': 'reports.view',
     '/cierre-caja': 'cashClosing.access',
   }
-  const nav = allNav.filter(item => item.roles.includes(user.role) && (item.to === '/configuraciones' ? ['manager', 'admin'].includes(user.role) : hasPermission(user, permissionForRoute[item.to]!)))
+  const nav = allNav.filter(item => item.roles.includes(user.role) && (item.to === '/configuraciones' ? (['manager', 'admin'].includes(user.role) || hasPermission(user, 'invoice.settings')) : hasPermission(user, permissionForRoute[item.to]!)))
   const isAdminArea = user.role !== 'employee'
   const logout = () => setConfirmLogout(true)
   const confirmLogoutNow = () => {

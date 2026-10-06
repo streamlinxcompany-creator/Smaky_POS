@@ -1,4 +1,4 @@
-import { Banknote, Check, ChevronRight, CreditCard, Pencil, Plus, Settings2, Tag, Trash2, WalletCards, Users as UsersIcon, Package, ClipboardList, Palette, Sun, Moon, Monitor, GripVertical, X } from 'lucide-react'
+import { Banknote, Check, ChevronRight, CreditCard, Pencil, Plus, Settings2, Tag, Trash2, WalletCards, Users as UsersIcon, Package, ClipboardList, Palette, Sun, Moon, Monitor, GripVertical, X, FileText } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { getSessionUser, hasPermission } from '../lib/auth'
 import { addPaymentMethod, addProductCategory, DEFAULT_GENERAL_SETTINGS, DEFAULT_ORDER_FIELDS, DEFAULT_PRODUCT_CATEGORIES, deletePaymentMethod, deleteProductCategory, getAllProducts, getGeneralSettings, getOrderFields, getPaymentMethods, getProductCategories, updateGeneralSettings, updateOrderFields, updatePaymentMethod, updateProductCategory } from '../lib/store'
@@ -7,7 +7,7 @@ import type { LucideIcon } from 'lucide-react'
 import { Users } from './Users'
 import { Products } from './Products'
 
-type SettingsSection = 'general' | 'orders' | 'payments' | 'categories' | 'products' | 'users'
+type SettingsSection = 'general' | 'orders' | 'payments' | 'categories' | 'products' | 'invoice' | 'users'
 
 const paymentIcon = (id: string) => id === 'cash' ? Banknote : id === 'transfer' ? WalletCards : CreditCard
 
@@ -17,6 +17,7 @@ const sectionMeta: Array<{ id: SettingsSection; label: string; description: stri
   { id: 'payments', label: 'Medios de pago', description: 'Cobros' },
   { id: 'categories', label: 'Categorías', description: 'Productos' },
   { id: 'products', label: 'Productos', description: 'Catálogo' },
+  { id: 'invoice', label: 'Factura', description: 'Comprobante' },
 ]
 
 export function Settings() {
@@ -48,6 +49,7 @@ export function Settings() {
   const canManage = !!user && ['manager', 'admin'].includes(user.role)
   const isManager = user?.role === 'manager'
   const canManageProducts = !!user && hasPermission(user, 'products.manage')
+  const canManageInvoice = !!user && hasPermission(user, 'invoice.settings')
 
   const load = async () => {
     const [nextCategories, nextProducts, methods, fields, general] = await Promise.all([getProductCategories(), getAllProducts(), getPaymentMethods(), getOrderFields(), getGeneralSettings()])
@@ -184,27 +186,27 @@ export function Settings() {
     return acc
   }, {}), [products])
 
-  if (!user || !canManage) return null
+  if (!user || (!canManage && !canManageInvoice)) return null
 
-  const activeSection = isManager || section !== 'users' ? section : 'general'
-  const contentTitle = activeSection === 'general' ? 'General' : activeSection === 'orders' ? 'Pedidos' : activeSection === 'payments' ? 'Medios de pago' : activeSection === 'categories' ? 'Categorías' : activeSection === 'products' ? 'Productos' : 'Usuarios'
+  const activeSection = !canManage && section !== 'invoice' ? 'invoice' : (!isManager && section === 'users' ? 'general' : section)
+  const contentTitle = activeSection === 'general' ? 'General' : activeSection === 'orders' ? 'Pedidos' : activeSection === 'payments' ? 'Medios de pago' : activeSection === 'categories' ? 'Categorías' : activeSection === 'products' ? 'Productos' : activeSection === 'invoice' ? 'Factura' : 'Usuarios'
 
   return <div className="settings-page">
     <aside className="settings-sidebar">
       <div className="settings-brand-row"><div className="settings-brand-icon"><Settings2 size={16}/></div><div><h1>Configuraciones</h1><span>Smaky POS</span></div></div>
       <div className="settings-nav">
-        {sectionMeta.filter(item => item.id !== 'products' || canManageProducts).map(item => <button key={item.id} className={`settings-nav-item ${activeSection === item.id ? 'active' : ''}`} onClick={() => { setSection(item.id); clearFeedback() }}>
+        {sectionMeta.filter(item => (item.id === 'invoice' ? canManageInvoice : canManage && (item.id !== 'products' || canManageProducts))).map(item => <button key={item.id} className={`settings-nav-item ${activeSection === item.id ? 'active' : ''}`} onClick={() => { setSection(item.id); clearFeedback() }}>
           <div><b>{item.label}</b><small>{item.description}</small></div><ChevronRight size={14}/>
         </button>)}
         {isManager && <button className={`settings-nav-item ${activeSection === 'users' ? 'active' : ''}`} onClick={() => { setSection('users'); clearFeedback() }}>
           <div><b>Usuarios y permisos</b><small>Accesos</small></div><ChevronRight size={14}/>
         </button>}
       </div>
-      <div className="settings-sidebar-footer"><span className="settings-user-dot"></span>{isManager ? 'Gerente' : 'Administrador'}</div>
+      <div className="settings-sidebar-footer"><span className="settings-user-dot"></span>{isManager ? 'Gerente' : user.role === 'admin' ? 'Administrador' : 'Acceso a factura'}</div>
     </aside>
 
     <main className="settings-content">
-      <header className="settings-content-head"><div><span className="settings-overline">CONFIGURACIÓN</span><h2>{contentTitle}</h2></div><div className="settings-head-count">{activeSection === 'orders' ? `${orderFields.filter(field => field.enabled).length} campos activos` : activeSection === 'payments' ? `${paymentMethods.length} medios` : activeSection === 'categories' ? `${categories.length} categorías` : activeSection === 'products' ? `${products.length} productos` : activeSection === 'users' ? 'Accesos' : 'Preferencias'}</div></header>
+      <header className="settings-content-head"><div><span className="settings-overline">CONFIGURACIÓN</span><h2>{contentTitle}</h2></div><div className="settings-head-count">{activeSection === 'orders' ? `${orderFields.filter(field => field.enabled).length} campos activos` : activeSection === 'payments' ? `${paymentMethods.length} medios` : activeSection === 'categories' ? `${categories.length} categorías` : activeSection === 'products' ? `${products.length} productos` : activeSection === 'invoice' ? `${generalSettings.receiptFontSize}px` : activeSection === 'users' ? 'Accesos' : 'Preferencias'}</div></header>
 
       {(error || message) && <div className={`settings-feedback ${error ? 'error' : 'success'}`}>{error || message}</div>}
 
@@ -229,6 +231,13 @@ export function Settings() {
         {canManageProducts && <div className="settings-list-row settings-list-row-click" onClick={() => setSection('products')}><div className="settings-row-icon"><Package size={16}/></div><div className="settings-row-copy"><b>Productos</b><span>{products.length} en el catálogo</span></div><ChevronRight size={15}/></div>}
         {isManager && <div className="settings-list-row settings-list-row-click" onClick={() => setSection('users')}><div className="settings-row-icon"><UsersIcon size={16}/></div><div className="settings-row-copy"><b>Usuarios y permisos</b><span>Control de acceso por usuario</span></div><ChevronRight size={15}/></div>}
         <div className="settings-list-row settings-preference-row"><div className="settings-row-icon"><UsersIcon size={16}/></div><div className="settings-row-copy"><b>Consumidor final</b><span>Mostrarlo como opción rápida al iniciar un pedido.</span></div><label className="settings-toggle"><input type="checkbox" checked={generalSettings.showConsumerFinal} disabled={saving} onChange={event => void saveGeneral({ showConsumerFinal: event.target.checked })}/><span></span></label></div>
+        </section>
+      </div>}
+
+      {activeSection === 'invoice' && canManageInvoice && <div className="settings-stack">
+        <section className="settings-list-card settings-feature-card">
+          <div className="settings-feature-head"><div className="settings-row-icon settings-feature-icon"><FileText size={17}/></div><div><b>Tamaño de letra de la factura</b><span>Se aplica a las próximas impresiones de comprobantes.</span></div></div>
+          <div className="settings-theme-grid">{[4, 5, 6, 7, 8, 9, 10, 12].map(size => <button key={size} className={`settings-theme-option ${generalSettings.receiptFontSize === size ? 'active' : ''}`} disabled={saving} onClick={() => void saveGeneral({ receiptFontSize: size })}><span>{size}px</span>{generalSettings.receiptFontSize === size && <Check size={14}/>}</button>)}</div>
         </section>
       </div>}
 
