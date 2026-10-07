@@ -337,7 +337,13 @@ async function upsertRemote(entity: SyncEntity, payload: unknown) {
     case 'products': query = supabase.from('products').upsert(productRow(payload as Product), { onConflict: 'id' }).select('*').single(); break
     case 'customers': query = supabase.from('customers').upsert(customerRow(payload as Customer), { onConflict: 'id' }).select('*').single(); break
     case 'orders': query = supabase.from('orders').upsert(orderRow(payload as Order), { onConflict: 'id' }).select('*').single(); break
-    case 'sales': query = supabase.from('sales').upsert(saleRow(payload as Sale), { onConflict: 'id' }).select('*').single(); break
+    case 'sales':
+      // Las ventas son registros append-only. Si una respuesta de red se perdió
+      // después de que Supabase insertó la venta, reintentar con UPSERT como UPDATE
+      // exigiría el permiso sales.delete a un trabajador. Ignoramos el duplicado
+      // por id y dejamos que la reconciliación lea la versión remota.
+      query = supabase.from('sales').upsert(saleRow(payload as Sale), { onConflict: 'id', ignoreDuplicates: true }).select('*')
+      break
     case 'cash_closures': query = supabase.from('cash_closures').upsert(closureRow(payload as CashClosure), { onConflict: 'id' }).select('*').single(); break
     case 'settings': query = supabase.from('settings').upsert(settingRow(payload as SystemSetting), { onConflict: 'id' }).select('*').single(); break
     case 'audit_events': query = supabase.from('audit_events').insert(auditRow(payload as AuditEvent)); break

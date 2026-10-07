@@ -745,10 +745,41 @@ export async function updateOrderComandaStatus(orderId: string, status: 'printed
   return after
 }
 
+async function resolveLocalActor(actor: User): Promise<User | null> {
+  // Después de la migración a Supabase el id de sesión puede ser un UUID remoto
+  // mientras que una instalación anterior conserva el perfil local con legacyId.
+  // Resolver ambas claves evita que el cobro falle simplemente porque la caché
+  // todavía no ha reconciliado el cambio de identidad.
+  const byId = await db.users.get(actor.id)
+  if (byId) return byId
+
+  if (actor.legacyId) {
+    const byLegacy = await db.users.where('legacyId').equals(actor.legacyId).first()
+    if (byLegacy) return byLegacy
+  }
+
+  const localByEmail = actor.authEmail
+    ? (await db.users.toArray()).find(user => user.authEmail === actor.authEmail)
+    : undefined
+  if (localByEmail) return localByEmail
+
+  // El usuario de sesión sigue siendo una credencial válida aunque su copia
+  // local no exista todavía. Para el flujo offline/online esto es preferible
+  // a rechazar una venta que sí puede quedar protegida en la outbox.
+  if (!actor.active) return null
+  await db.users.put(actor)
+  return actor
+}
+
 export async function completeOrder(orderId: string, payment: PaymentMethod, actor: User, discount?: { type: 'percent' | 'fixed'; value: number }, paymentLabel?: string) {
   return db.transaction('rw', [db.orders, db.sales, db.users, db.closures, db.auditEvents, db.historyRecords, db.syncQueue], async () => {
-    const [order, freshActor] = await Promise.all([db.orders.get(orderId), db.users.get(actor.id)])
-    if (!order || !freshActor?.active || !hasPermission(freshActor, 'pos.access') || ['paid', 'cancelled'].includes(order.status)) return null
+    const order = await db.orders.get(orderId)
+    if (!order) throw new Error('No encontramos el pedido que intentas cobrar. Actualiza el pedido e inténtalo de nuevo.')
+    if (['paid', 'cancelled'].includes(order.status)) throw new Error('Este pedido ya fue cobrado o está cancelado.')
+
+    const freshActor = await resolveLocalActor(actor)
+    if (!freshActor?.active) throw new Error('La sesión del trabajador no está disponible. Cierra sesión y vuelve a ingresar.')
+    if (!hasPermission(freshActor, 'pos.access')) throw new Error('Este usuario no tiene permiso para registrar ventas.')
     const businessDateKey = recordBusinessDayKey(order)
     const existingClosure = await db.closures.where('dateKey').equals(businessDateKey).first()
     if (existingClosure && !existingClosure.deletedAt) throw new Error(`El periodo del ${businessDateKey.split('-').reverse().join('/')} ya fue cerrado. Registra el pedido en el siguiente periodo.`)
