@@ -28,8 +28,27 @@ export function Reports() {
   const [exportOpen, setExportOpen] = useState(false)
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
+  const [loadError, setLoadError] = useState('')
 
-  useEffect(() => { Promise.all([getSales(), getAllProducts(), getPaymentMethods()]).then(([salesData, productData, methods]) => { setSales(salesData); setProducts(productData); setPaymentLabels(Object.fromEntries(methods.map(method => [method.id, method.name]))) }) }, [])
+  useEffect(() => {
+    let mounted = true
+    Promise.all([getSales(), getAllProducts(), getPaymentMethods()])
+      .then(([salesData, productData, methods]) => {
+        if (!mounted) return
+        const safeSales = Array.isArray(salesData) ? salesData : []
+        const safeProducts = Array.isArray(productData) ? productData : []
+        const safeMethods = Array.isArray(methods) ? methods : []
+        setSales(safeSales)
+        setProducts(safeProducts)
+        setPaymentLabels(Object.fromEntries(safeMethods.map(method => [method.id, method.name])))
+        setLoadError('')
+      })
+      .catch(error => {
+        console.error('No fue posible cargar Reportes:', error)
+        if (mounted) setLoadError('No fue posible cargar los datos de reportes. Puedes volver a intentarlo.')
+      })
+    return () => { mounted = false }
+  }, [])
 
   const burgerIds = useMemo(() => new Set(products.filter(product => product.category === 'Hamburguesas').map(product => product.id)), [products])
   const burgerEquivalent = (productId: string, productName: string, quantity: number) => {
@@ -52,7 +71,7 @@ export function Reports() {
       if (day) { day.revenue += sale.total; day.tickets += 1 }
       revenue += sale.total
       payments.set(sale.payment, (payments.get(sale.payment) || 0) + sale.total)
-      sale.items.forEach(item => {
+      ;(Array.isArray(sale.items) ? sale.items : []).forEach(item => {
         units += item.quantity
         burgers += burgerEquivalent(item.productId, item.name, item.quantity)
         const current = productMap.get(item.productId) || { name: item.name, units: 0, revenue: 0 }
@@ -83,7 +102,7 @@ export function Reports() {
     const paymentMap = new Map<PaymentMethod, number>()
     daySales.forEach(sale => {
       paymentMap.set(sale.payment, (paymentMap.get(sale.payment) || 0) + sale.total)
-      sale.items.forEach(item => {
+      ;(Array.isArray(sale.items) ? sale.items : []).forEach(item => {
         const burgers = burgerEquivalent(item.productId, item.name, item.quantity)
         const current = productMap.get(item.productId) || { name: item.name, units: 0, burgers: 0, revenue: 0 }
         current.units += item.quantity
@@ -135,6 +154,8 @@ export function Reports() {
       </div>
     </div>
 
+    {loadError && <div className="workspace-error report-load-error" role="alert">{loadError}<button onClick={() => window.location.reload()} aria-label="Reintentar">Reintentar</button></div>}
+
     <div className={`report-filter panel ${range === 'custom' ? 'custom-range' : ''}`}>
       <div className="report-filter-top"><div><span className="filter-kicker"><CalendarDays size={14}/> PERIODO DEL REPORTE</span><b>{dateLabel(dateFrom)} — {dateLabel(dateTo)}</b></div><span className="report-live"><span className="dot online"></span>{report.tickets} {report.tickets === 1 ? 'venta' : 'ventas'} encontradas</span></div>
       <div className="range-row">
@@ -182,7 +203,7 @@ export function Reports() {
         <div className="report-day-section"><div className="panel-title"><div><h3>Productos del día</h3><p>Incluye equivalencia de hamburguesas.</p></div></div>{selectedDayDetail.products.length === 0 ? <div className="report-empty compact"><ShoppingBag size={26}/><b>No hay productos</b></div> : <div className="day-product-list">{selectedDayDetail.products.map(product => <div className="day-product-row" key={product.name}><div><b>{product.name}</b><small>{product.units} unidades · {product.burgers} hamburguesas</small></div><strong>{money(product.revenue)}</strong></div>)}</div>}</div>
         <div className="report-day-section"><div className="panel-title"><div><h3>Medios de pago</h3><p>Recaudo del día.</p></div></div>{selectedDayDetail.payments.length === 0 ? <div className="report-empty compact"><CreditCard size={26}/><b>No hay pagos</b></div> : <div className="day-payment-list">{selectedDayDetail.payments.map(([payment, amount]) => { const Icon = paymentIcon(payment); return <div className="day-payment-row" key={payment}><span className="payment-report-icon"><Icon size={15}/></span><div><b>{paymentName(payment, undefined, paymentLabels)}</b><small>{money(amount)}</small></div><strong>{selectedDayDetail.revenue ? Math.round(amount / selectedDayDetail.revenue * 100) : 0}%</strong></div> })}</div>}</div>
       </div>
-      <div className="report-day-sales"><div className="day-sales-head"><div className="panel-title"><div><span className="filter-kicker"><FileText size={13}/> DOCUMENTOS DEL DÍA</span><h3>Facturas del día</h3><p>Toca una factura para ver el comprobante completo, igual que en Ventas.</p></div></div><span className="invoice-count">{selectedDayDetail.sales.length} {selectedDayDetail.sales.length === 1 ? 'factura' : 'facturas'}</span></div>{selectedDayDetail.sales.length === 0 ? <div className="report-empty compact"><ReceiptText size={26}/><b>No hay facturas</b></div> : <div className="day-sales-list">{selectedDayDetail.sales.map(sale => <button className="day-sale-row" key={sale.id} onClick={() => setSelectedSale(sale)}><div className="day-sale-time">{time(sale.createdAt)}</div><div className="day-sale-main"><b>Factura #{sale.id.slice(-6).toUpperCase()}</b><small>{sale.items.map(item => `${item.quantity}× ${item.name}`).join(' · ')}</small></div><div className="day-sale-user"><span>Atendió</span><b>{sale.userName}</b></div><span className="day-sale-payment">{paymentName(sale.payment, sale, paymentLabels)}</span><strong>{money(sale.total)}</strong><span className="day-sale-arrow">›</span></button>)}</div>}</div>
+      <div className="report-day-sales"><div className="day-sales-head"><div className="panel-title"><div><span className="filter-kicker"><FileText size={13}/> DOCUMENTOS DEL DÍA</span><h3>Facturas del día</h3><p>Toca una factura para ver el comprobante completo, igual que en Ventas.</p></div></div><span className="invoice-count">{selectedDayDetail.sales.length} {selectedDayDetail.sales.length === 1 ? 'factura' : 'facturas'}</span></div>{selectedDayDetail.sales.length === 0 ? <div className="report-empty compact"><ReceiptText size={26}/><b>No hay facturas</b></div> : <div className="day-sales-list">{selectedDayDetail.sales.map(sale => <button className="day-sale-row" key={sale.id} onClick={() => setSelectedSale(sale)}><div className="day-sale-time">{time(sale.createdAt)}</div><div className="day-sale-main"><b>Factura #{sale.id.slice(-6).toUpperCase()}</b><small>{(Array.isArray(sale.items) ? sale.items : []).map(item => `${item.quantity}× ${item.name}`).join(' · ')}</small></div><div className="day-sale-user"><span>Atendió</span><b>{sale.userName}</b></div><span className="day-sale-payment">{paymentName(sale.payment, sale, paymentLabels)}</span><strong>{money(sale.total)}</strong><span className="day-sale-arrow">›</span></button>)}</div>}</div>
     </div>}
 
 
@@ -201,7 +222,7 @@ export function Reports() {
           <div><span>Pago</span><b>{paymentName(selectedSale.payment, selectedSale, paymentLabels)}</b></div>
         </div>
         <div className="receipt-section-title">Productos</div>
-        <div className="receipt-items">{selectedSale.items.map(item => <div className="receipt-item" key={item.productId}>
+        <div className="receipt-items">{(Array.isArray(selectedSale.items) ? selectedSale.items : []).map(item => <div className="receipt-item" key={item.productId}>
           <div><b>{item.quantity}× {item.name}</b><span>{money(item.unitPrice)} c/u</span></div>
           <strong>{money(item.total)}</strong>
         </div>)}</div>

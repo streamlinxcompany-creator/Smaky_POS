@@ -17,18 +17,17 @@ const actorFromSession = () => getSessionUser()
 type SyncableRecord = { id: string }
 
 async function persistPut<T extends SyncableRecord>(table: Table<T, string>, entity: Parameters<typeof enqueueEntityUpsert>[0], value: T) {
-  await db.transaction('rw', [table, db.syncQueue], async () => {
-    await table.put(value)
-    await enqueueEntityUpsert(entity, value.id, value)
-  })
+  // No mantenemos una transacción Dexie abierta mientras la outbox dispara
+  // tareas de sincronización. Esto evita que un segundo ciclo IndexedDB deje
+  // la transacción original inactiva y produzca "Transaction committed too early".
+  await table.put(value)
+  await enqueueEntityUpsert(entity, value.id, value)
   return value
 }
 
 async function persistAdd<T extends SyncableRecord>(table: Table<T, string>, entity: Parameters<typeof enqueueEntityUpsert>[0], value: T) {
-  await db.transaction('rw', [table, db.syncQueue], async () => {
-    await table.add(value)
-    await enqueueEntityUpsert(entity, value.id, value)
-  })
+  await table.add(value)
+  await enqueueEntityUpsert(entity, value.id, value)
   return value
 }
 
@@ -528,80 +527,55 @@ export async function getClosureByDate(dateKey: string) {
 }
 
 export async function deletePreviousDayClosure(closureId: string, actor: User) {
-  const result = await db.transaction('rw', [db.closures, db.users, db.syncQueue], async () => {
-    const freshActor = await db.users.get(actor.id)
-    if (!freshActor?.active || freshActor.role !== 'manager') return false
+  const freshActor = await db.users.get(actor.id)
+  if (!freshActor?.active || freshActor.role !== 'manager') return false
 
-    const yesterdayKey = addBusinessDay(businessDayKey(new Date()), -1)
-    const closure = await db.closures.get(closureId)
-    if (!closure || closure.dateKey !== yesterdayKey) return false
+  const yesterdayKey = addBusinessDay(businessDayKey(new Date()), -1)
+  const closure = await db.closures.get(closureId)
+  if (!closure || closure.dateKey !== yesterdayKey) return false
 
-    const after = { ...closure, deletedAt: new Date().toISOString(), deletedBy: actor.id, updatedAt: new Date().toISOString() }
-      await db.closures.put(after)
-    await enqueueEntityUpsert('cash_closures', after.id, after)
-    return { closure, after, actor: freshActor }
-  })
-
-  if (!result) return false
-  await audit('CASH_CLOSE_DELETED', 'CASH', 'closure', closureId, result.closure, result.after, result.actor)
+  const after = { ...closure, deletedAt: new Date().toISOString(), deletedBy: actor.id, updatedAt: new Date().toISOString() }
+  await persistPut(db.closures, 'cash_closures', after)
+  await audit('CASH_CLOSE_DELETED', 'CASH', 'closure', closureId, closure, after, actor)
   return true
 }
 
 export async function createDailyClosure(dateKey: string, actor: User, cashCounted: number, notes = ''): Promise<CashClosure | null> {
-  const result = await db.transaction('rw', [db.closures, db.sales, db.users, db.settings, db.syncQueue], async () => {
-    const freshActor = await db.users.get(actor.id)
-    if (!freshActor?.active || !hasPermission(freshActor, 'cashClosing.access')) return null
-    const existingClosure = await db.closures.where('dateKey').equals(dateKey).first()
-    if (existingClosure && !existingClosure.deletedAt) throw new Error('Este día ya tiene un cierre registrado.')
+  const freshActor = await db.users.get(actor.id)
+  if (!freshActor?.active || !hasPermission(freshActor, 'cashClosing.access')) return null
+  const existingClosure = await db.closures.where('dateKey').equals(dateKey).first()
+  if (existingClosure && !existingClosure.deletedAt) throw new Error('Este día ya tiene un cierre registrado.')
 
-    const sales = (await db.sales.toArray())
-      .filter(sale => recordBusinessDayKey(sale) === dateKey)
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+  const sales = (await db.sales.toArray())
+    .filter(sale => recordBusinessDayKey(sale) === dateKey)
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 
-    const methods = await getPaymentMethods()
-    const labels = Object.fromEntries(methods.map(item => [item.id, item.name])) as Record<string, string>
-    const payments = sales.reduce<Record<string, number>>((acc, sale) => {
-      acc[sale.payment] = (acc[sale.payment] || 0) + sale.total
-      return acc
-    }, {})
-    const totals = sales.reduce((acc, sale) => {
-      acc.total += sale.total
-      if (sale.payment === 'cash') acc.cash += sale.total
-      else if (sale.payment === 'transfer') acc.transfer += sale.total
-      else if (sale.payment === 'card') acc.card += sale.total
-      return acc
-    }, { total: 0, cash: 0, transfer: 0, card: 0 })
+  const methods = await getPaymentMethods()
+  const labels = Object.fromEntries((Array.isArray(methods) ? methods : []).map(item => [item.id, item.name])) as Record<string, string>
+  const payments = sales.reduce<Record<string, number>>((acc, sale) => {
+    acc[sale.payment] = (acc[sale.payment] || 0) + sale.total
+    return acc
+  }, {})
+  const totals = sales.reduce((acc, sale) => {
+    acc.total += sale.total
+    if (sale.payment === 'cash') acc.cash += sale.total
+    else if (sale.payment === 'transfer') acc.transfer += sale.total
+    else if (sale.payment === 'card') acc.card += sale.total
+    return acc
+  }, { total: 0, cash: 0, transfer: 0, card: 0 })
 
-    const counted = Number.isFinite(cashCounted) ? Math.max(0, cashCounted) : 0
-    const closure: CashClosure = {
-      id: crypto.randomUUID(),
-      dateKey,
-      closedAt: new Date().toISOString(),
-      userId: freshActor.id,
-      userName: freshActor.name,
-      saleCount: sales.length,
-      total: totals.total,
-      cash: totals.cash,
-      transfer: totals.transfer,
-      card: totals.card,
-      payments,
-      paymentLabels: labels,
-      cashExpected: totals.cash,
-      cashCounted: counted,
-      cashDifference: counted - totals.cash,
-      notes: notes.trim(),
-      sales: sales.map(sale => ({ ...sale, items: sale.items.map(item => ({ ...item })) })),
-      nextDateKey: addBusinessDay(dateKey, 1)
-    }
+  const counted = Number.isFinite(cashCounted) ? Math.max(0, cashCounted) : 0
+  const closure: CashClosure = {
+    id: crypto.randomUUID(), dateKey, closedAt: new Date().toISOString(), userId: freshActor.id, userName: freshActor.name,
+    saleCount: sales.length, total: totals.total, cash: totals.cash, transfer: totals.transfer, card: totals.card,
+    payments, paymentLabels: labels, cashExpected: totals.cash, cashCounted: counted, cashDifference: counted - totals.cash,
+    notes: notes.trim(), sales: sales.map(sale => ({ ...sale, items: Array.isArray(sale.items) ? sale.items.map(item => ({ ...item })) : [] })),
+    nextDateKey: addBusinessDay(dateKey, 1)
+  }
 
-    await db.closures.add(closure)
-    await enqueueEntityUpsert('cash_closures', closure.id, closure)
-    return { closure, actor: freshActor }
-  })
-
-  if (!result) return null
-  await audit('CASH_CLOSE_CREATED', 'CASH', 'closure', result.closure.id, null, result.closure, result.actor)
-  return result.closure
+  await persistAdd(db.closures, 'cash_closures', closure)
+  await audit('CASH_CLOSE_CREATED', 'CASH', 'closure', closure.id, null, closure, freshActor)
+  return closure
 }
 
 const normalizePhone = (value: string) => value.replace(/\D/g, '')
@@ -778,66 +752,45 @@ async function resolveLocalActor(actor: User): Promise<User | null> {
 }
 
 export async function completeOrder(orderId: string, payment: PaymentMethod, actor: User, discount?: { type: 'percent' | 'fixed'; value: number }, paymentLabel?: string) {
-  const result = await db.transaction('rw', [db.orders, db.sales, db.users, db.closures, db.syncQueue], async () => {
-    const order = await db.orders.get(orderId)
-    if (!order) throw new Error('No encontramos el pedido que intentas cobrar. Actualiza el pedido e inténtalo de nuevo.')
-    if (['paid', 'cancelled'].includes(order.status)) throw new Error('Este pedido ya fue cobrado o está cancelado.')
+  // El cobro no mantiene una transacción Dexie abierta mientras ejecuta
+  // sincronización/auditoría. Cada escritura de negocio usa su propia outbox,
+  // evitando "Transaction committed too early" en IndexedDB.
+  const order = await db.orders.get(orderId)
+  if (!order) throw new Error('No encontramos el pedido que intentas cobrar. Actualiza el pedido e inténtalo de nuevo.')
+  if (['paid', 'cancelled'].includes(order.status)) throw new Error('Este pedido ya fue cobrado o está cancelado.')
 
-    const freshActor = await resolveLocalActor(actor)
-    if (!freshActor?.active) throw new Error('La sesión del trabajador no está disponible. Cierra sesión y vuelve a ingresar.')
-    if (!hasPermission(freshActor, 'pos.access')) throw new Error('Este usuario no tiene permiso para registrar ventas.')
-    const businessDateKey = recordBusinessDayKey(order)
-    const existingClosure = await db.closures.where('dateKey').equals(businessDateKey).first()
-    if (existingClosure && !existingClosure.deletedAt) throw new Error(`El periodo del ${businessDateKey.split('-').reverse().join('/')} ya fue cerrado. Registra el pedido en el siguiente periodo.`)
+  const freshActor = await resolveLocalActor(actor)
+  if (!freshActor?.active) throw new Error('La sesión del trabajador no está disponible. Cierra sesión y vuelve a ingresar.')
+  if (!hasPermission(freshActor, 'pos.access')) throw new Error('Este usuario no tiene permiso para registrar ventas.')
+  const businessDateKey = recordBusinessDayKey(order)
+  const existingClosure = await db.closures.where('dateKey').equals(businessDateKey).first()
+  if (existingClosure && !existingClosure.deletedAt) throw new Error(`El periodo del ${businessDateKey.split('-').reverse().join('/')} ya fue cerrado. Registra el pedido en el siguiente periodo.`)
 
-    const subtotal = Math.max(0, Number(order.subtotal) || 0)
-    const safeDiscountValue = discount?.type === 'percent'
-      ? Math.min(100, Math.max(0, Number(discount.value) || 0))
-      : Math.min(subtotal, Math.max(0, Number(discount?.value) || 0))
-    const discountAmount = discount?.type === 'percent'
-      ? Math.round(subtotal * safeDiscountValue / 100)
-      : Math.round(safeDiscountValue)
-    const saleTotal = Math.max(0, subtotal - discountAmount)
+  const subtotal = Math.max(0, Number(order.subtotal) || 0)
+  const safeDiscountValue = discount?.type === 'percent'
+    ? Math.min(100, Math.max(0, Number(discount.value) || 0))
+    : Math.min(subtotal, Math.max(0, Number(discount?.value) || 0))
+  const discountAmount = discount?.type === 'percent' ? Math.round(subtotal * safeDiscountValue / 100) : Math.round(safeDiscountValue)
+  const saleTotal = Math.max(0, subtotal - discountAmount)
 
-    const sale: Sale = {
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-      userId: freshActor.id,
-      userName: freshActor.name,
-      customerId: order.customerId,
-      payment,
-      paymentLabel: paymentLabel || (payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : payment === 'card' ? 'Tarjeta' : payment),
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-      customerName: order.customerName,
-      phone: order.phone,
-      address: order.address,
-      notes: order.notes,
-      customFields: { ...(order.customFields || {}) },
-      customFieldLabels: { ...(order.customFieldLabels || {}) },
-      items: order.items.map(item => ({ ...item })),
-      subtotal,
-      total: saleTotal,
-      discountType: discount && safeDiscountValue > 0 ? discount.type : undefined,
-      discountValue: discount && safeDiscountValue > 0 ? safeDiscountValue : undefined,
-      discountAmount: discountAmount > 0 ? discountAmount : undefined,
-      businessDateKey,
-      updatedAt: new Date().toISOString()
-    }
+  const sale: Sale = {
+    id: crypto.randomUUID(), createdAt: new Date().toISOString(), userId: freshActor.id, userName: freshActor.name,
+    customerId: order.customerId, payment,
+    paymentLabel: paymentLabel || (payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : payment === 'card' ? 'Tarjeta' : payment),
+    orderId: order.id, orderNumber: order.orderNumber, customerName: order.customerName, phone: order.phone,
+    address: order.address, notes: order.notes, customFields: { ...(order.customFields || {}) }, customFieldLabels: { ...(order.customFieldLabels || {}) },
+    items: Array.isArray(order.items) ? order.items.map(item => ({ ...item })) : [], subtotal, total: saleTotal,
+    discountType: discount && safeDiscountValue > 0 ? discount.type : undefined,
+    discountValue: discount && safeDiscountValue > 0 ? safeDiscountValue : undefined,
+    discountAmount: discountAmount > 0 ? discountAmount : undefined, businessDateKey, updatedAt: new Date().toISOString()
+  }
 
-    await db.sales.add(sale)
-    await enqueueEntityUpsert('sales', sale.id, sale)
-    const updatedOrder = { ...order, status: 'paid' as const, updatedAt: new Date().toISOString() }
-    await db.orders.put(updatedOrder)
-    await enqueueEntityUpsert('orders', updatedOrder.id, updatedOrder)
-    return { sale, order: updatedOrder, actor: freshActor }
-  })
-
-  // La auditoría se ejecuta después de cerrar la transacción principal.
-  // Así ninguna operación adicional puede dejar la transacción de IndexedDB inactiva.
-  await audit('INVOICE_CREATED', 'SALES', 'sale', result.sale.id, null, result.sale, result.actor)
-  await audit('ORDER_UPDATED', 'ORDERS', 'order', result.order.id, null, result.order, result.actor)
-  return { sale: result.sale, order: result.order }
+  await persistAdd(db.sales, 'sales', sale)
+  const updatedOrder = { ...order, status: 'paid' as const, updatedAt: new Date().toISOString() }
+  await persistPut(db.orders, 'orders', updatedOrder)
+  await audit('INVOICE_CREATED', 'SALES', 'sale', sale.id, null, sale, freshActor)
+  await audit('ORDER_UPDATED', 'ORDERS', 'order', order.id, order, updatedOrder, freshActor)
+  return { sale, order: updatedOrder as Order }
 }
 
 export async function deleteSale(targetId: string, actorId: string) {
