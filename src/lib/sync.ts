@@ -500,6 +500,19 @@ function localRecordsFor(entity: SyncEntity) {
   return db.backups.toArray()
 }
 
+function isUsableRemoteSaleRow(row: any): boolean {
+  if (!row || typeof row !== 'object') return false
+  const id = String(row.id ?? '').trim().toLowerCase()
+  if (!id || id === 'undefined' || id === 'null') return false
+  const createdAt = String(row.created_at ?? '').trim()
+  const userId = String(row.user_id ?? '').trim()
+  const payment = String(row.payment ?? '').trim()
+  const total = Number(row.total ?? row.data?.total ?? NaN)
+  const subtotal = Number(row.data?.subtotal ?? row.total ?? NaN)
+  const items = Array.isArray(row.data?.items) ? row.data.items : null
+  return Boolean(createdAt && userId && payment && items && Number.isFinite(total) && Number.isFinite(subtotal))
+}
+
 function hasPendingFor(entity: SyncEntity, recordId: string | undefined) {
   if (!recordId) return Promise.resolve(false)
   return db.syncQueue.where('[entity+recordId]').equals([entity, recordId]).count().then(count => count > 0)
@@ -517,6 +530,13 @@ async function reconcileEntity(entity: SyncEntity) {
     localRecordsFor(entity),
     db.syncQueue.toArray(),
   ])
+
+  if (entity === 'sales') {
+    // Never materialize malformed legacy rows such as id="undefined".
+    // Those records were produced by an older sync shape and are not real sales.
+    remoteRows = remoteRows.filter(isUsableRemoteSaleRow)
+  }
+
   const remoteById = new Map(remoteRows.map(row => [String(row.id), row]))
   const pendingIds = new Set(pending.filter(op => op.entity === entity && op.operation === 'upsert' && op.recordId).map(op => String(op.recordId)))
 

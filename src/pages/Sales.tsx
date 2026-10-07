@@ -1,6 +1,7 @@
 import { ArrowRight, FileText, Printer, ShieldAlert, Trash2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { deleteSale, getGeneralSettings, getPaymentMethods, getSales } from '../lib/store'
+import { SYNC_CHANGE_EVENT, syncNow } from '../lib/sync'
 import { money, time, date } from '../lib/format'
 import type { PaymentMethod, Sale } from '../lib/types'
 import { getSessionUser, hasPermission } from '../lib/auth'
@@ -27,19 +28,34 @@ export function Sales() {
 
   useEffect(() => {
     let active = true
-    Promise.all([getSales(), getPaymentMethods(), getGeneralSettings()]).then(([salesData, methods, settings]) => {
-      if (!active) return
-      setSales(Array.isArray(salesData) ? salesData : [])
-      setPaymentLabels(Object.fromEntries((Array.isArray(methods) ? methods : []).map(method => [method.id, method.name])))
-      setReceiptFontSize(Number(settings?.receiptFontSize) || 10)
-    }).catch(error => {
-      console.error('No fue posible cargar el historial de ventas:', error)
-      if (active) {
-        setSales([])
-        setPaymentLabels({})
+
+    const loadSales = async (synchronize = false) => {
+      try {
+        // A successful initial sync is preferred, but local cache remains available when offline.
+        if (synchronize && navigator.onLine) {
+          try { await Promise.race([syncNow(), new Promise(resolve => window.setTimeout(resolve, 4000))]) } catch {}
+        }
+        const [salesData, methods, settings] = await Promise.all([getSales(), getPaymentMethods(), getGeneralSettings()])
+        if (!active) return
+        setSales(Array.isArray(salesData) ? salesData : [])
+        setPaymentLabels(Object.fromEntries((Array.isArray(methods) ? methods : []).map(method => [method.id, method.name])))
+        setReceiptFontSize(Number(settings?.receiptFontSize) || 10)
+      } catch (error) {
+        console.error('No fue posible cargar el historial de ventas:', error)
+        if (active) {
+          setSales([])
+          setPaymentLabels({})
+        }
       }
-    })
-    return () => { active = false }
+    }
+
+    void loadSales(true)
+    const handleSyncChange = () => { void loadSales(false) }
+    window.addEventListener(SYNC_CHANGE_EVENT, handleSyncChange)
+    return () => {
+      active = false
+      window.removeEventListener(SYNC_CHANGE_EVENT, handleSyncChange)
+    }
   }, [])
 
   const closeReceipt = () => {

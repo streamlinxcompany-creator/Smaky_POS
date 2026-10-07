@@ -16,6 +16,46 @@ const redact = (value: unknown): unknown => {
 const actorFromSession = () => getSessionUser()
 type SyncableRecord = { id: string }
 
+
+function isRenderableSale(value: unknown): value is Sale {
+  if (!value || typeof value !== 'object') return false
+  const sale = value as Partial<Sale> & Record<string, unknown>
+  const id = String(sale.id ?? '').trim().toLowerCase()
+  if (!id || id === 'undefined' || id === 'null') return false
+  if (!String(sale.createdAt ?? '').trim()) return false
+  if (!String(sale.userId ?? '').trim()) return false
+  if (!String(sale.payment ?? '').trim()) return false
+  if (!Array.isArray(sale.items)) return false
+  if (!Number.isFinite(Number(sale.subtotal)) || !Number.isFinite(Number(sale.total))) return false
+  return true
+}
+
+async function cleanMalformedLocalSales(): Promise<void> {
+  const sales = await db.sales.toArray()
+  const malformed = sales.filter(sale => !isRenderableSale(sale))
+  if (!malformed.length) return
+
+  const ids = new Set(malformed.map(sale => String(sale.id)))
+  await withSyncSuppressed(async () => {
+    await db.sales.bulkDelete([...ids])
+    const queue = await db.syncQueue.toArray()
+    const staleQueueIds = queue
+      .filter(operation => {
+        if (operation.entity !== 'sales') return false
+        if (operation.recordId && ids.has(String(operation.recordId))) return true
+        try {
+          const payload = operation.payload && typeof operation.payload === 'object' ? operation.payload as Record<string, unknown> : null
+          const payloadId = payload?.id
+          return payloadId !== undefined && ids.has(String(payloadId))
+        } catch {
+          return false
+        }
+      })
+      .map(operation => operation.id)
+    if (staleQueueIds.length) await db.syncQueue.bulkDelete(staleQueueIds)
+  })
+}
+
 async function persistPut<T extends SyncableRecord>(table: Table<T, string>, entity: Parameters<typeof enqueueEntityUpsert>[0], value: T) {
   // No mantenemos una transacción Dexie abierta mientras la outbox dispara
   // tareas de sincronización. Esto evita que un segundo ciclo IndexedDB deje
@@ -54,7 +94,11 @@ async function audit(action: string, module: string, recordType: string, recordI
 
 export async function getAuditEvents() { return db.auditEvents.orderBy('timestamp').reverse().toArray() }
 export async function getHistoryRecords() { return db.historyRecords.orderBy('capturedAt').reverse().toArray() }
-export async function getArchivedSales() { return db.sales.orderBy('createdAt').reverse().toArray() }
+export async function getArchivedSales() {
+  await cleanMalformedLocalSales()
+  const sales = await db.sales.orderBy('createdAt').reverse().toArray()
+  return sales.filter(sale => isRenderableSale(sale))
+}
 export async function getArchivedOrders() { return db.orders.orderBy('createdAt').reverse().toArray() }
 export async function getArchivedProducts() { return db.products.toArray() }
 export async function getArchivedUsers() { return db.users.toArray() }
@@ -700,14 +744,19 @@ export async function saveProduct(product: Product) {
 }
 
 export async function getSales() {
+  await cleanMalformedLocalSales()
   const sales = await db.sales.orderBy('createdAt').reverse().toArray()
-  return sales.filter(sale => !sale.deletedAt)
+  return sales.filter(sale => isRenderableSale(sale) && !sale.deletedAt)
 }
 
 export async function addSale(sale: Sale) {
   const nextSale: Sale = {
     ...sale,
     updatedAt: new Date().toISOString()
+  }
+
+  if (!isRenderableSale(nextSale)) {
+    throw new Error('No se puede guardar una venta incompleta. La operación fue cancelada para proteger el historial.')
   }
 
   await persistAdd(db.sales, 'sales', nextSale)
@@ -1547,6 +1596,10 @@ export async function completeOrder(
         : undefined,
     businessDateKey,
     updatedAt: new Date().toISOString()
+  }
+
+  if (!isRenderableSale(sale)) {
+    throw new Error('No se pudo construir una venta válida. No se registró ningún cobro.')
   }
 
   await persistAdd(db.sales, 'sales', sale)
