@@ -1104,7 +1104,35 @@ export async function updateUserSettings(targetId: string, changes: Partial<User
 }
 
 export async function deleteUserProfile(targetId: string, actorId: string) {
-  const [actor, target] = await Promise.all([db.users.get(actorId), db.users.get(targetId)])
+  const actor = (await db.users.get(actorId)) || getSessionUser()
+  let target = await db.users.get(targetId)
+
+  // La lista de Usuarios puede venir directamente de Supabase aunque el
+  // perfil todavía no exista en Dexie. En ese caso no debemos confundir
+  // "no está en la caché local" con "no tienes permisos".
+  if (!target && navigator.onLine && actor?.role === 'manager') {
+    try {
+      const remoteProfiles = await getManagedProfiles()
+      const remote = remoteProfiles.find(profile => profile.id === targetId)
+      if (remote) {
+        target = {
+          id: remote.id,
+          legacyId: remote.legacyId,
+          authEmail: remote.authEmail,
+          name: remote.name,
+          role: remote.role,
+          rank: remote.rank,
+          active: remote.active,
+          pin: remote.pin,
+          permissions: remote.permissions || [],
+          updatedAt: new Date().toISOString(),
+        }
+      }
+    } catch (error) {
+      console.warn('Smaky: no fue posible recuperar el perfil remoto antes de eliminarlo:', error)
+    }
+  }
+
   if (!actor || !target || !actor.active) return false
   if (target.id === actor.id || target.role === 'manager') return false
   if (target.role === 'admin' && actor.role !== 'manager') return false
