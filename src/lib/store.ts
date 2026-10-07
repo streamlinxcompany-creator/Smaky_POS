@@ -1,6 +1,6 @@
 import { db } from './db'
 import type { Table } from 'dexie'
-import { applyLocalCashClosurePurge, applyLocalSalesPurge, enqueueCashClosuresPurgeOperation, enqueueEntityUpsert, enqueueResetOperation, enqueueSalesPurgeOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, isNetworkError, purgeRemoteCashClosures, purgeRemoteSales, resetRemoteData, withSyncSuppressed } from './sync'
+import { applyLocalCashClosurePurge, applyLocalSalesPurge, enqueueCashClosuresPurgeOperation, enqueueEntityUpsert, enqueueResetOperation, enqueueSalesPurgeOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, isNetworkError, purgeRemoteCashClosures, purgeRemoteSales, resetRemoteData, purgePosToVirgin, withSyncSuppressed } from './sync'
 import { products as seedProducts } from './demoData'
 import { createRemoteWorker, defaultPermissionsForRole, deleteRemoteUser, getLoginProfiles, getManagedProfile, getSessionUser, hasPermission, isStreamlinxOperator, setSessionUser, updateRemoteUser } from './auth'
 import type { AuditEvent, BackupSnapshot, CashClosure, Customer, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
@@ -902,6 +902,11 @@ export async function purgeCashClosures(actor: User, closureIds?: string[]): Pro
   )
 
   return { ok: true, pending: remotePending, purgeBefore, ...local }
+}
+
+export async function resetPosToVirgin(actor: User) {
+  if (!isStreamlinxOperator(actor)) return { ok: false as const, error: 'La operación solo está disponible desde StreamLinx.' }
+  return purgePosToVirgin()
 }
 
 export async function resetTestData(actor: User) {

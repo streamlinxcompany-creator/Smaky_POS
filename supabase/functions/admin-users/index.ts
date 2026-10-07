@@ -76,6 +76,17 @@ Deno.serve(async (request) => {
   let body: Record<string, unknown>
   try { body = await request.json() as Record<string, unknown> } catch { return json({ error: 'Solicitud inválida.' }, 400) }
   const action = String(body.action || '')
+  const operationCreatedAt = String(body.operationCreatedAt || '')
+  if (operationCreatedAt) {
+    const { data: resetState } = await admin
+      .from('streamlinx_pos_reset_state')
+      .select('reset_at')
+      .eq('id', true)
+      .maybeSingle()
+    if (resetState?.reset_at && Number.isFinite(Date.parse(operationCreatedAt)) && Date.parse(operationCreatedAt) <= Date.parse(String(resetState.reset_at))) {
+      return json({ error: 'Operación de usuario anterior al último reinicio global del POS.', code: 'POS_RESET_STALE_OPERATION' }, 409)
+    }
+  }
 
   if (action === 'list') {
     if (actor.role !== 'manager') return json({ error: 'Solo el gerente puede consultar los PIN.' }, 403)

@@ -17,6 +17,7 @@ import { supabase, supabaseConfigured } from './supabase'
 const PAGE_SIZE = 1000
 const SYNC_EVENT = 'smaky-sync-change'
 export const SALES_PURGE_MARKER_KEY = '__smaky_sales_purge_marker'
+export const POS_VIRGIN_RESET_META_KEY = '__smaky_pos_virgin_reset_at'
 const STREAMLINX_PURGE_ACCESS_KEY = 'e25f201f9014599e00073db598a2603a9c05766965336d9b9c68c3d4081ee9a3'
 let suppressionDepth = 0
 let syncRunning = false
@@ -636,6 +637,14 @@ async function processDataOperation(operation: DataSyncOperation) {
     if (error) throw error
     return data
   }
+  if (operation.operation === 'reset_pos_virgin') {
+    const { data, error } = await supabase!.rpc('streamlinx_reset_pos_to_virgin', {
+      p_reset_at: operation.createdAt,
+      p_access_key: STREAMLINX_PURGE_ACCESS_KEY,
+    })
+    if (error) throw error
+    return data
+  }
   if (!operation.entity || operation.entity === 'system' || !operation.payload) return
   const remote = await upsertRemote(operation.entity, operation.payload)
   if (remote) await putLocalRemote(operation.entity, remote)
@@ -658,10 +667,11 @@ async function processUserOperation(operation: UserSyncOperation) {
         rank: payload?.user?.rank,
         role: payload?.user?.role || 'employee',
         permissions: payload?.user?.permissions,
+        operationCreatedAt: operation.createdAt,
       }
     : operation.operation === 'update'
-      ? { action: 'update', targetId: resolvedTargetId, changes: payload?.changes || {} }
-      : { action: 'delete', targetId: resolvedTargetId }
+      ? { action: 'update', targetId: resolvedTargetId, changes: payload?.changes || {}, operationCreatedAt: operation.createdAt }
+      : { action: 'delete', targetId: resolvedTargetId, operationCreatedAt: operation.createdAt }
   const { data, error } = await supabase.functions.invoke('admin-users', { body })
   if (error) throw error
   if (operation.operation === 'delete') {
@@ -1130,6 +1140,143 @@ export async function ensureRemoteSession() {
   }
 }
 
+export async function getRemotePosVirginResetAt(): Promise<string | undefined> {
+  if (!supabaseConfigured || !supabase || !navigator.onLine) return undefined
+  try {
+    const { data, error } = await supabase.rpc('streamlinx_get_pos_reset_state', {
+      p_access_key: STREAMLINX_PURGE_ACCESS_KEY,
+    })
+    if (error) return undefined
+    const resetAt = data && typeof data === 'object' ? (data as Record<string, unknown>).resetAt : undefined
+    return typeof resetAt === 'string' ? resetAt : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function resettableTimestamp(entity: string, row: any): string {
+  if (entity === 'cash_closures') return String(row.closedAt || row.updatedAt || '')
+  if (entity === 'audit_events') return String(row.timestamp || '')
+  if (entity === 'history_records') return String(row.capturedAt || '')
+  if (entity === 'backups') return String(row.createdAt || '')
+  return String(row.createdAt || row.updatedAt || '')
+}
+
+export async function applyRemotePosVirginResetState(resetAt?: string) {
+  const remoteResetAt = resetAt || await getRemotePosVirginResetAt()
+  if (!remoteResetAt) return false
+  const remoteMs = Date.parse(remoteResetAt)
+  if (!Number.isFinite(remoteMs)) return false
+
+  const previous = await db.syncMeta.get(POS_VIRGIN_RESET_META_KEY)
+  const previousMs = previous?.value ? Date.parse(String(previous.value)) : NaN
+  if (Number.isFinite(previousMs) && previousMs >= remoteMs) return false
+
+  await db.transaction(
+    'rw',
+    [db.sales, db.orders, db.customers, db.closures, db.auditEvents, db.historyRecords, db.backups, db.users, db.syncQueue, db.syncMeta],
+    async () => {
+      const [sales, orders, customers, closures, auditEvents, historyRecords, backups, users, queue] = await Promise.all([
+        db.sales.toArray(),
+        db.orders.toArray(),
+        db.customers.toArray(),
+        db.closures.toArray(),
+        db.auditEvents.toArray(),
+        db.historyRecords.toArray(),
+        db.backups.toArray(),
+        db.users.toArray(),
+        db.syncQueue.toArray(),
+      ])
+
+      const resetEntity = (entity: string, rows: any[]) => rows
+        .filter(row => Date.parse(resettableTimestamp(entity, row)) <= remoteMs)
+        .map(row => String(row.id))
+
+      const ids = {
+        sales: resetEntity('sales', sales),
+        orders: resetEntity('orders', orders),
+        customers: resetEntity('customers', customers),
+        cash_closures: resetEntity('cash_closures', closures),
+        audit_events: resetEntity('audit_events', auditEvents),
+        history_records: resetEntity('history_records', historyRecords),
+        backups: resetEntity('backups', backups),
+      }
+
+      await Promise.all([
+        db.sales.bulkDelete(ids.sales),
+        db.orders.bulkDelete(ids.orders),
+        db.customers.bulkDelete(ids.customers),
+        db.closures.bulkDelete(ids.cash_closures),
+        db.auditEvents.bulkDelete(ids.audit_events),
+        db.historyRecords.bulkDelete(ids.history_records),
+        db.backups.bulkDelete(ids.backups),
+      ])
+
+      const nonManagerUserIds = users
+        .filter(user => user.role !== 'manager' && Date.parse(String(user.updatedAt || '')) <= remoteMs)
+        .map(user => user.id)
+      if (nonManagerUserIds.length) await db.users.bulkDelete(nonManagerUserIds)
+
+      const resetEntities = new Set(['sales','orders','customers','cash_closures','audit_events','history_records','backups','users','system'])
+      const staleQueueIds = queue
+        .filter(operation => resetEntities.has(String(operation.entity)) && Date.parse(String(operation.createdAt || '')) <= remoteMs)
+        .map(operation => operation.id)
+      if (staleQueueIds.length) await db.syncQueue.bulkDelete(staleQueueIds)
+
+      await db.syncMeta.put({
+        id: POS_VIRGIN_RESET_META_KEY,
+        value: remoteResetAt,
+        updatedAt: stamp(),
+      })
+    }
+  )
+
+  emitSyncChange()
+  return true
+}
+
+export async function purgePosToVirgin(): Promise<{ ok: boolean; error?: string; counts?: Record<string, number> }> {
+  if (!supabaseConfigured || !supabase) return { ok: false, error: 'Supabase no está configurado.' }
+  if (!navigator.onLine) return { ok: false, error: 'Para dejar el POS virgen en todos los dispositivos necesitas conexión a Supabase.' }
+
+  try {
+    const { data, error } = await supabase.rpc('streamlinx_reset_pos_to_virgin', {
+      p_reset_at: stamp(),
+      p_access_key: STREAMLINX_PURGE_ACCESS_KEY,
+    })
+    if (error) return { ok: false, error: error.message }
+
+    const remoteCounts = data && typeof data === 'object'
+      ? Object.fromEntries(
+          Object.entries(data)
+            .filter(([, value]) => typeof value === 'number')
+            .map(([key, value]) => [key, Number(value)])
+        )
+      : undefined
+    const resetAt = data && typeof data === 'object' ? String((data as Record<string, unknown>).resetAt || '') : ''
+    if (!resetAt) return { ok: false, error: 'Supabase no devolvió la confirmación del reinicio global.' }
+
+    await applyRemotePosVirginResetState(resetAt)
+
+    // On the device that launched the reset, remove all operational records
+    // older than the confirmed server reset and every stale queue operation.
+    await db.syncQueue.where('entity').anyOf(['sales','orders','customers','cash_closures','audit_events','history_records','backups','system']).delete()
+    await db.syncQueue.where('entity').equals('users').delete()
+
+    const manager = (await db.users.toArray()).find(user => user.role === 'manager')
+    const allUsers = await db.users.toArray()
+    const removeUserIds = allUsers.filter(user => user.role !== 'manager').map(user => user.id)
+    if (removeUserIds.length) await db.users.bulkDelete(removeUserIds)
+
+    if (!manager) return { ok: false, error: 'Supabase terminó el reinicio, pero no quedó disponible el perfil Gerente local. Vuelve a iniciar sesión para recuperarlo.' }
+
+    emitSyncChange()
+    return { ok: true, counts: remoteCounts }
+  } catch (error) {
+    return { ok: false, error: cleanError(error) }
+  }
+}
+
 export async function resetRemoteData(): Promise<{ ok: true; counts?: Record<string, number> } | { ok: false; offline: boolean; error?: string }> {
   if (!supabaseConfigured || !supabase || !navigator.onLine) return { ok: false, offline: true }
   try {
@@ -1165,6 +1312,8 @@ export async function syncNow(): Promise<SyncResult> {
   // A StreamLinx purge has its own RPC and deliberately does not require the
   // normal Smaky/Supabase user session. Let that queued destructive operation
   // drain even when the POS itself is logged out.
+  await applyRemotePosVirginResetState()
+
   const localSalesPurgePending = await hasPendingSalesPurge()
   const localClosurePurgePending = await hasPendingCashClosurePurge()
   const localPurgePending = localSalesPurgePending || localClosurePurgePending
