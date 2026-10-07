@@ -13,6 +13,7 @@ export function Login() {
   const [selectedId, setSelectedId] = useState('')
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
   const [streamlinxOpen, setStreamlinxOpen] = useState(false)
   const [streamlinxPin, setStreamlinxPin] = useState('')
   const [streamlinxError, setStreamlinxError] = useState('')
@@ -52,11 +53,22 @@ export function Login() {
 
   const selected = users.find(user => user.id === selectedId)
   const submit = async () => {
-    if (!selected) return
+    if (!selected || submitting) return
     setError('')
-    const result = await signInWithPin(selected, pin)
-    if (!result.user) return setError(result.error || 'PIN incorrecto.')
-    navigate('/', { replace: true })
+    setSubmitting(true)
+    try {
+      const result = await signInWithPin(selected, pin)
+      if (!result.user) {
+        setError(result.error || 'PIN incorrecto.')
+        return
+      }
+      navigate('/', { replace: true })
+    } catch (requestError) {
+      console.error('Smaky login exception:', requestError)
+      setError(requestError instanceof Error ? requestError.message : 'No fue posible iniciar la sesión.')
+    } finally {
+      setSubmitting(false)
+    }
   }
   const submitStreamLinx = () => {
     if (streamlinxPin !== STREAMLINX_ACCESS_PIN) return setStreamlinxError('IDENTIDAD NO VERIFICADA // ACCESO DENEGADO')
@@ -67,7 +79,7 @@ export function Login() {
     <div className="login-brand"><div className="brand-mark">S</div><div><strong>smaky</strong><span>POS</span></div></div>
     <div className="login-copy"><p className="eyebrow">ACCESO SEGURO</p><h1>¿Quién está entrando?</h1><p>Selecciona tu perfil e ingresa tu PIN de 4 números.</p></div>
     <div className="login-users">{users.map(user => <button key={user.id} className={`login-user ${selectedId === user.id ? 'selected' : ''}`} onClick={() => { setSelectedId(user.id); setPin(''); setError('') }}><div className="avatar">{initials(user.name)}</div><div><b>{user.name}</b><span>{roleLabel(user.role)} · {user.rank}</span></div>{user.role === 'employee' ? <UserRound size={16}/> : <ShieldCheck size={16}/>}</button>)}</div>
-    {selected && <div className="login-pin"><span><ShieldCheck size={13}/> PIN de {selected.name}</span><input autoFocus inputMode="numeric" maxLength={4} type="password" value={pin} onChange={event => { setPin(event.target.value.replace(/\D/g,'').slice(0,4)); setError('') }} onKeyDown={event => event.key === 'Enter' && submit()} placeholder="••••" />{error && <p className="form-error">{error}</p>}<button className="primary login-submit" disabled={pin.length !== 4} onClick={submit}>Iniciar sesión <ArrowRight size={14}/></button></div>}
+    {selected && <div className="login-pin"><span><ShieldCheck size={13}/> PIN de {selected.name}</span><input autoFocus inputMode="numeric" maxLength={4} type="password" value={pin} onChange={event => { setPin(event.target.value.replace(/\D/g,'').slice(0,4)); setError('') }} onKeyDown={event => event.key === 'Enter' && submit()} placeholder="••••" />{error && <p className="form-error">{error}</p>}<button className="primary login-submit" disabled={pin.length !== 4 || submitting} onClick={submit}>{submitting ? 'Conectando…' : 'Iniciar sesión'} {!submitting && <ArrowRight size={14}/>}</button></div>}
     <p className="login-hint">Tu PIN es personal. No lo compartas con otros usuarios.</p>
   </div>
 

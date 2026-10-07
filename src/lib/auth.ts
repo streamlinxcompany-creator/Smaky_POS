@@ -404,6 +404,30 @@ function localLogin(
   return { user }
 }
 
+async function getCachedLoginUser(user: User): Promise<User | null> {
+  // El selector de login puede venir de pos_login_profiles (remoto), pero
+  // esos perfiles deliberadamente no llevan el PIN. Para el modo de
+  // contingencia necesitamos recuperar el perfil completo de IndexedDB.
+  const byId = await db.users.get(user.id)
+  if (byId) return byId
+
+  if (user.authEmail) {
+    const byEmail = await db.users
+      .filter(item => Boolean(item.authEmail) && item.authEmail === user.authEmail)
+      .first()
+    if (byEmail) return byEmail
+  }
+
+  if (user.legacyId) {
+    const byLegacyId = await db.users
+      .filter(item => item.legacyId === user.legacyId)
+      .first()
+    if (byLegacyId) return byLegacyId
+  }
+
+  return null
+}
+
 export async function signInWithPin(
   user: User,
   pin: string
@@ -472,25 +496,32 @@ export async function signInWithPin(
     }
   )
 
-  const {
-    data,
-    error,
-  } = await supabase.auth.signInWithPassword({
-    email: user.authEmail,
-    password: authPasswordFromPin(pin),
-  })
+  let data: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>['data']
+  let error: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>['error']
 
-  /*
-   * MUY IMPORTANTE:
-   * Ya NO hacemos fallback silencioso a localLogin().
-   */
-  if (error || !data.user) {
+  try {
+    const result = await withTimeout(
+      supabase.auth.signInWithPassword({
+        email: user.authEmail,
+        password: authPasswordFromPin(pin),
+      }),
+      10_000
+    )
+    data = result.data
+    error = result.error
+  } catch (requestError) {
+    error = requestError as typeof error
+  }
+
+  if (error || !data?.user) {
     console.error(
       'Smaky Supabase login error:',
       error
     )
 
     if (isNetworkError(error)) {
+      const cached = await getCachedLoginUser(user)
+      if (cached) return localLogin(cached, pin)
       return localLogin(user, pin)
     }
 
@@ -510,16 +541,24 @@ export async function signInWithPin(
   /*
    * Obtener el perfil real desde Supabase.
    */
-  const {
-    data: profile,
-    error: profileError,
-  } = await supabase
-    .from('profiles')
-    .select(
-      'id, name, role, rank, active, permissions, auth_email, legacy_id, updated_at'
+  let profile: Record<string, unknown> | null = null
+  let profileError: unknown = null
+  try {
+    const profileResult = await withTimeout(
+      supabase
+        .from('profiles')
+        .select(
+          'id, name, role, rank, active, permissions, auth_email, legacy_id, updated_at'
+        )
+        .eq('id', data.user.id)
+        .maybeSingle(),
+      10_000
     )
-    .eq('id', data.user.id)
-    .maybeSingle()
+    profile = profileResult.data as Record<string, unknown> | null
+    profileError = profileResult.error
+  } catch (requestError) {
+    profileError = requestError
+  }
 
   if (profileError || !profile) {
     console.error(
@@ -527,12 +566,17 @@ export async function signInWithPin(
       profileError
     )
 
+    if (isNetworkError(profileError)) {
+      const cached = await getCachedLoginUser(user)
+      if (cached) return localLogin(cached, pin)
+    }
+
     await supabase.auth.signOut()
 
     return {
       user: null,
       error:
-        profileError?.message ||
+        (profileError as { message?: string } | null)?.message ||
         'La cuenta existe, pero no tiene un perfil Smaky POS configurado.',
     }
   }
