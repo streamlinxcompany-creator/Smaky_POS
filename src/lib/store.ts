@@ -1,6 +1,6 @@
 import { db } from './db'
 import type { Table } from 'dexie'
-import { enqueueEntityUpsert, enqueueResetOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, isNetworkError, resetRemoteData, withSyncSuppressed } from './sync'
+import { applyLocalSalesPurge, enqueueEntityUpsert, enqueueResetOperation, enqueueSalesPurgeOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, isNetworkError, purgeRemoteSales, resetRemoteData, withSyncSuppressed } from './sync'
 import { products as seedProducts } from './demoData'
 import { createRemoteWorker, defaultPermissionsForRole, deleteRemoteUser, getLoginProfiles, getManagedProfile, getSessionUser, hasPermission, setSessionUser, updateRemoteUser } from './auth'
 import type { AuditEvent, BackupSnapshot, CashClosure, Customer, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
@@ -753,6 +753,49 @@ export const addBusinessDay = (dateKey: string, amount = 1) => {
 export async function getClosures() {
   const closures = await db.closures.orderBy('closedAt').reverse().toArray()
   return closures.filter(closure => !closure.deletedAt)
+}
+
+
+export async function purgeSalesData(actor: User) {
+  const freshActor = await db.users.get(actor.id)
+  if (!freshActor?.active || freshActor.role !== 'manager') {
+    return { ok: false, error: 'Solo el gerente puede purgar las ventas definitivamente.' }
+  }
+
+  const purgeBefore = new Date().toISOString()
+  let remotePending = false
+
+  if (navigator.onLine && await ensureRemoteSession()) {
+    const remote = await purgeRemoteSales(purgeBefore)
+    if (!remote.ok && !remote.offline) {
+      return { ok: false, error: remote.error || 'No fue posible purgar las ventas en Supabase.' }
+    }
+    remotePending = !remote.ok && remote.offline
+  } else {
+    remotePending = true
+  }
+
+  const local = await applyLocalSalesPurge(purgeBefore, true)
+  if (remotePending) {
+    await enqueueSalesPurgeOperation(actor.id, purgeBefore)
+  }
+
+  await audit(
+    'SYSTEM_SALES_PURGE_EXECUTED',
+    'SYSTEM',
+    'sales-purge',
+    'sales',
+    null,
+    {
+      purgeBefore,
+      remote: remotePending ? 'pending' : 'completed',
+      ...local,
+    },
+    actor,
+    'Purga permanente solicitada desde StreamLinx Command Center.'
+  )
+
+  return { ok: true, pending: remotePending, purgeBefore, ...local }
 }
 
 export async function resetTestData(actor: User) {

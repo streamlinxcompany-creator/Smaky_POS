@@ -16,6 +16,7 @@ import { supabase, supabaseConfigured } from './supabase'
 
 const PAGE_SIZE = 1000
 const SYNC_EVENT = 'smaky-sync-change'
+export const SALES_PURGE_MARKER_KEY = '__smaky_sales_purge_marker'
 let suppressionDepth = 0
 let syncRunning = false
 let started = false
@@ -173,6 +174,17 @@ export async function enqueueResetOperation(actorId: string) {
     createdAt: stamp(),
     attempts: 0,
     payload: { actorId },
+  })
+}
+
+export async function enqueueSalesPurgeOperation(actorId: string, purgeBefore: string) {
+  await enqueueOperation({
+    id: randomId('sales-purge'),
+    entity: 'system',
+    operation: 'purge_sales',
+    createdAt: stamp(),
+    attempts: 0,
+    payload: { actorId, purgeBefore },
   })
 }
 
@@ -540,6 +552,13 @@ async function processDataOperation(operation: DataSyncOperation) {
     if (error) throw error
     return data
   }
+  if (operation.operation === 'purge_sales') {
+    const payload = (operation.payload || {}) as { purgeBefore?: string }
+    const purgeBefore = payload.purgeBefore || operation.createdAt
+    const { data, error } = await supabase!.rpc('purge_sales_data', { purge_before: purgeBefore })
+    if (error) throw error
+    return data
+  }
   if (!operation.entity || operation.entity === 'system' || !operation.payload) return
   const remote = await upsertRemote(operation.entity, operation.payload)
   if (remote) await putLocalRemote(operation.entity, remote)
@@ -600,7 +619,9 @@ async function processUserOperation(operation: UserSyncOperation) {
 
 async function flushQueue() {
   const operations = await db.syncQueue.orderBy('createdAt').toArray()
-  for (const operation of operations) {
+  const priority = operations.filter(operation => operation.entity === 'system' && operation.operation === 'purge_sales')
+  const rest = operations.filter(operation => !(operation.entity === 'system' && operation.operation === 'purge_sales'))
+  for (const operation of [...priority, ...rest]) {
     try {
       if (operation.entity === 'users') await processUserOperation(operation as UserSyncOperation)
       else await processDataOperation(operation as DataSyncOperation)
@@ -612,6 +633,156 @@ async function flushQueue() {
       // discarded. The next sync can retry after the account/permissions change.
       continue
     }
+  }
+}
+
+
+function readSalesPurgeMarkerValue(value: unknown) {
+  if (typeof value === 'string') return value
+  if (value && typeof value === 'object' && 'purgeBefore' in value) {
+    const purgeBefore = (value as { purgeBefore?: unknown }).purgeBefore
+    return typeof purgeBefore === 'string' ? purgeBefore : undefined
+  }
+  return undefined
+}
+
+async function getLocalSalesPurgeMarker() {
+  const setting = await db.settings.get(SALES_PURGE_MARKER_KEY)
+  return readSalesPurgeMarkerValue(setting?.value)
+}
+
+export async function applyLocalSalesPurge(purgeBefore: string, persistMarker = true) {
+  const cutoff = Date.parse(purgeBefore)
+  if (!Number.isFinite(cutoff)) throw new Error('La fecha de purga de ventas no es válida.')
+
+  let counts = { sales: 0, history: 0, audit: 0, backups: 0, closures: 0 }
+  const now = stamp()
+
+  await db.transaction('rw', [db.sales, db.auditEvents, db.historyRecords, db.backups, db.closures, db.syncQueue, db.settings], async () => {
+    const [sales, histories, auditEvents, backups, closures, queue] = await Promise.all([
+      db.sales.toArray(),
+      db.historyRecords.toArray(),
+      db.auditEvents.toArray(),
+      db.backups.toArray(),
+      db.closures.toArray(),
+      db.syncQueue.toArray(),
+    ])
+
+    const saleIds = new Set(
+      sales
+        .filter(sale => (Date.parse(String(sale.createdAt || sale.updatedAt || '')) || 0) <= cutoff)
+        .map(sale => String(sale.id))
+    )
+
+    if (saleIds.size) {
+      counts.sales = saleIds.size
+      await db.sales.bulkDelete([...saleIds])
+    }
+
+    const historyIds = histories
+      .filter(history => history.entity === 'sale' && (
+        saleIds.has(history.recordId) || (Date.parse(String(history.capturedAt || '')) || 0) <= cutoff
+      ))
+      .map(history => history.id)
+    if (historyIds.length) {
+      counts.history = historyIds.length
+      await db.historyRecords.bulkDelete(historyIds)
+    }
+
+    const auditIds = auditEvents
+      .filter(event => event.recordType === 'sale' && (
+        saleIds.has(String(event.recordId || '')) || (Date.parse(String(event.timestamp || '')) || 0) <= cutoff
+      ))
+      .map(event => event.id)
+    if (auditIds.length) {
+      counts.audit = auditIds.length
+      await db.auditEvents.bulkDelete(auditIds)
+    }
+
+    for (const backup of backups) {
+      if ((Date.parse(String(backup.createdAt || '')) || 0) > cutoff) continue
+      if (!Object.prototype.hasOwnProperty.call(backup.payload || {}, 'sales')) continue
+      const { sales: _sales, ...payloadWithoutSales } = backup.payload || {}
+      await db.backups.put({
+        ...backup,
+        payload: payloadWithoutSales,
+        contents: { ...backup.contents, sales: 0 },
+      })
+      counts.backups += 1
+    }
+
+    for (const closure of closures) {
+      if ((Date.parse(String(closure.closedAt || '')) || 0) > cutoff) continue
+      if (!closure.sales?.length) continue
+      await db.closures.put({ ...closure, sales: [], updatedAt: now })
+      counts.closures += 1
+    }
+
+    const staleQueueIds = queue
+      .filter(operation => {
+        if (operation.entity === 'system' && operation.operation === 'purge_sales') return false
+        if (operation.entity === 'sales' && operation.recordId && saleIds.has(String(operation.recordId))) return true
+        if (['audit_events', 'history_records', 'backups', 'cash_closures'].includes(String(operation.entity))) {
+          return (Date.parse(String(operation.createdAt || '')) || 0) <= cutoff
+        }
+        return false
+      })
+      .map(operation => operation.id)
+    if (staleQueueIds.length) await db.syncQueue.bulkDelete(staleQueueIds)
+
+    if (persistMarker) {
+      await db.settings.put({
+        id: SALES_PURGE_MARKER_KEY,
+        key: SALES_PURGE_MARKER_KEY,
+        value: purgeBefore,
+        updatedAt: now,
+      })
+    }
+  })
+
+  emitSyncChange()
+  return counts
+}
+
+async function applyRemoteSalesPurgeMarker() {
+  const marker = await getLocalSalesPurgeMarker()
+  if (!marker) return false
+  await applyLocalSalesPurge(marker, false)
+  return true
+}
+
+export async function hasPendingSalesPurge() {
+  return db.syncQueue
+    .filter(operation => operation.entity === 'system' && operation.operation === 'purge_sales')
+    .count()
+    .then(count => count > 0)
+}
+
+export async function purgeRemoteSales(purgeBefore: string) {
+  if (!supabaseConfigured || !supabase || !navigator.onLine) {
+    return { ok: false, offline: true as const }
+  }
+  try {
+    if (!(await ensureRemoteSession())) {
+      return { ok: false, offline: isNetworkError(lastError), error: lastError || 'No hay una sesión remota activa.' }
+    }
+    const { data, error } = await supabase.rpc('purge_sales_data', { purge_before: purgeBefore })
+    if (error) {
+      if (isNetworkError(error)) return { ok: false, offline: true as const, error: error.message }
+      return { ok: false, offline: false as const, error: error.message }
+    }
+    const counts = data && typeof data === 'object'
+      ? Object.fromEntries(
+          Object.entries(data)
+            .filter(([, value]) => typeof value === 'number')
+            .map(([key, value]) => [key, Number(value)])
+        )
+      : undefined
+    return { ok: true as const, counts }
+  } catch (error) {
+    return isNetworkError(error)
+      ? { ok: false, offline: true as const, error: cleanError(error) }
+      : { ok: false, offline: false as const, error: cleanError(error) }
   }
 }
 
@@ -679,9 +850,25 @@ export async function syncNow(): Promise<SyncResult> {
   lastError = undefined
   emitSyncChange()
   try {
-    // Flush first so an offline mutation is never overwritten by a fresh pull.
-    await flushQueue()
-    const entities: SyncEntity[] = ['products', 'customers', 'orders', 'sales', 'cash_closures', 'settings', 'audit_events', 'history_records', 'backups']
+    const localPurgePending = await hasPendingSalesPurge()
+
+    // A local offline purge must execute remotely before any older outbox item.
+    if (localPurgePending) {
+      await flushQueue()
+    } else {
+      // On a different device, pull the remote purge marker before flushing the
+      // outbox so stale IndexedDB sales/history cannot be uploaded again.
+      await reconcileEntity('settings')
+      await applyRemoteSalesPurgeMarker()
+      await flushQueue()
+    }
+
+    // A successful remote purge creates/updates the marker. Pull it again before
+    // reconciling sales so every browser clears stale cached records first.
+    await reconcileEntity('settings')
+    await applyRemoteSalesPurgeMarker()
+
+    const entities: SyncEntity[] = ['settings', 'products', 'customers', 'orders', 'sales', 'cash_closures', 'audit_events', 'history_records', 'backups']
     for (const entity of entities) await reconcileEntity(entity)
     lastSyncedAt = stamp()
     return { ...(await getSyncState()), ok: true }
