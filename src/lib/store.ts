@@ -528,7 +528,7 @@ export async function getClosureByDate(dateKey: string) {
 }
 
 export async function deletePreviousDayClosure(closureId: string, actor: User) {
-  return db.transaction('rw', [db.closures, db.users, db.auditEvents, db.historyRecords, db.syncQueue], async () => {
+  const result = await db.transaction('rw', [db.closures, db.users, db.syncQueue], async () => {
     const freshActor = await db.users.get(actor.id)
     if (!freshActor?.active || freshActor.role !== 'manager') return false
 
@@ -539,13 +539,16 @@ export async function deletePreviousDayClosure(closureId: string, actor: User) {
     const after = { ...closure, deletedAt: new Date().toISOString(), deletedBy: actor.id, updatedAt: new Date().toISOString() }
       await db.closures.put(after)
     await enqueueEntityUpsert('cash_closures', after.id, after)
-    await audit('CASH_CLOSE_DELETED', 'CASH', 'closure', closureId, closure, after, actor)
-    return true
+    return { closure, after, actor: freshActor }
   })
+
+  if (!result) return false
+  await audit('CASH_CLOSE_DELETED', 'CASH', 'closure', closureId, result.closure, result.after, result.actor)
+  return true
 }
 
 export async function createDailyClosure(dateKey: string, actor: User, cashCounted: number, notes = ''): Promise<CashClosure | null> {
-  return db.transaction('rw', [db.closures, db.sales, db.users, db.auditEvents, db.historyRecords, db.settings, db.syncQueue], async () => {
+  const result = await db.transaction('rw', [db.closures, db.sales, db.users, db.settings, db.syncQueue], async () => {
     const freshActor = await db.users.get(actor.id)
     if (!freshActor?.active || !hasPermission(freshActor, 'cashClosing.access')) return null
     const existingClosure = await db.closures.where('dateKey').equals(dateKey).first()
@@ -593,9 +596,12 @@ export async function createDailyClosure(dateKey: string, actor: User, cashCount
 
     await db.closures.add(closure)
     await enqueueEntityUpsert('cash_closures', closure.id, closure)
-    await audit('CASH_CLOSE_CREATED', 'CASH', 'closure', closure.id, null, closure, freshActor)
-    return closure
+    return { closure, actor: freshActor }
   })
+
+  if (!result) return null
+  await audit('CASH_CLOSE_CREATED', 'CASH', 'closure', result.closure.id, null, result.closure, result.actor)
+  return result.closure
 }
 
 const normalizePhone = (value: string) => value.replace(/\D/g, '')
@@ -772,7 +778,7 @@ async function resolveLocalActor(actor: User): Promise<User | null> {
 }
 
 export async function completeOrder(orderId: string, payment: PaymentMethod, actor: User, discount?: { type: 'percent' | 'fixed'; value: number }, paymentLabel?: string) {
-  return db.transaction('rw', [db.orders, db.sales, db.users, db.closures, db.auditEvents, db.historyRecords, db.syncQueue], async () => {
+  const result = await db.transaction('rw', [db.orders, db.sales, db.users, db.closures, db.syncQueue], async () => {
     const order = await db.orders.get(orderId)
     if (!order) throw new Error('No encontramos el pedido que intentas cobrar. Actualiza el pedido e inténtalo de nuevo.')
     if (['paid', 'cancelled'].includes(order.status)) throw new Error('Este pedido ya fue cobrado o está cancelado.')
@@ -824,10 +830,14 @@ export async function completeOrder(orderId: string, payment: PaymentMethod, act
     const updatedOrder = { ...order, status: 'paid' as const, updatedAt: new Date().toISOString() }
     await db.orders.put(updatedOrder)
     await enqueueEntityUpsert('orders', updatedOrder.id, updatedOrder)
-    await audit('INVOICE_CREATED', 'SALES', 'sale', sale.id, null, sale, freshActor)
-    await audit('ORDER_UPDATED', 'ORDERS', 'order', order.id, order, { ...order, status: 'paid' }, freshActor)
-    return { sale, order: await db.orders.get(order.id) as Order }
+    return { sale, order: updatedOrder, actor: freshActor }
   })
+
+  // La auditoría se ejecuta después de cerrar la transacción principal.
+  // Así ninguna operación adicional puede dejar la transacción de IndexedDB inactiva.
+  await audit('INVOICE_CREATED', 'SALES', 'sale', result.sale.id, null, result.sale, result.actor)
+  await audit('ORDER_UPDATED', 'ORDERS', 'order', result.order.id, null, result.order, result.actor)
+  return { sale: result.sale, order: result.order }
 }
 
 export async function deleteSale(targetId: string, actorId: string) {
