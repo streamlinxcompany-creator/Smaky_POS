@@ -1,0 +1,12 @@
+SMAKY POS — PAQUETE LIMPIO
+
+1) Desde esta carpeta:
+   npx supabase db push
+
+2) Despliega este proyecto en Cloudflare.
+
+3) Recarga con Ctrl+Shift+R.
+
+IMPORTANTE:
+- No borrar supabase/migrations. Es el historial de esquema necesario para Supabase CLI.
+- El resto de documentación antigua y archivos locales de trabajo fueron retirados de este paquete.

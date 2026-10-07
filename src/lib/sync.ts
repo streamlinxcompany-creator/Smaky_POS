@@ -639,8 +639,8 @@ async function processDataOperation(operation: DataSyncOperation) {
   }
   if (operation.operation === 'reset_pos_virgin') {
     const { data, error } = await supabase!.rpc('streamlinx_reset_pos_to_virgin', {
-      p_reset_at: operation.createdAt,
       p_access_key: STREAMLINX_PURGE_ACCESS_KEY,
+      p_reset_at: operation.createdAt,
     })
     if (error) throw error
     return data
@@ -1241,8 +1241,8 @@ export async function purgePosToVirgin(): Promise<{ ok: boolean; error?: string;
 
   try {
     const { data, error } = await supabase.rpc('streamlinx_reset_pos_to_virgin', {
-      p_reset_at: stamp(),
       p_access_key: STREAMLINX_PURGE_ACCESS_KEY,
+      p_reset_at: stamp(),
     })
     if (error) return { ok: false, error: error.message }
 
