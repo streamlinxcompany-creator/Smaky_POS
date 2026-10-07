@@ -17,7 +17,7 @@ const actorFromSession = () => getSessionUser()
 type SyncableRecord = { id: string }
 
 
-function isRenderableSale(value: unknown): value is Sale {
+function isRenderableSale(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
   const sale = value as Partial<Sale> & Record<string, unknown>
   const id = String(sale.id ?? '').trim().toLowerCase()
