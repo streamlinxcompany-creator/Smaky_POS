@@ -79,7 +79,7 @@
 .confirm-slider-fill{position:absolute;left:0;top:0;bottom:0;min-width:0;background:linear-gradient(90deg,#3c1b13,#6f2c1a);opacity:.92;transition:width .08s ease}
 .confirm-slider.ready .confirm-slider-fill{background:linear-gradient(90deg,#173b27,#1e6139)}
 .confirm-slider-text{position:absolute;inset:0;display:grid;place-items:center;padding:0 65px;color:#767371;font-size:14px;font-weight:700;letter-spacing:.15px;text-transform:uppercase;pointer-events:none}.confirm-slider.ready .confirm-slider-text{color:#aad7b8}
-.confirm-slider-thumb{position:absolute;top:7px;width:48px;height:48px;border-radius:12px;background:#f2ece8;color:#171514;display:grid;place-items:center;box-shadow:0 8px 18px rgba(0,0,0,.32);transition:left .08s ease;pointer-events:none}
+.confirm-slider-thumb{position:absolute;top:7px;width:48px;height:48px;border-radius:12px;background:#f2ece8;color:#171514;display:grid;place-items:center;box-shadow:0 8px 18px rgba(0,0,0,.32);transition:left .08s ease;pointer-events:auto;cursor:grab;touch-action:none;z-index:3}
 .confirm-slider.ready .confirm-slider-thumb{background:#cbf1d5;color:#17331f}
 .slider-safe-note{margin:7px 0 0;color:#5f5f5d;text-align:center;font-size:11px}.confirm-saving{width:100%;margin-top:10px;display:flex;justify-content:center;align-items:center;gap:7px;color:#a9d8b7;background:#13271b;border:1px solid #295438;border-radius:10px;padding:10px;font-size:14px;font-weight:700}.spinner{width:13px;height:13px;border:2px solid #396f4b;border-top-color:#d3f1dc;border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 
@@ -391,7 +391,7 @@
 .checkout-editor-modal{width:min(1040px,100%);max-height:min(860px,calc(100vh - 40px));border-radius:20px}
 .checkout-editor-head{padding-right:58px}
 .checkout-editor-body{gap:14px;padding:16px 18px 18px}
-.checkout-editor-layout{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(320px,.92fr);gap:14px;align-items:start}
+.checkout-editor-layout{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
 .checkout-editor-column{display:grid;gap:12px;min-width:0}
 .checkout-summary-card,.checkout-total-card,.checkout-cash-card,.checkout-cash-status{border:1px solid #2b2e2f;background:#111314;border-radius:14px;padding:13px}
 .checkout-summary-card-head{display:flex;justify-content:space-between;gap:18px;margin-bottom:10px}
@@ -1634,3 +1634,27 @@ html[data-theme='light'] .streamlinx-command-center{color-scheme:dark}
 /* Cierre de caja: acciones de impresión y resumen limpio */
 .closing-print-btn{white-space:nowrap;flex:0 0 auto}.closure-history-row .closure-print-history-btn{width:34px;justify-content:center;padding-inline:0}.closure-detail-subtitle{font-size:12px;font-weight:900;letter-spacing:.8px;color:#85807c;text-transform:uppercase;margin:2px 0 7px}.closure-detail-summary-block{border:1px solid #2b2e2f;background:#111314;border-radius:10px;padding:11px}.closure-detail-payment-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid #242627}.closure-detail-payment-row:first-of-type{border-top:0}.closure-detail-payment-row span{color:#b4afaa;font-size:13px}.closure-detail-payment-row strong{font-size:13px;color:#eee}.closure-detail-footer{justify-content:flex-end}
 @media(max-width:760px){.closing-closed-banner{align-items:flex-start;flex-wrap:wrap}.closing-closed-banner>div{min-width:180px}.closing-print-btn{margin-left:30px}.closure-history-row .closure-print-history-btn{grid-column:2;justify-self:start}.closure-detail-footer{justify-content:stretch}.closure-detail-footer button{flex:1}}
+
+/* v5.2 checkout fixes */
+.confirm-slider-thumb{pointer-events:auto!important;cursor:grab;touch-action:none;z-index:5}
+.confirm-slider-thumb:active{cursor:grabbing}
+
+/* Checkout: four main modules in a clean 2x2 layout */
+.checkout-editor-column{display:contents}
+.checkout-editor-left .checkout-summary-card{grid-column:1;grid-row:1}
+.checkout-editor-left .checkout-payment-section{grid-column:2;grid-row:1}
+.checkout-editor-left .checkout-cash-card{grid-column:1;grid-row:2}
+.checkout-editor-right .checkout-total-card{grid-column:2;grid-row:2}
+.checkout-editor-right .discount-editor{grid-column:2;grid-row:3}
+.checkout-editor-right .checkout-cash-status{grid-column:1 / -1;grid-row:3}
+.checkout-editor-modal .checkout-slider-section{grid-column:1 / -1}
+.checkout-editor-footer{position:sticky;bottom:0;z-index:10;background:#101213;border-top:1px solid #2b2e2f}
+@media(max-width:860px){
+  .checkout-editor-layout{grid-template-columns:1fr}
+  .checkout-editor-left .checkout-summary-card,
+  .checkout-editor-left .checkout-payment-section,
+  .checkout-editor-left .checkout-cash-card,
+  .checkout-editor-right .checkout-total-card,
+  .checkout-editor-right .discount-editor,
+  .checkout-editor-right .checkout-cash-status{grid-column:1;grid-row:auto}
+}
