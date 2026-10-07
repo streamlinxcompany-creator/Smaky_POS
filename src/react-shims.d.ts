@@ -5,6 +5,14 @@ declare module 'react' {
   export type PointerEvent<T = Element> = any
   export type ChangeEvent<T = Element> = any
   export const StrictMode: any
+  export interface ErrorInfo { componentStack: string }
+  export class Component<P = {}, S = {}> {
+    props: P
+    state: S
+    constructor(props: P)
+    setState(state: Partial<S> | ((prevState: S, props: P) => Partial<S>), callback?: () => void): void
+    forceUpdate(callback?: () => void): void
+  }
   export function useState<S>(initialState: S | (() => S)): [S, (value: S | ((prev: S) => S)) => void]
   export function useEffect(effect: () => void | (() => void), deps?: any[]): void
   export function useMemo<T>(factory: () => T, deps: any[]): T

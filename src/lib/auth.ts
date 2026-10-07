@@ -496,8 +496,8 @@ export async function signInWithPin(
     }
   )
 
-  let data: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>['data']
-  let error: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>['error']
+  let data: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>['data'] = null
+  let error: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>['error'] = null
 
   try {
     const result = await withTimeout(
