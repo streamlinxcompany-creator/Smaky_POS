@@ -198,15 +198,25 @@ export function clearStreamlinxSession() {
   window.dispatchEvent(new Event('streamlinx-auth-change'))
 }
 
+const STREAMLINX_OPERATOR_ID = '__streamlinx_system__'
+
 export async function getStreamlinxOperator(): Promise<User | null> {
   if (!hasStreamlinxSession()) return null
-  const users = await db.users.toArray()
-  const eligible = users.filter(user =>
-    user.active &&
-    (user.role === 'manager' || user.role === 'admin') &&
-    hasPermission(user, 'sales.delete')
-  )
-  return eligible.find(user => user.legacyId === DEFAULT_MANAGER_LEGACY_ID) || eligible[0] || null
+  return {
+    id: STREAMLINX_OPERATOR_ID,
+    name: 'StreamLinx',
+    role: 'admin',
+    pin: '',
+    rank: 'Command Center',
+    active: true,
+    permissions: defaultPermissionsForRole('admin'),
+    authEmail: '',
+    legacyId: 'streamlinx-system',
+  }
+}
+
+export function isStreamlinxOperator(user: User | null | undefined): boolean {
+  return user?.id === STREAMLINX_OPERATOR_ID || user?.legacyId === 'streamlinx-system'
 }
 
 export function clearSession() {

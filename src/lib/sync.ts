@@ -17,6 +17,7 @@ import { supabase, supabaseConfigured } from './supabase'
 const PAGE_SIZE = 1000
 const SYNC_EVENT = 'smaky-sync-change'
 export const SALES_PURGE_MARKER_KEY = '__smaky_sales_purge_marker'
+const STREAMLINX_PURGE_ACCESS_KEY = 'e25f201f9014599e00073db598a2603a9c05766965336d9b9c68c3d4081ee9a3'
 let suppressionDepth = 0
 let syncRunning = false
 let started = false
@@ -555,9 +556,10 @@ async function processDataOperation(operation: DataSyncOperation) {
   if (operation.operation === 'purge_sales') {
     const payload = (operation.payload || {}) as { purgeBefore?: string; saleIds?: string[] }
     const purgeBefore = payload.purgeBefore || operation.createdAt
-    const { data, error } = await supabase!.rpc('purge_sales_data', {
-      purge_before: purgeBefore,
-      sale_ids: payload.saleIds?.length ? payload.saleIds : null,
+    const { data, error } = await supabase!.rpc('streamlinx_purge_sales_data', {
+      p_purge_before: purgeBefore,
+      p_sale_ids: payload.saleIds?.length ? payload.saleIds : null,
+      p_access_key: STREAMLINX_PURGE_ACCESS_KEY,
     })
     if (error) throw error
     return data
@@ -802,7 +804,7 @@ export async function applyLocalSalesPurge(
       if (operation.entity === 'sales' && operation.recordId && deletedSaleIds.has(String(operation.recordId))) return true
       if (!['audit_events', 'history_records', 'backups', 'cash_closures'].includes(String(operation.entity))) return false
       try {
-        const serialized = JSON.stringify(operation.payload ?? {})
+        const serialized = JSON.stringify(operation.payload ?? {}) || ''
         return purgedIdList.some(id => serialized.includes(`\"${id}\"`)) || purgedIdList.some(id => serialized.includes(id))
       } catch {
         return false
@@ -860,12 +862,10 @@ export async function purgeRemoteSales(purgeBefore: string, saleIds?: string[]) 
     return { ok: false, offline: true as const }
   }
   try {
-    if (!(await ensureRemoteSession())) {
-      return { ok: false, offline: isNetworkError(lastError), error: lastError || 'No hay una sesión remota activa.' }
-    }
-    const { data, error } = await supabase.rpc('purge_sales_data', {
-      purge_before: purgeBefore,
-      sale_ids: saleIds?.length ? saleIds : null,
+    const { data, error } = await supabase.rpc('streamlinx_purge_sales_data', {
+      p_purge_before: purgeBefore,
+      p_sale_ids: saleIds?.length ? saleIds : null,
+      p_access_key: STREAMLINX_PURGE_ACCESS_KEY,
     })
     if (error) {
       if (isNetworkError(error)) return { ok: false, offline: true as const, error: error.message }
@@ -944,17 +944,26 @@ export async function syncNow(): Promise<SyncResult> {
   if (syncRunning) return { ...(await getSyncState()), ok: !lastError }
   if (!supabaseConfigured || !supabase) return { ...(await getSyncState()), ok: false }
   if (!navigator.onLine) return { ...(await getSyncState()), ok: false }
-  if (!(await ensureRemoteSession())) return { ...(await getSyncState()), ok: false }
+
+  // A StreamLinx purge has its own RPC and deliberately does not require the
+  // normal Smaky/Supabase user session. Let that queued destructive operation
+  // drain even when the POS itself is logged out.
+  const localPurgePending = await hasPendingSalesPurge()
+  const remoteSessionReady = await ensureRemoteSession()
+  if (!remoteSessionReady && !localPurgePending) return { ...(await getSyncState()), ok: false }
 
   syncRunning = true
   lastError = undefined
   emitSyncChange()
   try {
-    const localPurgePending = await hasPendingSalesPurge()
-
     // A local offline purge must execute remotely before any older outbox item.
     if (localPurgePending) {
       await flushQueue()
+      if (!remoteSessionReady) {
+        await applyRemoteSalesPurgeMarker()
+        lastSyncedAt = stamp()
+        return { ...(await getSyncState()), ok: true }
+      }
     } else {
       // On a different device, pull the remote purge marker before flushing the
       // outbox so stale IndexedDB sales/history cannot be uploaded again.

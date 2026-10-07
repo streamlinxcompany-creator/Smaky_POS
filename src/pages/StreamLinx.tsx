@@ -48,12 +48,12 @@ export function StreamLinx() {
       }
       const operator = await getStreamlinxOperator()
       if (cancelled) return
-      setCurrent(operator)
       if (!operator) {
         clearStreamlinxSession()
         nav('/login', { replace: true })
         return
       }
+      setCurrent(operator)
       await load()
     }
     void init()
@@ -67,24 +67,31 @@ export function StreamLinx() {
   const today = sales.filter(s => (s.businessDateKey || s.createdAt.slice(0,10)) === todayKey).reduce((n,s) => n + s.total, 0)
 
   const backup = async (kind: BackupSnapshot['kind'] = 'manual') => {
-    if (!current) return setToast('No hay una sesión activa.')
-    const saved = await createBackupSnapshot(current,kind,kind === 'manual' ? 'Backup manual StreamLinx' : 'Snapshot previo a operación crítica')
+    const actor = current || await getStreamlinxOperator()
+    if (!actor) return setToast('Acceso StreamLinx no válido. Vuelve a entrar con el PIN de StreamLinx.')
+    const saved = await createBackupSnapshot(actor,kind,kind === 'manual' ? 'Backup manual StreamLinx' : 'Snapshot previo a operación crítica')
     setToast(`Backup creado · ${Math.ceil(saved.size/1024)} KB`)
     await load()
   }
 
   const restore = async (entity: string,id: string) => {
-    if (!current) return setToast('No hay una sesión activa.')
-    const ok = await restoreArchivedRecord(entity,id,current)
+    const actor = current || await getStreamlinxOperator()
+    if (!actor) return setToast('Acceso StreamLinx no válido. Vuelve a entrar con el PIN de StreamLinx.')
+    const ok = await restoreArchivedRecord(entity,id,actor)
     setToast(ok ? 'Registro restaurado de forma segura' : 'El registro no puede restaurarse')
     await load()
   }
 
   const deleteSales = async (saleIds?: string[]) => {
-    if (!current || salesBusy) return setToast('No hay una sesión activa.')
+    if (salesBusy) return
     setSalesBusy(true)
     try {
-      const result = await purgeSalesData(current, saleIds)
+      const actor = current || await getStreamlinxOperator()
+      if (!actor) {
+        setToast('Acceso StreamLinx no válido. Vuelve a entrar con el PIN de StreamLinx.')
+        return
+      }
+      const result = await purgeSalesData(actor, saleIds)
       if (!result.ok) {
         setToast(result.error || 'No fue posible eliminar las ventas')
         return

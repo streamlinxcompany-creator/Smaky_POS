@@ -2,7 +2,7 @@ import { db } from './db'
 import type { Table } from 'dexie'
 import { applyLocalSalesPurge, enqueueEntityUpsert, enqueueResetOperation, enqueueSalesPurgeOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, isNetworkError, purgeRemoteSales, resetRemoteData, withSyncSuppressed } from './sync'
 import { products as seedProducts } from './demoData'
-import { createRemoteWorker, defaultPermissionsForRole, deleteRemoteUser, getLoginProfiles, getManagedProfile, getSessionUser, hasPermission, setSessionUser, updateRemoteUser } from './auth'
+import { createRemoteWorker, defaultPermissionsForRole, deleteRemoteUser, getLoginProfiles, getManagedProfile, getSessionUser, hasPermission, isStreamlinxOperator, setSessionUser, updateRemoteUser } from './auth'
 import type { AuditEvent, BackupSnapshot, CashClosure, Customer, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
 
 type Auditable = Record<string, unknown>
@@ -761,8 +761,9 @@ type SalesPurgeResult =
   | { ok: true; pending: boolean; purgeBefore: string; sales: number; history: number; audit: number; backups: number; closures: number }
 
 export async function purgeSalesData(actor: User, saleIds?: string[]): Promise<SalesPurgeResult> {
-  const freshActor = await db.users.get(actor.id)
-  if (!freshActor?.active || !hasPermission(freshActor, 'sales.delete')) {
+  const streamlinxActor = isStreamlinxOperator(actor)
+  const freshActor = streamlinxActor ? actor : await db.users.get(actor.id)
+  if (!freshActor?.active || (!streamlinxActor && !hasPermission(freshActor, 'sales.delete'))) {
     return { ok: false, error: 'El usuario actual no tiene autorización para administrar ventas desde StreamLinx.' }
   }
 
@@ -770,7 +771,8 @@ export async function purgeSalesData(actor: User, saleIds?: string[]): Promise<S
   const purgeBefore = new Date().toISOString()
   let remotePending = false
 
-  if (navigator.onLine && await ensureRemoteSession()) {
+  if (navigator.onLine) {
+    // StreamLinx purge is independent from the normal POS/Supabase session.
     const remote = await purgeRemoteSales(purgeBefore, normalizedIds)
     if (!remote.ok && !remote.offline) {
       return { ok: false, error: remote.error || 'No fue posible purgar las ventas en Supabase.' }
