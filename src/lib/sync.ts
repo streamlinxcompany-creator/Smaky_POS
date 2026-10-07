@@ -736,7 +736,7 @@ export async function applyLocalSalesPurge(
     for (const backup of backups) {
       const payload = { ...(backup.payload || {}) } as Record<string, unknown>
       const hasBackupCollections = ['sales', 'history', 'events', 'closures'].some(key => Object.prototype.hasOwnProperty.call(payload, key))
-      if (!hasBackupCollections || !purgedIdList.length) continue
+      if (!hasBackupCollections || !deletedSaleIds.size) continue
 
       const backupSales = Array.isArray(payload.sales) ? payload.sales : []
       const remainingSales = backupSales.filter(item => !item || typeof item !== 'object' || !deletedSaleIds.has(String((item as Record<string, unknown>).id || '')))

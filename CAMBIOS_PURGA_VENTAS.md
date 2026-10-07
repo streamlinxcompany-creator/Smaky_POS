@@ -30,3 +30,7 @@ Después vuelve a desplegar Cloudflare con el proyecto actualizado.
 ## Nota de seguridad
 
 La interfaz no pide un segundo PIN de gerente. La RPC de Supabase mantiene la autorización de servidor para cuentas administrativas activas; esto evita que un empleado pueda llamar directamente a la operación destructiva aunque conozca la ruta del panel.
+
+
+## Corrección v6.1
+- Corregido un error de compilación TypeScript en `src/lib/sync.ts`: la purga de backups usaba `purgedIdList` antes de declararla. Ahora utiliza directamente `deletedSaleIds.size` en ese punto.
