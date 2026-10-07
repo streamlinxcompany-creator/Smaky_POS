@@ -189,6 +189,17 @@ export async function enqueueSalesPurgeOperation(actorId: string, purgeBefore: s
   })
 }
 
+export async function enqueueCashClosuresPurgeOperation(actorId: string, closureIds: string[] | undefined, purgeBefore: string) {
+  await enqueueOperation({
+    id: randomId('cash-closure-purge'),
+    entity: 'system',
+    operation: 'purge_cash_closures',
+    createdAt: stamp(),
+    attempts: 0,
+    payload: { actorId, purgeBefore, closureIds: closureIds?.length ? closureIds : undefined },
+  })
+}
+
 export async function markSyncFailure(operationId: string, error: unknown) {
   await db.syncQueue.update(operationId, {
     attempts: ((await db.syncQueue.get(operationId))?.attempts || 0) + 1,
@@ -552,17 +563,18 @@ async function reconcileEntity(entity: SyncEntity) {
   // Una lectura remota exitosa de ventas convierte a Supabase en la fuente de verdad.
   // No debe depender de la sesión local ni de permisos almacenados en IndexedDB:
   // otro dispositivo conectado debe terminar con el mismo conjunto de ventas.
-  const salesAuthoritative = entity === 'sales'
+  const authoritativeEntity = entity === 'sales' || entity === 'cash_closures'
 
   for (const local of localRows as any[]) {
     const id = String(local.id)
     if (pendingIds.has(id)) continue
     const remote = remoteById.get(id)
 
-    if (salesAuthoritative) {
+    if (authoritativeEntity) {
       if (!remote) {
-        // For sales, a successful online read of Supabase is the source of
-        // truth. Missing remotely means deleted remotely; never resurrect it.
+        // A successful online read of Supabase is the source of truth for
+        // sales and cash closures. Missing remotely means deleted remotely;
+        // never resurrect the stale local copy.
         await withSyncSuppressed(() => (entityTable(entity) as Table<any, string>).delete(id))
         continue
       }
@@ -608,6 +620,17 @@ async function processDataOperation(operation: DataSyncOperation) {
     const { data, error } = await supabase!.rpc('streamlinx_purge_sales_data', {
       p_purge_before: purgeBefore,
       p_sale_ids: payload.saleIds?.length ? payload.saleIds : null,
+      p_access_key: STREAMLINX_PURGE_ACCESS_KEY,
+    })
+    if (error) throw error
+    return data
+  }
+  if (operation.operation === 'purge_cash_closures') {
+    const payload = (operation.payload || {}) as { purgeBefore?: string; closureIds?: string[] }
+    const purgeBefore = payload.purgeBefore || operation.createdAt
+    const { data, error } = await supabase!.rpc('streamlinx_purge_cash_closures', {
+      p_purge_before: purgeBefore,
+      p_closure_ids: payload.closureIds?.length ? payload.closureIds : null,
       p_access_key: STREAMLINX_PURGE_ACCESS_KEY,
     })
     if (error) throw error
@@ -678,10 +701,17 @@ function isSalesPurgeGuardError(error: unknown) {
   return code === '45001' || /venta .*eliminada definitivamente|venta .*fue eliminada definitivamente|sales_purge_guard|purged_sale/i.test(text)
 }
 
+function isCashClosurePurgeGuardError(error: unknown) {
+  const value = error as { code?: string; message?: string; details?: string; hint?: string } | null | undefined
+  const code = String(value?.code || '')
+  const text = `${value?.message || ''} ${value?.details || ''} ${value?.hint || ''}`.toLowerCase()
+  return code === '45002' || /cierre .*eliminado definitivamente|cierre .*fue eliminado definitivamente|cash_closure_purge|purged_closure/i.test(text)
+}
+
 async function flushQueue() {
   const operations = await db.syncQueue.orderBy('createdAt').toArray()
-  const priority = operations.filter(operation => operation.entity === 'system' && operation.operation === 'purge_sales')
-  const rest = operations.filter(operation => !(operation.entity === 'system' && operation.operation === 'purge_sales'))
+  const priority = operations.filter(operation => operation.entity === 'system' && (operation.operation === 'purge_sales' || operation.operation === 'purge_cash_closures'))
+  const rest = operations.filter(operation => !(operation.entity === 'system' && (operation.operation === 'purge_sales' || operation.operation === 'purge_cash_closures')))
   for (const operation of [...priority, ...rest]) {
     try {
       if (operation.entity === 'users') await processUserOperation(operation as UserSyncOperation)
@@ -697,6 +727,18 @@ async function flushQueue() {
         await markSyncSuccess(operation.id)
         continue
       }
+      if (operation.entity === 'cash_closures' && isCashClosurePurgeGuardError(error)) {
+        // Supabase is authoritative: this closure was permanently purged.
+        // Drop the stale local snapshot instead of retrying/resurrecting it.
+        if (operation.recordId) {
+          await applyLocalCashClosurePurge(operation.createdAt || stamp(), [String(operation.recordId)])
+        } else {
+          const payload = operation.payload as { closureIds?: string[] } | undefined
+          if (payload?.closureIds?.length) await applyLocalCashClosurePurge(operation.createdAt || stamp(), payload.closureIds.map(String))
+        }
+        await markSyncSuccess(operation.id)
+        continue
+      }
       await markSyncFailure(operation.id, error)
       if (isNetworkError(error)) throw error
       // Authorization/validation errors stay in the outbox so the data is not
@@ -706,6 +748,104 @@ async function flushQueue() {
   }
 }
 
+export async function applyLocalCashClosurePurge(purgeBefore: string, closureIds?: string[]) {
+  const cutoff = Date.parse(purgeBefore)
+  if (!Number.isFinite(cutoff)) throw new Error('La fecha de purga de cierres no es válida.')
+  const ids = new Set((closureIds || []).map(String).filter(Boolean))
+  let deleted = 0
+  let history = 0
+  let audit = 0
+  let backups = 0
+
+  await db.transaction('rw', [db.closures, db.historyRecords, db.auditEvents, db.backups, db.syncQueue], async () => {
+    const [closures, histories, events, backupRows, queue] = await Promise.all([
+      db.closures.toArray(), db.historyRecords.toArray(), db.auditEvents.toArray(), db.backups.toArray(), db.syncQueue.toArray(),
+    ])
+    const targetIds: Set<string> = ids.size
+      ? ids
+      : new Set<string>(closures
+          .filter(closure => (Date.parse(String(closure.closedAt || closure.updatedAt || '')) || 0) <= cutoff)
+          .map(closure => String(closure.id)))
+
+    const closureIdsToDelete = closures.filter(closure => targetIds.has(String(closure.id))).map(closure => String(closure.id))
+    if (closureIdsToDelete.length) {
+      deleted = closureIdsToDelete.length
+      await db.closures.bulkDelete(closureIdsToDelete)
+    }
+
+    const historyIds = histories.filter(item => item.entity === 'closure' && targetIds.has(String(item.recordId || ''))).map(item => item.id)
+    if (historyIds.length) {
+      history = historyIds.length
+      await db.historyRecords.bulkDelete(historyIds)
+    }
+
+    const auditIds = events.filter(item => item.recordType === 'closure' && targetIds.has(String(item.recordId || ''))).map(item => item.id)
+    if (auditIds.length) {
+      audit = auditIds.length
+      await db.auditEvents.bulkDelete(auditIds)
+    }
+
+    for (const backup of backupRows) {
+      const payload = { ...(backup.payload || {}) } as Record<string, unknown>
+      const backupClosures = Array.isArray(payload.closures) ? payload.closures : []
+      if (!backupClosures.length) continue
+      const remaining = backupClosures.filter(item => {
+        if (!item || typeof item !== 'object') return true
+        const row = item as Record<string, unknown>
+        const id = String(row.id || '')
+        if (ids.size) return !targetIds.has(id)
+        const ts = Date.parse(String(row.closedAt || row.updatedAt || '')) || 0
+        return ts > cutoff
+      })
+      if (remaining.length === backupClosures.length) continue
+      payload.closures = remaining
+      await db.backups.put({ ...backup, payload, contents: { ...backup.contents, closures: remaining.length } })
+      backups += 1
+    }
+
+    const staleQueueIds = queue.filter(operation => {
+      if (operation.entity === 'cash_closures' && operation.recordId) {
+        if (targetIds.has(String(operation.recordId))) return true
+      }
+      if (operation.entity === 'system' && operation.operation === 'purge_cash_closures') return false
+      if (!['audit_events', 'history_records', 'backups'].includes(String(operation.entity))) return false
+      try {
+        const serialized = JSON.stringify(operation.payload ?? {}) || ''
+        return [...targetIds].some(id => serialized.includes(id))
+      } catch {
+        return false
+      }
+    }).map(operation => operation.id)
+    if (staleQueueIds.length) await db.syncQueue.bulkDelete(staleQueueIds)
+  })
+
+  emitSyncChange()
+  return { closures: deleted, history, audit, backups }
+}
+
+export async function purgeRemoteCashClosures(purgeBefore: string, closureIds?: string[]) {
+  if (!supabaseConfigured || !supabase) return { ok: false as const, offline: false as const, error: 'Supabase no está configurado.' }
+  if (!navigator.onLine) return { ok: false as const, offline: true as const }
+  try {
+    const { data, error } = await supabase.rpc('streamlinx_purge_cash_closures', {
+      p_purge_before: purgeBefore,
+      p_closure_ids: closureIds?.length ? closureIds : null,
+      p_access_key: STREAMLINX_PURGE_ACCESS_KEY,
+    })
+    if (error) return { ok: false as const, offline: false as const, error: error.message }
+    const result = data && typeof data === 'object' ? data as Record<string, unknown> : {}
+    const remaining = Number(result.remainingClosures ?? 0)
+    if (remaining > 0) return { ok: false as const, offline: false as const, error: `Supabase no confirmó el borrado completo: quedaron ${remaining} cierres.` }
+    return { ok: true as const, counts: result }
+  } catch (error) {
+    if (!navigator.onLine) return { ok: false as const, offline: true as const, error: cleanError(error) }
+    return { ok: false as const, offline: false as const, error: cleanError(error) }
+  }
+}
+
+export async function hasPendingCashClosurePurge() {
+  return db.syncQueue.filter(operation => operation.entity === 'system' && operation.operation === 'purge_cash_closures').count().then(count => count > 0)
+}
 
 type SalesPurgeMarker = { globalBefore?: string; saleIds?: string[] }
 
@@ -1025,7 +1165,9 @@ export async function syncNow(): Promise<SyncResult> {
   // A StreamLinx purge has its own RPC and deliberately does not require the
   // normal Smaky/Supabase user session. Let that queued destructive operation
   // drain even when the POS itself is logged out.
-  const localPurgePending = await hasPendingSalesPurge()
+  const localSalesPurgePending = await hasPendingSalesPurge()
+  const localClosurePurgePending = await hasPendingCashClosurePurge()
+  const localPurgePending = localSalesPurgePending || localClosurePurgePending
   const remoteSessionReady = await ensureRemoteSession()
   if (!remoteSessionReady && !localPurgePending) return { ...(await getSyncState()), ok: false }
 
@@ -1036,7 +1178,7 @@ export async function syncNow(): Promise<SyncResult> {
     // A local offline purge must execute remotely before any older outbox item.
     if (localPurgePending) {
       await flushQueue()
-      if (!remoteSessionReady) {
+      if (!remoteSessionReady && !(await hasPendingSalesPurge()) && !(await hasPendingCashClosurePurge())) {
         await applyRemoteSalesPurgeMarker()
         lastSyncedAt = stamp()
         return { ...(await getSyncState()), ok: true }
@@ -1049,6 +1191,7 @@ export async function syncNow(): Promise<SyncResult> {
       await reconcileEntity('settings')
       await applyRemoteSalesPurgeMarker()
       await reconcileEntity('sales')
+      await reconcileEntity('cash_closures')
       await flushQueue()
     }
 

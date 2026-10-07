@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Activity, ArchiveRestore, CircleDollarSign, ClipboardList, Database, Download, FileArchive, FileText, HardDrive, LayoutDashboard, LogOut, Package, RefreshCw, Search, ShieldCheck, Terminal, Trash2, Users, WalletCards, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { clearStreamlinxSession, getStreamlinxOperator, hasStreamlinxSession } from '../lib/auth'
-import { createBackupSnapshot, getArchivedClosures, getArchivedOrders, getArchivedProducts, getArchivedSales, getArchivedUsers, getAuditEvents, getBackupSnapshots, getGeneralSettings, getHistoryRecords, purgeSalesData, restoreArchivedRecord } from '../lib/store'
+import { createBackupSnapshot, getArchivedClosures, getArchivedOrders, getArchivedProducts, getArchivedSales, getArchivedUsers, getAuditEvents, getBackupSnapshots, getGeneralSettings, getHistoryRecords, purgeCashClosures, purgeSalesData, restoreArchivedRecord } from '../lib/store'
 import { money } from '../lib/format'
 import { printSaleReceipt } from '../lib/print'
 import type { AuditEvent, BackupSnapshot, CashClosure, HistoryRecord, Order, Product, Sale, User } from '../lib/types'
@@ -25,6 +25,9 @@ export function StreamLinx() {
   const [saleToDelete,setSaleToDelete] = useState<Sale | null>(null)
   const [salesDeleteAllOpen,setSalesDeleteAllOpen] = useState(false)
   const [salesBusy,setSalesBusy] = useState(false)
+  const [closureToDelete, setClosureToDelete] = useState<CashClosure | null>(null)
+  const [closuresDeleteAllOpen, setClosuresDeleteAllOpen] = useState(false)
+  const [closuresBusy, setClosuresBusy] = useState(false)
   const [current, setCurrent] = useState<User | null>(null)
   const [receiptFontSize, setReceiptFontSize] = useState(10)
 
@@ -60,6 +63,11 @@ export function StreamLinx() {
     return () => { cancelled = true }
   }, [nav])
   useEffect(() => { if (!toast) return; const id = window.setTimeout(() => setToast(''), 3200); return () => window.clearTimeout(id) }, [toast])
+  useEffect(() => {
+    const handleSyncChange = () => { void load() }
+    window.addEventListener('smaky-sync-change', handleSyncChange)
+    return () => window.removeEventListener('smaky-sync-change', handleSyncChange)
+  }, [])
 
   const match = (item: unknown) => !query.trim() || JSON.stringify(item).toLowerCase().includes(query.trim().toLowerCase())
   const sales = data.sales.filter(x => !x.deletedAt)
@@ -110,6 +118,34 @@ export function StreamLinx() {
     }
   }
 
+  const deleteClosures = async (closureIds?: string[]) => {
+    if (closuresBusy) return
+    setClosuresBusy(true)
+    try {
+      const actor = current || await getStreamlinxOperator()
+      if (!actor) {
+        setToast('Acceso StreamLinx no válido. Vuelve a entrar con el PIN de StreamLinx.')
+        return
+      }
+      const result = await purgeCashClosures(actor, closureIds)
+      if (!result.ok) {
+        setToast(result.error || 'No fue posible eliminar los cierres')
+        return
+      }
+      setClosureToDelete(null)
+      setClosuresDeleteAllOpen(false)
+      const count = Number(result.closures || 0)
+      setToast(result.pending
+        ? `${count} cierre${count === 1 ? '' : 's'} eliminado${count === 1 ? '' : 's'} localmente · sincronización pendiente`
+        : `${count} cierre${count === 1 ? '' : 's'} eliminado${count === 1 ? '' : 's'} definitivamente · el período vuelve a quedar abierto si corresponde`)
+      await load()
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'No fue posible eliminar los cierres')
+    } finally {
+      setClosuresBusy(false)
+    }
+  }
+
   const download = (backup: BackupSnapshot) => {
     const blob = new Blob([JSON.stringify(backup.payload,null,2)],{type:'application/json'})
     const url = URL.createObjectURL(blob)
@@ -136,7 +172,7 @@ export function StreamLinx() {
         {tab==='orders'&&<Registry title="Pedidos" records={data.orders.filter(match)} entity="order" restore={restore}/>} 
         {tab==='products'&&<Registry title="Productos" records={data.products.filter(match)} entity="product" restore={restore}/>} 
         {tab==='users'&&<Registry title="Usuarios y roles" records={data.users.filter(match)} entity="user" restore={restore} users/>} 
-        {tab==='cash'&&<Registry title="Cierres de caja" records={data.closures.filter(match)} entity="closure" restore={restore}/>} 
+        {tab==='cash'&&<CashClosures closures={data.closures.filter(match)} onDelete={closure=>setClosureToDelete(closure)} onDeleteAll={()=>setClosuresDeleteAllOpen(true)}/>} 
         {tab==='recovery'&&<Recovery history={data.history.filter(match)} restore={restore}/>} 
         {tab==='backups'&&<Backups backups={data.backups.filter(match)} create={()=>void backup()} download={download}/>} 
         {tab==='system'&&<System events={data.audit.filter(match)} backup={()=>void backup()} onDeleteAll={()=>setSalesDeleteAllOpen(true)} saleCount={data.sales.length}/>} 
@@ -144,7 +180,9 @@ export function StreamLinx() {
     </main>
 
     {saleToDelete&&<SaleDeleteModal sale={saleToDelete} busy={salesBusy} onCancel={()=>!salesBusy&&setSaleToDelete(null)} onConfirm={()=>void deleteSales([saleToDelete.id])}/>} 
-    {salesDeleteAllOpen&&<DeleteAllSalesModal count={sales.length} busy={salesBusy} onCancel={()=>!salesBusy&&setSalesDeleteAllOpen(false)} onConfirm={()=>void deleteSales()}/>} 
+    {salesDeleteAllOpen&&<DeleteAllSalesModal count={sales.length} busy={salesBusy} onCancel={()=>!salesBusy&&setSalesDeleteAllOpen(false)} onConfirm={()=>void deleteSales()}/>}
+    {closureToDelete&&<ClosureDeleteModal closure={closureToDelete} busy={closuresBusy} onCancel={()=>!closuresBusy&&setClosureToDelete(null)} onConfirm={()=>void deleteClosures([closureToDelete.id])}/>}
+    {closuresDeleteAllOpen&&<DeleteAllClosuresModal count={data.closures.length} busy={closuresBusy} onCancel={()=>!closuresBusy&&setClosuresDeleteAllOpen(false)} onConfirm={()=>void deleteClosures()}/>} 
     {toast&&<div className="slx-toast"><ShieldCheck size={14}/>{toast}</div>}
   </div>
 }
@@ -164,6 +202,28 @@ function Invoices({sales,history,fontSize,onDelete,onDeleteAll}:{sales:Sale[];hi
     </tbody></table></div>
   </section>
 }
+function CashClosures({closures,onDelete,onDeleteAll}:{closures:CashClosure[];onDelete:(closure:CashClosure)=>void;onDeleteAll:()=>void}) {
+  return <section className="slx-data-panel">
+    <div className="slx-panel-head">
+      <div><span className="slx-kicker">CASH CLOSING ARCHIVE</span><h2>Cierres de caja</h2><p className="slx-panel-subtitle">Borrado definitivo desde StreamLinx. Si se elimina el cierre de hoy, el POS vuelve a pedir el cierre de hoy.</p></div>
+      <div className="slx-panel-head-actions"><span>{closures.length} registros</span>{closures.length>0&&<button className="slx-danger-btn small" onClick={onDeleteAll}><Trash2 size={14}/>Borrar todos los cierres</button>}</div>
+    </div>
+    <div className="slx-data-table-wrap"><table className="slx-data-table"><thead><tr><th>Fecha operativa</th><th>Cerrado por</th><th>Total</th><th>Arqueo</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
+      {closures.map(c=>{
+        const deleted=Boolean(c.deletedAt)
+        return <tr key={c.id}>
+          <td><b>{c.dateKey}</b><small>{stamp(c.closedAt)}</small></td>
+          <td>{c.userName||'—'}</td>
+          <td><b>{fmt(c.total)}</b><small>{c.saleCount} ventas</small></td>
+          <td><span className={`slx-chip ${c.cashDifference===0?'positive':'muted'}`}>{c.cashDifference===0?'CUADRE OK':fmt(c.cashDifference)}</span></td>
+          <td><span className={`slx-chip ${deleted?'muted':'positive'}`}>{deleted?'ARCHIVADO':'CERRADO'}</span></td>
+          <td><div className="slx-row-actions"><button className="slx-row-btn slx-row-btn-danger" onClick={()=>onDelete(c)} title="Borrar cierre definitivamente"><Trash2 size={14}/></button></div></td>
+        </tr>
+      })}
+    </tbody></table></div>
+    {!closures.length&&<Empty text="No hay cierres registrados."/>}
+  </section>
+}
 function Registry({title,records,entity,restore,users}:{title:string;records:Record<string,unknown>[];entity:string;restore:(e:string,id:string)=>void;users?:boolean}) { return <section className="slx-data-panel"><div className="slx-panel-head"><div><span className="slx-kicker">HISTORICAL REGISTRY</span><h2>{title}</h2></div><span>{records.length} registros</span></div><div className="slx-data-table-wrap"><table className="slx-data-table"><thead><tr><th>ID / referencia</th><th>Detalle</th><th>Estado</th><th>Actualizado</th><th/></tr></thead><tbody>{records.map(r=>{const id=String(r.id),deleted=Boolean(r.deletedAt),name=String(r.name||r.customerName||r.dateKey||`#${r.orderNumber||id.slice(-6)}`);return <tr key={id}><td><b>{name}</b><small>{id}</small></td><td>{users?`${labelRole(r.role as User['role'])} · ${String(r.rank||'')}`:String(r.status||r.category||r.userName||r.total||'—')}</td><td><span className={`slx-chip ${deleted?'muted':'positive'}`}>{deleted?'ARCHIVADO':r.active===false?'INACTIVO':'ACTIVO'}</span></td><td>{stamp(String(r.updatedAt||r.closedAt||r.createdAt||''))}</td><td>{deleted&&<button className="slx-row-btn" onClick={()=>restore(entity,id)}><ArchiveRestore size={14}/></button>}</td></tr>})}</tbody></table></div></section> }
 function Recovery({history,restore}:{history:HistoryRecord[];restore:(e:string,id:string)=>void}) { return <section className="slx-data-panel"><div className="slx-panel-head"><div><span className="slx-kicker">RECOVERY CENTER</span><h2>Versiones y tombstones</h2></div><span>{history.length} snapshots</span></div><div className="slx-audit-list">{history.map(h=><div className="slx-audit-row" key={h.id}><span>{stamp(h.capturedAt)}</span><b>{h.entity.toUpperCase()} · V{h.version}</b><em>{h.deleted?'TOMBSTONE':'VERSIÓN'}</em><small>{h.recordId}</small>{h.deleted&&<button className="slx-row-btn" onClick={()=>restore(h.entity,h.recordId)}><ArchiveRestore size={14}/></button>}</div>)}</div></section> }
 function Backups({backups,create,download}:{backups:BackupSnapshot[];create:()=>void;download:(b:BackupSnapshot)=>void}) { return <section className="slx-data-panel"><div className="slx-panel-head"><div><span className="slx-kicker">BACKUP VAULT</span><h2>Snapshots disponibles</h2></div><button className="slx-command-primary small" onClick={create}><FileArchive size={14}/>BACKUP MANUAL</button></div><div className="slx-audit-list">{backups.map(b=><div className="slx-audit-row" key={b.id}><span>{stamp(b.createdAt)}</span><b>{b.label}</b><em>{b.kind}</em><small>{Math.ceil(b.size/1024)} KB · {Object.values(b.contents).reduce((a,n)=>a+n,0)} objetos</small><button className="slx-row-btn" onClick={()=>download(b)}><Download size={14}/></button></div>)}{!backups.length&&<Empty text="No hay snapshots; cree el primero antes de intervenir datos."/>}</div></section> }
@@ -180,6 +240,14 @@ function SaleDeleteModal({sale,busy,onCancel,onConfirm}:{sale:Sale;busy:boolean;
 
 function DeleteAllSalesModal({count,busy,onCancel,onConfirm}:{count:number;busy:boolean;onCancel:()=>void;onConfirm:()=>void}) {
   return <div className="slx-cmd-overlay"><div className="slx-confirm-modal"><button className="slx-v2-close" onClick={onCancel} disabled={busy}><X size={15}/></button><span className="slx-kicker">GLOBAL SALES PURGE</span><h2>¿Borrar todas las ventas?</h2><p>Se van a eliminar <b>{count}</b> venta{count===1?'':'s'} definitivamente.</p><div className="slx-confirm-warning">No crea backup y no requiere PIN de gerente. La operación también manda un marcador de purga para que otros dispositivos limpien su caché y no vuelvan a subir las ventas.</div><div className="slx-danger-actions"><button className="slx-ghost-btn" onClick={onCancel} disabled={busy}>Cancelar</button><button className="slx-danger-btn" onClick={onConfirm} disabled={busy}><Trash2 size={14}/>{busy?'BORRANDO…':'BORRAR TODAS LAS VENTAS'}</button></div></div></div>
+}
+
+function ClosureDeleteModal({closure,busy,onCancel,onConfirm}:{closure:CashClosure;busy:boolean;onCancel:()=>void;onConfirm:()=>void}) {
+  return <div className="slx-cmd-overlay"><div className="slx-confirm-modal"><button className="slx-v2-close" onClick={onCancel} disabled={busy}><X size={15}/></button><span className="slx-kicker">PERMANENT CASH CLOSURE PURGE</span><h2>¿Borrar este cierre definitivamente?</h2><p>Cierre <b>{closure.dateKey}</b> · {fmt(closure.total)} · {closure.userName||'—'}</p><div className="slx-confirm-warning">Se eliminará de Supabase, IndexedDB, historial y backups. Si es el cierre de hoy, el período de hoy vuelve a quedar abierto y el POS volverá a solicitar el cierre.</div><div className="slx-danger-actions"><button className="slx-ghost-btn" onClick={onCancel} disabled={busy}>Cancelar</button><button className="slx-danger-btn" onClick={onConfirm} disabled={busy}><Trash2 size={14}/>{busy?'BORRANDO…':'BORRAR DEFINITIVAMENTE'}</button></div></div></div>
+}
+
+function DeleteAllClosuresModal({count,busy,onCancel,onConfirm}:{count:number;busy:boolean;onCancel:()=>void;onConfirm:()=>void}) {
+  return <div className="slx-cmd-overlay"><div className="slx-confirm-modal"><button className="slx-v2-close" onClick={onCancel} disabled={busy}><X size={15}/></button><span className="slx-kicker">GLOBAL CASH CLOSURE PURGE</span><h2>¿Borrar todos los cierres?</h2><p>Se van a eliminar <b>{count}</b> cierre{count===1?'':'s'} definitivamente.</p><div className="slx-confirm-warning">No requiere PIN de gerente. Se eliminan del servidor, caché, historial y backups. Los días quedan abiertos nuevamente según corresponda.</div><div className="slx-danger-actions"><button className="slx-ghost-btn" onClick={onCancel} disabled={busy}>Cancelar</button><button className="slx-danger-btn" onClick={onConfirm} disabled={busy}><Trash2 size={14}/>{busy?'BORRANDO…':'BORRAR TODOS LOS CIERRES'}</button></div></div></div>
 }
 
 function Empty({text}:{text:string}) { return <div className="slx-empty"><ArchiveRestore size={25}/><b>{text}</b></div> }

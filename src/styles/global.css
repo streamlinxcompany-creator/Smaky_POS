@@ -1665,3 +1665,7 @@ html[data-theme='light'] .streamlinx-command-center{color-scheme:dark}
 .slx-row-btn-danger{color:#d65b39!important}
 .slx-danger-btn:disabled,.slx-ghost-btn:disabled{opacity:.45;cursor:not-allowed}
 @media(max-width:900px){.slx-panel-head-actions{flex-wrap:wrap;justify-content:flex-end}.slx-danger-zone{grid-template-columns:1fr}.slx-danger-actions{flex-wrap:wrap}}
+
+
+/* StreamLinx cash-closure purge context */
+.slx-panel-subtitle{margin:6px 0 0;max-width:720px;color:#77716d;font-size:12px;line-height:1.45}.slx-data-table td small{display:block;margin-top:3px;color:#68625e;font-size:11px}

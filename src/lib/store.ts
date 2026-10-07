@@ -1,6 +1,6 @@
 import { db } from './db'
 import type { Table } from 'dexie'
-import { applyLocalSalesPurge, enqueueEntityUpsert, enqueueResetOperation, enqueueSalesPurgeOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, isNetworkError, purgeRemoteSales, resetRemoteData, withSyncSuppressed } from './sync'
+import { applyLocalCashClosurePurge, applyLocalSalesPurge, enqueueCashClosuresPurgeOperation, enqueueEntityUpsert, enqueueResetOperation, enqueueSalesPurgeOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, isNetworkError, purgeRemoteCashClosures, purgeRemoteSales, resetRemoteData, withSyncSuppressed } from './sync'
 import { products as seedProducts } from './demoData'
 import { createRemoteWorker, defaultPermissionsForRole, deleteRemoteUser, getLoginProfiles, getManagedProfile, getSessionUser, hasPermission, isStreamlinxOperator, setSessionUser, updateRemoteUser } from './auth'
 import type { AuditEvent, BackupSnapshot, CashClosure, Customer, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
@@ -853,6 +853,52 @@ export async function purgeSalesData(actor: User, saleIds?: string[]): Promise<S
       : normalizedIds.length > 1
         ? `Se eliminaron ${local.sales} ventas definitivamente desde StreamLinx Command Center.`
         : `Todas las ventas (${local.sales}) fueron eliminadas definitivamente desde StreamLinx Command Center.`
+  )
+
+  return { ok: true, pending: remotePending, purgeBefore, ...local }
+}
+
+type CashClosurePurgeResult =
+  | { ok: false; error: string }
+  | { ok: true; pending: boolean; purgeBefore: string; closures: number; history: number; audit: number; backups: number }
+
+export async function purgeCashClosures(actor: User, closureIds?: string[]): Promise<CashClosurePurgeResult> {
+  const streamlinxActor = isStreamlinxOperator(actor)
+  const freshActor = streamlinxActor ? actor : await db.users.get(actor.id)
+  if (!freshActor?.active || (!streamlinxActor && freshActor.role !== 'manager')) {
+    return { ok: false, error: 'El usuario actual no tiene autorización para administrar cierres desde StreamLinx.' }
+  }
+
+  const normalizedIds = Array.from(new Set((closureIds || []).map(String).filter(Boolean)))
+  const purgeBefore = new Date().toISOString()
+  let remotePending = false
+
+  if (navigator.onLine) {
+    const remote = await purgeRemoteCashClosures(purgeBefore, normalizedIds)
+    if (!remote.ok && !remote.offline) {
+      return { ok: false, error: remote.error || 'No fue posible borrar los cierres en Supabase.' }
+    }
+    remotePending = !remote.ok && remote.offline
+  } else {
+    remotePending = true
+  }
+
+  const local = await applyLocalCashClosurePurge(purgeBefore, normalizedIds)
+  if (remotePending) await enqueueCashClosuresPurgeOperation(actor.id, normalizedIds, purgeBefore)
+
+  await audit(
+    normalizedIds.length ? 'SYSTEM_CASH_CLOSURE_PURGE_EXECUTED' : 'SYSTEM_CASH_CLOSURES_PURGE_EXECUTED',
+    'SYSTEM',
+    'cash-closure-purge',
+    undefined,
+    null,
+    { purgeBefore, purgedCount: local.closures, remote: remotePending ? 'pending' : 'completed' },
+    freshActor,
+    normalizedIds.length === 1
+      ? 'Cierre eliminado definitivamente desde StreamLinx Command Center.'
+      : normalizedIds.length > 1
+        ? `Se eliminaron ${local.closures} cierres definitivamente desde StreamLinx Command Center.`
+        : `Todos los cierres (${local.closures}) fueron eliminados definitivamente desde StreamLinx Command Center.`
   )
 
   return { ok: true, pending: remotePending, purgeBefore, ...local }

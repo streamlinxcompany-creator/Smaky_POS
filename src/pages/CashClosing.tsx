@@ -24,7 +24,7 @@ export function CashClosing() {
     setClosures(nextClosures)
     setSales(nextSales)
     setReceiptFontSize(settings.receiptFontSize)
-    setDateKey(prev => prev || currentKey)
+    setDateKey(currentKey)
   }
 
   useEffect(() => { void load() }, [])
@@ -32,6 +32,11 @@ export function CashClosing() {
     const handleSettingsChange = () => { void getGeneralSettings().then(settings => setReceiptFontSize(settings.receiptFontSize)) }
     window.addEventListener('smaky-settings-change', handleSettingsChange)
     return () => window.removeEventListener('smaky-settings-change', handleSettingsChange)
+  }, [])
+  useEffect(() => {
+    const handleSyncChange = () => { void load() }
+    window.addEventListener('smaky-sync-change', handleSyncChange)
+    return () => window.removeEventListener('smaky-sync-change', handleSyncChange)
   }, [])
   useEffect(() => { if (!toast) return; const t = window.setTimeout(() => setToast(''), 3000); return () => window.clearTimeout(t) }, [toast])
 

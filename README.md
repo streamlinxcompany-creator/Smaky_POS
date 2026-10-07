@@ -46,3 +46,7 @@ El POS no debe depender de internet para cobrar. La venta entra primero a Indexe
 - Historial administrativo de cierres con consulta de las facturas conservadas en cada cierre.
 - Panel de Inicio administrativo con estado del cierre y últimos cierres.
 - Se bloquean nuevos pedidos/ventas después de cerrar el día actual.
+
+
+## StreamLinx — purga definitiva de cierres de caja (v10)
+El panel oculto de StreamLinx incorpora borrado permanente de cierres de caja. La operación usa una RPC independiente del login normal, elimina el cierre de Supabase, IndexedDB, historial y copias de backup, y registra tombstones en Supabase para impedir que una cola offline antigua lo vuelva a crear. Si se elimina el cierre de la fecha operativa de hoy, `getCurrentBusinessDayKey()` vuelve a devolver la fecha de hoy, por lo que el POS vuelve a mostrar el período como pendiente de cierre.
