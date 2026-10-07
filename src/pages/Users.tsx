@@ -28,6 +28,7 @@ import {
 
 import {
   defaultPermissionsForRole,
+  getManagedProfile,
   getSessionUser,
   getUserPermissions,
   PERMISSION_DEFINITIONS,
@@ -69,6 +70,9 @@ export function Users({
 }) {
   const [users, setUsers] =
     useState<User[]>([])
+
+  const [loading, setLoading] =
+    useState(true)
 
   const [creating, setCreating] =
     useState(false)
@@ -125,8 +129,10 @@ export function Users({
   const canManageRoles =
     currentUser?.role === 'manager'
 
-  const load = () =>
-    getUsers().then(nextUsers => {
+  const load = async () => {
+    setLoading(true)
+    try {
+      const nextUsers = await getUsers()
       // Cloudflare puede devolver durante un instante el perfil remoto y su
       // espejo local recién creado. La vista nunca debe mostrar dos tarjetas.
       const seen = new Set<string>()
@@ -138,7 +144,10 @@ export function Users({
         }
         return false
       }))
-    })
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
     void load()
@@ -206,7 +215,7 @@ export function Users({
     setForm(null)
     setError('')
 
-    await load()
+    void load()
   }
 
   const startDeleteSlide = (
@@ -365,7 +374,7 @@ export function Users({
     }
   }
 
-  const openConfig = (
+  const openConfig = async (
     user: User
   ) => {
     setConfiguring(user)
@@ -390,6 +399,35 @@ export function Users({
 
     setError('')
     setShowPin(false)
+
+    if (currentUser?.role === 'manager') {
+      const remote = await getManagedProfile(user.id)
+      if (remote) {
+        const hydrated: User = {
+          ...user,
+          id: remote.id,
+          legacyId: remote.legacyId,
+          authEmail: remote.authEmail,
+          name: remote.name,
+          role: remote.role,
+          rank: remote.rank,
+          active: remote.active,
+          pin: remote.pin,
+          permissions: remote.permissions || defaultPermissionsForRole(remote.role),
+          updatedAt: new Date().toISOString(),
+        }
+
+        setConfiguring(hydrated)
+        setForm({
+          name: hydrated.name,
+          pin: hydrated.pin,
+          rank: hydrated.rank || 'Trabajador',
+          role: hydrated.role,
+          active: hydrated.active,
+          permissions: getUserPermissions(hydrated),
+        })
+      }
+    }
   }
 
   const saveConfig = async () => {
@@ -435,8 +473,8 @@ export function Users({
         currentUser.id
       )
 
-      await load()
       closeConfig()
+      void load()
     } catch (error) {
       console.error(
         'Smaky: error actualizando usuario:',
@@ -602,7 +640,23 @@ export function Users({
       </div>
 
       <div className="users-list">
-        {users.map(user => (
+        {loading ? (
+          <div className="panel users-loading">
+            <div className="users-loading-dot"></div>
+            <div>
+              <b>Cargando usuarios…</b>
+              <p>Conectando con la cuenta remota de Smaky.</p>
+            </div>
+          </div>
+        ) : users.length === 0 ? (
+          <div className="panel users-loading">
+            <div className="users-loading-dot"></div>
+            <div>
+              <b>No hay perfiles para mostrar</b>
+              <p>Verifica la conexión con Supabase y vuelve a intentarlo.</p>
+            </div>
+          </div>
+        ) : users.map(user => (
           <div
             className={`panel user-row ${
               !user.active

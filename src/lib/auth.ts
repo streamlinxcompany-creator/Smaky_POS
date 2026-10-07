@@ -1,12 +1,26 @@
 import type { PermissionKey, Role, User } from './types'
 import { db } from './db'
 import { supabase, supabaseConfigured } from './supabase'
-import { isNetworkError, syncAfterLogin } from './sync'
+import { isNetworkError } from './sync'
 
 const SESSION_KEY = 'smaky-session'
 const DEFAULT_MANAGER_LEGACY_ID = 'u-owner'
 const AUTH_DOMAIN = 'smaky.local'
 const authPasswordFromPin = (pin: string) => `SmakyPOS#${pin}`
+
+async function withTimeout<T>(promise: PromiseLike<T>, milliseconds = 7_000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      Promise.resolve(promise),
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('La conexión con Supabase tardó demasiado.')), milliseconds)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
 
 export const PERMISSION_DEFINITIONS: Array<{
   key: PermissionKey
@@ -242,15 +256,20 @@ export async function getLoginProfiles(
     return []
   }
 
-  const {
-    data,
-    error,
-  } = await supabase
-    .from('pos_login_profiles')
-    .select(
-      'id, name, role, rank, active, auth_email, legacy_id'
+  let data: unknown
+  let error: unknown
+  try {
+    const result = await withTimeout(
+      supabase
+        .from('pos_login_profiles')
+        .select('id, name, role, rank, active, auth_email, legacy_id')
+        .order('name')
     )
-    .order('name')
+    data = result.data
+    error = result.error
+  } catch (requestError) {
+    error = requestError
+  }
 
   if (error) {
     console.error(
@@ -323,6 +342,39 @@ export async function getManagedProfiles(): Promise<Array<LoginProfile & { pin: 
   } catch (error) {
     console.error('Smaky managed profiles exception:', error)
     return []
+  }
+}
+
+export async function getManagedProfile(targetId: string): Promise<(LoginProfile & { pin: string; permissions?: PermissionKey[] }) | null> {
+  if (!supabaseConfigured || !supabase || !navigator.onLine) return null
+
+  try {
+    const { data, error } = await withTimeout(
+      supabase.functions.invoke('admin-users', {
+        body: { action: 'get', targetId },
+      })
+    )
+
+    if (error || !data?.profile) {
+      if (error) console.error('Smaky managed profile error:', error)
+      return null
+    }
+
+    const row = data.profile as Record<string, unknown>
+    return {
+      id: String(row.id),
+      name: String(row.name || 'Usuario'),
+      role: String(row.role || 'employee') as Role,
+      rank: String(row.rank || 'Trabajador'),
+      active: Boolean(row.active),
+      authEmail: String(row.authEmail || ''),
+      legacyId: row.legacyId ? String(row.legacyId) : undefined,
+      pin: String(row.pin || ''),
+      permissions: Array.isArray(row.permissions) ? row.permissions as PermissionKey[] : undefined,
+    }
+  } catch (error) {
+    console.error('Smaky managed profile exception:', error)
+    return null
   }
 }
 
@@ -570,23 +622,11 @@ export async function signInWithPin(
     normalized
   )
 
-  /*
-   * Migración de usuarios locales
-   * y sincronización inicial.
-   */
-  try {
-    await migrateLocalUsersToSupabase()
-    await syncAfterLogin()
-
-    console.log(
-      'Smaky: sincronización inicial completada.'
-    )
-  } catch (error) {
-    console.error(
-      'Smaky: error durante la sincronización inicial:',
-      error
-    )
-  }
+  // No bloqueamos la entrada esperando una reconciliación completa de datos.
+  // La sesión ya es remota; la sincronización/migración queda en segundo plano.
+  void migrateLocalUsersToSupabase().catch(error => {
+    console.error('Smaky: error durante la migración en segundo plano:', error)
+  })
 
   return {
     user: normalized,

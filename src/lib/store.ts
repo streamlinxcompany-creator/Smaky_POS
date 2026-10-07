@@ -2,7 +2,7 @@ import { db } from './db'
 import type { Table } from 'dexie'
 import { enqueueEntityUpsert, enqueueResetOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, isNetworkError, resetRemoteData, withSyncSuppressed } from './sync'
 import { products as seedProducts } from './demoData'
-import { createRemoteWorker, deleteRemoteUser, getLoginProfiles, getManagedProfiles, getSessionUser, hasPermission, setSessionUser, updateRemoteUser } from './auth'
+import { createRemoteWorker, defaultPermissionsForRole, deleteRemoteUser, getLoginProfiles, getManagedProfile, getSessionUser, hasPermission, setSessionUser, updateRemoteUser } from './auth'
 import type { AuditEvent, BackupSnapshot, CashClosure, Customer, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
 
 type Auditable = Record<string, unknown>
@@ -837,178 +837,36 @@ export async function replaceProducts(products: Product[]) {
 }
 
 export async function getUsers() {
-  const users = await db.users.toArray()
-  const visible = users
-    .filter(user => !user.deletedAt)
-    .sort((a, b) => {
-      const roleOrder: Record<Role, number> = {
-        manager: 0,
-        admin: 1,
-        employee: 2,
+  const roleOrder: Record<Role, number> = {
+    manager: 0,
+    admin: 1,
+    employee: 2,
+  }
+
+  if (navigator.onLine) {
+    try {
+      const remoteProfiles = await getLoginProfiles(false)
+      if (remoteProfiles.length) {
+        return remoteProfiles.map(profile => ({
+          id: profile.id,
+          legacyId: profile.legacyId,
+          authEmail: profile.authEmail,
+          name: profile.name,
+          role: profile.role,
+          rank: profile.rank,
+          active: profile.active,
+          pin: '',
+          permissions: defaultPermissionsForRole(profile.role),
+          updatedAt: new Date().toISOString(),
+        } as User)).sort((a, b) => roleOrder[a.role] - roleOrder[b.role] || a.name.localeCompare(b.name, 'es'))
       }
-      return roleOrder[a.role] - roleOrder[b.role] || a.name.localeCompare(b.name, 'es')
-    })
-
-  const managedProfiles = await getManagedProfiles()
-  const loginProfiles = managedProfiles.length
-    ? managedProfiles
-    : await getLoginProfiles(false)
-
-  // Si Supabase no responde, mantenemos la lista local.
-  if (!loginProfiles.length) {
-    return visible
+    } catch (error) {
+      console.warn('Smaky: no fue posible cargar usuarios remotos; usando caché local.', error)
+    }
   }
 
-  const byId = new Map(
-    visible.map(user => [user.id, user])
-  )
-
-  const byLegacy = new Map(
-    visible
-      .filter(user => user.legacyId)
-      .map(user => [user.legacyId!, user])
-  )
-
-  const consumedLocalIds = new Set<string>()
-  const merged: User[] = []
-  const remoteKeys = new Set<string>()
-
-  /*
-   * Supabase es la fuente principal cuando está disponible.
-   * Esto evita mostrar dos veces el mismo usuario cuando existe
-   * una copia local y otra remota.
-   */
-  for (const profile of loginProfiles) {
-    const identityKey =
-      profile.role === 'manager'
-        ? 'manager'
-        : profile.legacyId
-          ? `legacy:${profile.legacyId}`
-          : `id:${profile.id}`
-
-    // Evita duplicados que vengan desde la propia consulta remota.
-    if (remoteKeys.has(identityKey)) {
-      continue
-    }
-
-    remoteKeys.add(identityKey)
-
-    const local =
-      byId.get(profile.id) ||
-      (profile.legacyId
-        ? byLegacy.get(profile.legacyId)
-        : undefined)
-
-    if (local && local.id !== profile.id) {
-      consumedLocalIds.add(local.id)
-    }
-
-    const remotePin =
-      'pin' in profile
-        ? (profile as { pin?: unknown }).pin
-        : undefined
-
-    const next: User = {
-      ...(local || {
-        id: profile.id,
-        pin: '',
-      }),
-
-      id: profile.id,
-
-      legacyId:
-        profile.legacyId ||
-        local?.legacyId,
-
-      authEmail:
-        profile.authEmail,
-
-      name:
-        profile.name,
-
-      role:
-        profile.role,
-
-      rank:
-        profile.rank,
-
-      active:
-        profile.active,
-
-      pin:
-        (typeof remotePin === 'string' ? remotePin : undefined) ||
-        local?.pin ||
-        '',
-
-      permissions:
-        local?.permissions,
-
-      updatedAt:
-        local?.updatedAt,
-    }
-
-    merged.push(next)
-  }
-
-  /*
-   * Si ya existe un gerente remoto, descartamos cualquier copia
-   * local antigua de gerente. Solo debe mostrarse un gerente.
-   */
-  const hasRemoteManager = merged.some(
-    user => user.role === 'manager'
-  )
-
-  const remainingLocal = visible.filter(user => {
-    if (
-      remoteKeys.has(
-        user.role === 'manager'
-          ? 'manager'
-          : user.legacyId
-            ? `legacy:${user.legacyId}`
-            : `id:${user.id}`
-      )
-    ) {
-      return false
-    }
-
-    if (consumedLocalIds.has(user.id)) {
-      return false
-    }
-
-    if (
-      hasRemoteManager &&
-      user.role === 'manager'
-    ) {
-      return false
-    }
-
-    return true
-  })
-
-  /*
-   * Segunda protección contra duplicados locales/remotos.
-   * Para el gerente se usa una clave única.
-   */
-  const finalUsers: User[] = []
-  const finalKeys = new Set<string>()
-
-  for (const user of [...merged, ...remainingLocal]) {
-    const key =
-      user.role === 'manager'
-        ? 'manager'
-        : user.legacyId
-          ? `legacy:${user.legacyId}`
-          : `id:${user.id}`
-
-    if (finalKeys.has(key)) {
-      continue
-    }
-
-    finalKeys.add(key)
-    finalUsers.push(user)
-  }
-
-  return finalUsers.sort((a, b) => {
+  const users = await db.users.toArray()
+  return users.filter(user => !user.deletedAt).sort((a, b) => {
     const roleOrder: Record<Role, number> = {
       manager: 0,
       admin: 1,
@@ -1055,7 +913,42 @@ export async function createWorker(name: string, pin: string, rank: string) {
 export type UserSettings = Pick<User, 'name' | 'pin' | 'rank' | 'active' | 'role' | 'permissions'>
 
 export async function updateUserSettings(targetId: string, changes: Partial<UserSettings>, actorId: string) {
-  const [actor, target] = await Promise.all([db.users.get(actorId), db.users.get(targetId)])
+  const actor = getSessionUser() || await db.users.get(actorId)
+  const localTarget = await db.users.get(targetId)
+  const remoteTarget = actor?.role === 'manager' && navigator.onLine
+    ? await getManagedProfile(targetId)
+    : null
+  const remoteBasicTarget = !remoteTarget && navigator.onLine
+    ? (await getLoginProfiles(false)).find(profile => profile.id === targetId) || null
+    : null
+  const target: User | null = remoteTarget
+    ? {
+        id: remoteTarget.id,
+        legacyId: remoteTarget.legacyId,
+        authEmail: remoteTarget.authEmail,
+        name: remoteTarget.name,
+        role: remoteTarget.role,
+        rank: remoteTarget.rank,
+        active: remoteTarget.active,
+        pin: remoteTarget.pin,
+        permissions: remoteTarget.permissions || defaultPermissionsForRole(remoteTarget.role),
+        updatedAt: new Date().toISOString(),
+      }
+    : remoteBasicTarget
+      ? {
+          id: remoteBasicTarget.id,
+          legacyId: remoteBasicTarget.legacyId,
+          authEmail: remoteBasicTarget.authEmail,
+          name: remoteBasicTarget.name,
+          role: remoteBasicTarget.role,
+          rank: remoteBasicTarget.rank,
+          active: remoteBasicTarget.active,
+          pin: '',
+          permissions: defaultPermissionsForRole(remoteBasicTarget.role),
+          updatedAt: new Date().toISOString(),
+        }
+    : localTarget
+
   if (!actor || !target || !actor.active) return target
 
   const safeChanges: Partial<UserSettings> = {}
@@ -1104,39 +997,10 @@ export async function updateUserSettings(targetId: string, changes: Partial<User
 }
 
 export async function deleteUserProfile(targetId: string, actorId: string) {
-  const actor = (await db.users.get(actorId)) || getSessionUser()
-  let target = await db.users.get(targetId)
-
-  // La lista de Usuarios puede venir directamente de Supabase aunque el
-  // perfil todavía no exista en Dexie. En ese caso no debemos confundir
-  // "no está en la caché local" con "no tienes permisos".
-  if (!target && navigator.onLine && actor?.role === 'manager') {
-    try {
-      const remoteProfiles = await getManagedProfiles()
-      const remote = remoteProfiles.find(profile => profile.id === targetId)
-      if (remote) {
-        target = {
-          id: remote.id,
-          legacyId: remote.legacyId,
-          authEmail: remote.authEmail,
-          name: remote.name,
-          role: remote.role,
-          rank: remote.rank,
-          active: remote.active,
-          pin: remote.pin,
-          permissions: remote.permissions || [],
-          updatedAt: new Date().toISOString(),
-        }
-      }
-    } catch (error) {
-      console.warn('Smaky: no fue posible recuperar el perfil remoto antes de eliminarlo:', error)
-    }
-  }
-
-  if (!actor || !target || !actor.active) return false
-  if (target.id === actor.id || target.role === 'manager') return false
-  if (target.role === 'admin' && actor.role !== 'manager') return false
-  if (target.role === 'employee' && !['manager', 'admin'].includes(actor.role)) return false
+  const actor = getSessionUser() || await db.users.get(actorId)
+  const localTarget = await db.users.get(targetId)
+  if (!actor || !actor.active || actor.role !== 'manager') return false
+  if (targetId === actor.id) return false
 
   let remoteDeleted = false
   if (navigator.onLine) {
@@ -1148,9 +1012,20 @@ export async function deleteUserProfile(targetId: string, actorId: string) {
     }
   }
 
-  const after = { ...target, deletedAt: new Date().toISOString(), deletedBy: actor.id, active: false, updatedAt: new Date().toISOString() }
+  if (remoteDeleted) {
+    if (localTarget) {
+      const after = { ...localTarget, deletedAt: new Date().toISOString(), deletedBy: actor.id, active: false, updatedAt: new Date().toISOString() }
+      await withSyncSuppressed(() => db.users.put(after))
+    }
+    await audit('USER_DELETED', 'USERS', 'user', targetId, localTarget ? { ...localTarget, pin: undefined } : null, localTarget ? { ...localTarget, pin: undefined, active: false } : { id: targetId, active: false }, actor)
+    return true
+  }
+
+  if (!localTarget) return false
+
+  const after = { ...localTarget, deletedAt: new Date().toISOString(), deletedBy: actor.id, active: false, updatedAt: new Date().toISOString() }
   await withSyncSuppressed(() => db.users.put(after))
   if (!remoteDeleted) await enqueueUserDelete(targetId)
-  await audit('USER_DELETED', 'USERS', 'user', targetId, { ...target, pin: undefined }, { ...after, pin: undefined }, actor)
+  await audit('USER_DELETED', 'USERS', 'user', targetId, { ...localTarget, pin: undefined }, { ...after, pin: undefined }, actor)
   return true
 }

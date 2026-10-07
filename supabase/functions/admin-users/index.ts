@@ -102,6 +102,34 @@ Deno.serve(async (request) => {
     })
   }
 
+  if (action === 'get') {
+    if (actor.role !== 'manager') return json({ error: 'Solo el gerente puede consultar la configuración de perfiles.' }, 403)
+    const targetId = String(body.targetId || '')
+    if (!targetId) return json({ error: 'Perfil objetivo no especificado.' }, 400)
+
+    const { data: profile, error: profileError } = await admin
+      .from('profiles')
+      .select('id, name, role, rank, active, permissions, auth_email, legacy_id, pin')
+      .eq('id', targetId)
+      .maybeSingle()
+
+    if (profileError || !profile) return json({ error: profileError?.message || 'No encontramos el perfil.' }, 404)
+
+    return json({
+      profile: {
+        id: profile.id,
+        name: profile.name,
+        role: profile.role,
+        rank: profile.rank,
+        active: profile.active,
+        permissions: profile.permissions,
+        authEmail: profile.auth_email,
+        legacyId: profile.legacy_id,
+        pin: profile.pin || '',
+      },
+    })
+  }
+
   if (action === 'provision') {
     if (actor.role !== 'manager') return json({ error: 'Solo el gerente puede migrar perfiles locales.' }, 403)
     const legacyId = String(body.legacyId || '').trim()
@@ -409,27 +437,9 @@ Deno.serve(async (request) => {
     if (!targetId || targetId === actorId) return json({ error: 'Perfil no válido.' }, 400)
     const { data: target } = await admin.from('profiles').select('id, role').eq('id', targetId).maybeSingle()
     if (!target || target.role === 'manager') return json({ error: 'Ese perfil no se puede eliminar.' }, 403)
-    // Soft-delete remoto: conservamos la identidad Auth para que la cuenta
-    // pueda ser restaurada posteriormente mediante la acción `provision`.
-    const { data: updated, error } = await admin
-      .from('profiles')
-      .update({ active: false })
-      .eq('id', targetId)
-      .select('id, name, role, rank, active, permissions, auth_email, legacy_id, pin')
-      .maybeSingle()
-    if (error || !updated) return json({ error: error?.message || 'No fue posible desactivar el perfil.' }, 400)
-    return json({
-      ok: true,
-      id: updated.id,
-      name: updated.name,
-      role: updated.role,
-      rank: updated.rank,
-      active: updated.active,
-      permissions: updated.permissions,
-      authEmail: updated.auth_email,
-      legacyId: updated.legacy_id,
-      pin: updated.pin || '',
-    })
+    const { error } = await admin.auth.admin.deleteUser(targetId)
+    if (error) return json({ error: error.message || 'No fue posible eliminar la cuenta.' }, 400)
+    return json({ ok: true, id: targetId })
   }
 
   return json({ error: 'Acción no reconocida.' }, 400)

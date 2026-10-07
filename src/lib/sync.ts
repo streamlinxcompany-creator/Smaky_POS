@@ -20,10 +20,10 @@ let suppressionDepth = 0
 let syncRunning = false
 let started = false
 let retryTimer: number | null = null
-let intervalTimer: number | null = null
 let scheduledSyncTimer: number | null = null
 let lastError: string | undefined
 let lastSyncedAt: string | undefined
+let lastAutomaticSyncRequest = 0
 
 export type SyncState = {
   syncing: boolean
@@ -698,8 +698,11 @@ export async function syncAfterLogin() {
   await syncNow()
 }
 
-function scheduleRetry() {
+function scheduleRetry(force = false) {
   if (retryTimer !== null) window.clearTimeout(retryTimer)
+  const now = Date.now()
+  if (!force && now - lastAutomaticSyncRequest < 60_000) return
+  lastAutomaticSyncRequest = now
   retryTimer = window.setTimeout(() => {
     retryTimer = null
     void syncNow()
@@ -709,15 +712,10 @@ function scheduleRetry() {
 export function startSync() {
   if (started || typeof window === 'undefined') return
   started = true
-  window.addEventListener('online', () => { scheduleRetry() })
+  window.addEventListener('online', () => { scheduleRetry(true) })
   window.addEventListener('offline', () => { emitSyncChange() })
   window.addEventListener('focus', () => { scheduleRetry() })
-  window.addEventListener('smaky-auth-change', () => { scheduleRetry() })
-  intervalTimer = window.setInterval(() => {
-    if (navigator.onLine) void syncNow()
-  }, 15_000)
-  void syncNow()
-  void intervalTimer
+  window.addEventListener('smaky-auth-change', () => { scheduleRetry(true) })
 }
 
 export const SYNC_CHANGE_EVENT = SYNC_EVENT
