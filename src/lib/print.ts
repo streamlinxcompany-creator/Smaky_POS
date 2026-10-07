@@ -21,7 +21,15 @@ const baseHtml = (title: string, fontSize: number, body: string) => `<!doctype h
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif}
 .receipt{width:58mm;padding:4.5mm 3.5mm 7mm;font-size:${safeFontSize(fontSize)}px;line-height:1.28}
-.center{text-align:center}.brand{font-weight:900;font-size:1.5em;letter-spacing:.15px}.title{font-weight:900;font-size:1.08em;letter-spacing:.8px;margin-top:1.5mm}.muted{color:#555;font-size:.84em}.rule{border:0;border-top:1px dashed #777;margin:3mm 0}.row{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.strong{font-weight:900}.item{padding:1.8mm 0;border-bottom:1px dotted #bbb}.item:last-child{border-bottom:0}.item-name{font-weight:700;max-width:70%;overflow-wrap:anywhere}.total{font-weight:900;font-size:1.28em;margin-top:2mm}.small{font-size:.78em;color:#555}.footer{margin-top:4mm;text-align:center;font-size:.76em;color:#555;line-height:1.35}.section-label{font-size:.78em;font-weight:900;letter-spacing:1px;color:#444;margin-bottom:1.5mm}.summary-card{border:1px solid #999;padding:2.3mm 2.4mm;border-radius:1.5mm}.summary-card+.summary-card{margin-top:2.5mm}.summary-line{display:flex;justify-content:space-between;gap:7px;padding:1.4mm 0;border-bottom:1px solid #ddd}.summary-line:last-child{border-bottom:0}.summary-label{min-width:0}.summary-count{display:block;font-size:.72em;color:#666;margin-top:.25mm}.payment-name{font-weight:700}.cash-check{padding-top:.4mm}.cash-check .summary-line{border-bottom:0;padding:1.15mm 0}.difference{margin-top:1.8mm;padding:2mm 2.2mm;border:1px solid #555;text-align:center;font-weight:900;letter-spacing:.5px}.difference.ok{border-color:#222}.notes{margin-top:2.5mm;padding-top:2.2mm;border-top:1px solid #bbb}.notes-value{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:1mm}.meta{font-size:.8em;line-height:1.45}.signature{margin-top:5mm;text-align:center}.signature-line{border-top:1px solid #777;width:70%;margin:0 auto 1.2mm}
+.center{text-align:center}.brand{font-weight:900;font-size:1.5em;letter-spacing:.15px}.title{font-weight:900;font-size:1.08em;letter-spacing:.8px;margin-top:1.5mm}.muted{color:#555;font-size:.84em}.rule{border:0;border-top:1px dashed #777;margin:3mm 0}.row{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.row>span{min-width:0}.row>strong{white-space:nowrap}.strong{font-weight:900}.item{padding:1.8mm 0;border-bottom:1px dotted #bbb}.item:last-child{border-bottom:0}.item-name{font-weight:700;max-width:70%;overflow-wrap:anywhere}.total{font-weight:900;font-size:1.28em;margin-top:2mm}.small{font-size:.78em;color:#555}.footer{margin-top:4mm;text-align:center;font-size:.76em;color:#555;line-height:1.35}.section-label{font-size:.78em;font-weight:900;letter-spacing:1px;color:#444;margin-bottom:1.5mm}.summary-card{border:1px solid #999;padding:2.3mm 2.4mm;border-radius:1.5mm}.summary-card+.summary-card{margin-top:2.5mm}.summary-line{display:grid;grid-template-columns:minmax(0,1fr) max-content;align-items:baseline;column-gap:7px;padding:1.4mm 0;border-bottom:1px solid #ddd}.summary-line:last-child{border-bottom:0}.summary-label{min-width:0;white-space:normal;word-break:normal;overflow-wrap:break-word}.summary-line>strong{white-space:nowrap}.summary-count{display:block;font-size:.72em;color:#666;margin-top:.25mm}.payment-name{font-weight:700;word-break:normal;overflow-wrap:break-word}.cash-check{padding-top:.4mm}.cash-check .summary-line{border-bottom:0;padding:1.15mm 0}.difference{margin-top:1.8mm;padding:2mm 2.2mm;border:1px solid #555;text-align:center;font-weight:900;letter-spacing:.5px}.difference.ok{border-color:#222}.notes{margin-top:2.5mm;padding-top:2.2mm;border-top:1px solid #bbb}.notes-value{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:1mm}.meta{font-size:.8em;line-height:1.45}.signature{margin-top:5mm;text-align:center}.signature-line{border-top:1px solid #777;width:70%;margin:0 auto 1.2mm}
+/* Cierre térmico: evitar que los rótulos se partan carácter por carácter en impresoras de 58 mm. */
+.closure-summary .summary-line{grid-template-columns:minmax(0,1fr) max-content;column-gap:5px}
+.closure-summary .summary-label{display:block;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.closure-summary .summary-line>strong{display:block;text-align:right;white-space:nowrap}
+.closure-summary .section-label{margin-bottom:1mm}
+.closure-summary .payment-name{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.closure-summary .summary-line{padding:1.1mm 0}
+
 @media print{.no-print{display:none!important}}
 </style></head><body><main class="receipt">${body}</main><script>window.onload=()=>{setTimeout(()=>window.print(),100)};window.onafterprint=()=>window.close()</script></body></html>`
 
@@ -109,27 +117,27 @@ export function printCashClosingReceipt(closure: CashClosure, fontSize = 10) {
 
     <hr class="rule">
     <div class="section-label">RESUMEN DEL PERÍODO</div>
-    <div class="summary-card">
-      <div class="summary-line"><span>Ventas registradas</span><strong>${esc(closure.saleCount)}</strong></div>
-      <div class="summary-line"><span>TOTAL VENTAS</span><strong>${cop(closure.total)}</strong></div>
+    <div class="summary-card closure-summary">
+      <div class="summary-line"><span class="summary-label">Ventas registradas</span><strong>${esc(closure.saleCount)}</strong></div>
+      <div class="summary-line"><span class="summary-label">TOTAL VENTAS</span><strong>${cop(closure.total)}</strong></div>
     </div>
 
-    <div class="summary-card">
+    <div class="summary-card closure-summary">
       <div class="section-label">MEDIOS DE PAGO</div>
       ${paymentHtml}
     </div>
 
-    <div class="summary-card cash-check">
+    <div class="summary-card cash-check closure-summary">
       <div class="section-label">ARQUEO DE EFECTIVO</div>
-      <div class="summary-line"><span>Efectivo esperado</span><strong>${cop(closure.cashExpected)}</strong></div>
-      <div class="summary-line"><span>Efectivo contado</span><strong>${cop(closure.cashCounted)}</strong></div>
+      <div class="summary-line"><span class="summary-label">Efectivo esperado</span><strong>${cop(closure.cashExpected)}</strong></div>
+      <div class="summary-line"><span class="summary-label">Efectivo contado</span><strong>${cop(closure.cashCounted)}</strong></div>
       <div class="difference${differenceClass}">${esc(differenceLabel)}<br>${cop(differenceAmount)}</div>
     </div>
 
     ${closure.notes ? `<div class="notes"><div class="section-label">OBSERVACIONES</div><div class="notes-value">${esc(closure.notes)}</div></div>` : ''}
 
     <hr class="rule">
-    <div class="summary-card">
+    <div class="summary-card closure-summary">
       <div class="section-label">PERÍODO SIGUIENTE</div>
       <div class="strong">${esc(closure.nextDateKey || '—')}</div>
       <div class="small">${esc(nextDate)}</div>
