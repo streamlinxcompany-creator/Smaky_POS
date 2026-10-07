@@ -22,7 +22,28 @@ export function Login() {
   const [sessionCode, setSessionCode] = useState('SLX-0000-0000')
   const navigate = useNavigate()
 
-  useEffect(() => { getUsers().then(all => { const active = all.filter(user => user.active); setUsers(active); if (active[0]) setSelectedId(active[0].id) }) }, [])
+  useEffect(() => {
+    let cancelled = false
+    const loadUsers = async () => {
+      try {
+        const all = await getUsers()
+        if (cancelled) return
+        const active = all.filter(user => user.active)
+        setUsers(active)
+        setSelectedId(current => active.some(user => user.id === current) ? current : (active[0]?.id || ''))
+      } catch (loadError) {
+        console.error('Smaky: no fue posible cargar los perfiles de acceso:', loadError)
+      }
+    }
+
+    void loadUsers()
+    const onDataReady = () => { void loadUsers() }
+    window.addEventListener('smaky-data-ready', onDataReady)
+    return () => {
+      cancelled = true
+      window.removeEventListener('smaky-data-ready', onDataReady)
+    }
+  }, [])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

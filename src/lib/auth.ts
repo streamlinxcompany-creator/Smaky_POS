@@ -205,7 +205,7 @@ export async function validateRemoteSession() {
 
   try {
     const { data, error } =
-      await supabase.auth.getSession()
+      await withTimeout(supabase.auth.getSession(), 8_000)
 
     if (error) {
       console.error(
