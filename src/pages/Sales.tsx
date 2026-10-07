@@ -25,7 +25,22 @@ export function Sales() {
   const canDelete = hasPermission(sessionUser, 'sales.delete')
   const paymentLabel = (payment: PaymentMethod, sale?: Sale) => sale?.paymentLabel || paymentLabels[payment] || fallbackPaymentLabel(payment)
 
-  useEffect(() => { Promise.all([getSales(), getPaymentMethods(), getGeneralSettings()]).then(([salesData, methods, settings]) => { setSales(salesData); setPaymentLabels(Object.fromEntries(methods.map(method => [method.id, method.name]))); setReceiptFontSize(settings.receiptFontSize) }) }, [])
+  useEffect(() => {
+    let active = true
+    Promise.all([getSales(), getPaymentMethods(), getGeneralSettings()]).then(([salesData, methods, settings]) => {
+      if (!active) return
+      setSales(Array.isArray(salesData) ? salesData : [])
+      setPaymentLabels(Object.fromEntries((Array.isArray(methods) ? methods : []).map(method => [method.id, method.name])))
+      setReceiptFontSize(Number(settings?.receiptFontSize) || 10)
+    }).catch(error => {
+      console.error('No fue posible cargar el historial de ventas:', error)
+      if (active) {
+        setSales([])
+        setPaymentLabels({})
+      }
+    })
+    return () => { active = false }
+  }, [])
 
   const closeReceipt = () => {
     setSelectedSale(null)
@@ -94,7 +109,7 @@ export function Sales() {
       </table>}
     </div>
 
-    {selectedSale && <div className="modal-backdrop receipt-backdrop">
+    {selectedSale && <div className="modal-backdrop receipt-backdrop" onClick={(event) => { if (event.target === event.currentTarget) closeReceipt() }}>
       <div className="receipt-modal" role="dialog" aria-modal="true" aria-labelledby="receipt-title">
         <button className="receipt-close" onClick={closeReceipt} aria-label="Cerrar"><X size={18}/></button>
         <div className="receipt-top">
@@ -114,14 +129,14 @@ export function Sales() {
         </div>
 
         <div className="receipt-section-title">Productos</div>
-        <div className="receipt-items">{selectedSale.items.map(item => <div className="receipt-item" key={item.productId}>
+        <div className="receipt-items">{(Array.isArray(selectedSale.items) ? selectedSale.items : []).map((item, index) => <div className="receipt-item" key={item.lineId || `${item.productId}-${index}`}>
           <div><b>{item.quantity}× {item.name}</b><span>{money(item.unitPrice)} c/u</span></div>
           <strong>{money(item.total)}</strong>
         </div>)}</div>
 
         <div className="receipt-total">
-          <div><span>Subtotal</span><b>{money(selectedSale.subtotal)}</b></div>
-          <div className="grand"><span>Total</span><strong>{money(selectedSale.total)}</strong></div>
+          <div><span>Subtotal</span><b>{money(Number(selectedSale.subtotal) || 0)}</b></div>
+          <div className="grand"><span>Total</span><strong>{money(Number(selectedSale.total) || 0)}</strong></div>
         </div>
         <button className="secondary receipt-print-btn" onClick={() => printSaleReceipt(selectedSale, receiptFontSize)}><Printer size={15}/> Imprimir factura</button>
         {canDelete && <div className="receipt-danger">
