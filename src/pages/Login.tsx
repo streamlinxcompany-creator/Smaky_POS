@@ -1,7 +1,7 @@
 import { ArrowRight, Command, Fingerprint, LockKeyhole, ShieldCheck, UserRound, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { initials, signInWithPin } from '../lib/auth'
+import { initials, setStreamlinxSession, signInWithPin } from '../lib/auth'
 import { getUsers } from '../lib/store'
 import type { User } from '../lib/types'
 
@@ -93,6 +93,7 @@ export function Login() {
   }
   const submitStreamLinx = () => {
     if (streamlinxPin !== STREAMLINX_ACCESS_PIN) return setStreamlinxError('IDENTIDAD NO VERIFICADA // ACCESO DENEGADO')
+    setStreamlinxSession()
     navigate('/streamlinx', { replace: true })
   }
 

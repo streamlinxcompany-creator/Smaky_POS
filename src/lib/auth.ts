@@ -4,6 +4,7 @@ import { supabase, supabaseConfigured } from './supabase'
 import { isNetworkError } from './sync'
 
 const SESSION_KEY = 'smaky-session'
+const STREAMLINX_SESSION_KEY = 'streamlinx-session'
 const DEFAULT_MANAGER_LEGACY_ID = 'u-owner'
 const AUTH_DOMAIN = 'smaky.local'
 const authPasswordFromPin = (pin: string) => `SmakyPOS#${pin}`
@@ -178,6 +179,34 @@ export function setSessionUser(user: User) {
   window.dispatchEvent(
     new Event('smaky-auth-change')
   )
+}
+
+export function setStreamlinxSession() {
+  localStorage.setItem(
+    STREAMLINX_SESSION_KEY,
+    JSON.stringify({ authenticatedAt: new Date().toISOString(), source: 'streamlinx' })
+  )
+  window.dispatchEvent(new Event('streamlinx-auth-change'))
+}
+
+export function hasStreamlinxSession(): boolean {
+  return localStorage.getItem(STREAMLINX_SESSION_KEY) !== null
+}
+
+export function clearStreamlinxSession() {
+  localStorage.removeItem(STREAMLINX_SESSION_KEY)
+  window.dispatchEvent(new Event('streamlinx-auth-change'))
+}
+
+export async function getStreamlinxOperator(): Promise<User | null> {
+  if (!hasStreamlinxSession()) return null
+  const users = await db.users.toArray()
+  const eligible = users.filter(user =>
+    user.active &&
+    (user.role === 'manager' || user.role === 'admin') &&
+    hasPermission(user, 'sales.delete')
+  )
+  return eligible.find(user => user.legacyId === DEFAULT_MANAGER_LEGACY_ID) || eligible[0] || null
 }
 
 export function clearSession() {

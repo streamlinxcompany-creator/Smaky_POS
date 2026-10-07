@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Activity, ArchiveRestore, CircleDollarSign, ClipboardList, Database, Download, FileArchive, FileText, HardDrive, LayoutDashboard, LogOut, Package, RefreshCw, Search, ShieldCheck, Terminal, Trash2, Users, WalletCards, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { getSessionUser } from '../lib/auth'
+import { clearStreamlinxSession, getStreamlinxOperator, hasStreamlinxSession } from '../lib/auth'
 import { createBackupSnapshot, getArchivedClosures, getArchivedOrders, getArchivedProducts, getArchivedSales, getArchivedUsers, getAuditEvents, getBackupSnapshots, getGeneralSettings, getHistoryRecords, purgeSalesData, restoreArchivedRecord } from '../lib/store'
 import { money } from '../lib/format'
 import { printSaleReceipt } from '../lib/print'
@@ -25,7 +25,7 @@ export function StreamLinx() {
   const [saleToDelete,setSaleToDelete] = useState<Sale | null>(null)
   const [salesDeleteAllOpen,setSalesDeleteAllOpen] = useState(false)
   const [salesBusy,setSalesBusy] = useState(false)
-  const current = getSessionUser()
+  const [current, setCurrent] = useState<User | null>(null)
   const [receiptFontSize, setReceiptFontSize] = useState(10)
 
   const load = async () => {
@@ -39,7 +39,26 @@ export function StreamLinx() {
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { void load() }, [])
+  useEffect(() => {
+    let cancelled = false
+    const init = async () => {
+      if (!hasStreamlinxSession()) {
+        nav('/login', { replace: true })
+        return
+      }
+      const operator = await getStreamlinxOperator()
+      if (cancelled) return
+      setCurrent(operator)
+      if (!operator) {
+        clearStreamlinxSession()
+        nav('/login', { replace: true })
+        return
+      }
+      await load()
+    }
+    void init()
+    return () => { cancelled = true }
+  }, [nav])
   useEffect(() => { if (!toast) return; const id = window.setTimeout(() => setToast(''), 3200); return () => window.clearTimeout(id) }, [toast])
 
   const match = (item: unknown) => !query.trim() || JSON.stringify(item).toLowerCase().includes(query.trim().toLowerCase())
@@ -96,7 +115,7 @@ export function StreamLinx() {
       <div className="slx-brand"><div className="slx-logo-wrap"><img src="/Streamlinx.png" alt="StreamLinx"/><span>S</span></div><div><b>StreamLinx</b><small>COMMAND CENTER</small></div></div>
       <div className="slx-access slx-access-manager"><span className="slx-pulse"/>MANDO STREAMLINX<b>LEVEL 05</b></div>
       <nav>{tabs.map(([id,name,Icon]) => <button key={id} className={tab===id?'active':''} onClick={() => {setTab(id);setQuery('')}}><Icon size={15}/>{name}</button>)}</nav>
-      <div className="slx-sidebar-bottom"><div className="slx-terminal-mini"><Terminal size={14}/><div><b>AUDIT STORAGE</b><span>{loading?'Sincronizando…':`${data.audit.length} eventos protegidos`}</span></div><i/></div><button onClick={() => nav('/login')}><LogOut size={14}/>Salir del centro</button></div>
+      <div className="slx-sidebar-bottom"><div className="slx-terminal-mini"><Terminal size={14}/><div><b>AUDIT STORAGE</b><span>{loading?'Sincronizando…':`${data.audit.length} eventos protegidos`}</span></div><i/></div><button onClick={() => { clearStreamlinxSession(); nav('/login', { replace: true }) }}><LogOut size={14}/>Salir del centro</button></div>
     </aside>
     <main className="slx-main">
       <header className="slx-topbar"><div><span className="slx-kicker">STREAMLINX COMMAND CENTER</span><span className="slx-separator">/</span><span className="slx-muted">AUDIT · RECOVERY · SUPERVISION</span></div><strong>{loading?'SYNC…':'CORE ONLINE'}</strong></header>
