@@ -520,10 +520,35 @@ async function reconcileEntity(entity: SyncEntity) {
   const remoteById = new Map(remoteRows.map(row => [String(row.id), row]))
   const pendingIds = new Set(pending.filter(op => op.entity === entity && op.operation === 'upsert' && op.recordId).map(op => String(op.recordId)))
 
+  const salesAuthoritative = entity === 'sales' && await (async () => {
+    try {
+      const { getSessionUser } = await import('./auth')
+      const actor = getSessionUser()
+      return Boolean(actor && (actor.role === 'manager' || actor.role === 'admin' || actor.permissions.includes('sales.view')))
+    } catch {
+      return false
+    }
+  })()
+
   for (const local of localRows as any[]) {
     const id = String(local.id)
     if (pendingIds.has(id)) continue
     const remote = remoteById.get(id)
+
+    if (salesAuthoritative) {
+      if (!remote) {
+        // For sales, a successful online read of Supabase is the source of
+        // truth. Missing remotely means deleted remotely; never resurrect it.
+        await withSyncSuppressed(() => (entityTable(entity) as Table<any, string>).delete(id))
+        continue
+      }
+      await putLocalRemote(entity, remote)
+      continue
+    }
+
+    // Other entities keep the existing offline-first last-write-wins behaviour.
+    // This avoids destructive cache cleanup for users whose RLS policy does not
+    // expose the full entity while still making sales deletion authoritative.
     if (!remote) {
       await upsertRemote(entity, local)
       continue
@@ -858,7 +883,10 @@ export async function hasPendingSalesPurge() {
 }
 
 export async function purgeRemoteSales(purgeBefore: string, saleIds?: string[]) {
-  if (!supabaseConfigured || !supabase || !navigator.onLine) {
+  if (!supabaseConfigured || !supabase) {
+    return { ok: false, offline: false as const, error: 'Supabase no está configurado.' }
+  }
+  if (!navigator.onLine) {
     return { ok: false, offline: true as const }
   }
   try {
@@ -868,7 +896,9 @@ export async function purgeRemoteSales(purgeBefore: string, saleIds?: string[]) 
       p_access_key: STREAMLINX_PURGE_ACCESS_KEY,
     })
     if (error) {
-      if (isNetworkError(error)) return { ok: false, offline: true as const, error: error.message }
+      // When the browser reports online, do NOT silently downgrade a failed
+      // remote purge to a local-only deletion. Definitive deletion requires the
+      // server to acknowledge it. Offline is represented only by navigator.onLine.
       return { ok: false, offline: false as const, error: error.message }
     }
     const counts = data && typeof data === 'object'
@@ -878,11 +908,18 @@ export async function purgeRemoteSales(purgeBefore: string, saleIds?: string[]) 
             .map(([key, value]) => [key, Number(value)])
         )
       : undefined
+    const remaining = data && typeof data === 'object' && typeof (data as Record<string, unknown>).remainingSales === 'number'
+      ? Number((data as Record<string, unknown>).remainingSales)
+      : 0
+    if (remaining > 0) {
+      return { ok: false, offline: false as const, error: `Supabase no confirmó el borrado completo: quedaron ${remaining} ventas.` }
+    }
     return { ok: true as const, counts }
   } catch (error) {
-    return isNetworkError(error)
-      ? { ok: false, offline: true as const, error: cleanError(error) }
-      : { ok: false, offline: false as const, error: cleanError(error) }
+    // Do not treat a transport failure as a successful offline fallback while
+    // the browser says it is online. A definitive purge must reach Supabase.
+    if (!navigator.onLine) return { ok: false, offline: true as const, error: cleanError(error) }
+    return { ok: false, offline: false as const, error: cleanError(error) }
   }
 }
 
