@@ -756,17 +756,18 @@ export async function getClosures() {
 }
 
 
-export async function purgeSalesData(actor: User) {
+export async function purgeSalesData(actor: User, saleIds?: string[]) {
   const freshActor = await db.users.get(actor.id)
-  if (!freshActor?.active || freshActor.role !== 'manager') {
-    return { ok: false, error: 'Solo el gerente puede purgar las ventas definitivamente.' }
+  if (!freshActor?.active || !hasPermission(freshActor, 'sales.delete')) {
+    return { ok: false, error: 'El usuario actual no tiene autorización para administrar ventas desde StreamLinx.' }
   }
 
+  const normalizedIds = Array.from(new Set((saleIds || []).map(String).filter(Boolean)))
   const purgeBefore = new Date().toISOString()
   let remotePending = false
 
   if (navigator.onLine && await ensureRemoteSession()) {
-    const remote = await purgeRemoteSales(purgeBefore)
+    const remote = await purgeRemoteSales(purgeBefore, normalizedIds)
     if (!remote.ok && !remote.offline) {
       return { ok: false, error: remote.error || 'No fue posible purgar las ventas en Supabase.' }
     }
@@ -775,24 +776,29 @@ export async function purgeSalesData(actor: User) {
     remotePending = true
   }
 
-  const local = await applyLocalSalesPurge(purgeBefore, true)
+  const local = await applyLocalSalesPurge(purgeBefore, true, normalizedIds)
   if (remotePending) {
-    await enqueueSalesPurgeOperation(actor.id, purgeBefore)
+    await enqueueSalesPurgeOperation(actor.id, purgeBefore, normalizedIds)
   }
 
   await audit(
-    'SYSTEM_SALES_PURGE_EXECUTED',
+    normalizedIds.length ? 'SYSTEM_SALE_PURGE_EXECUTED' : 'SYSTEM_SALES_PURGE_EXECUTED',
     'SYSTEM',
     'sales-purge',
-    'sales',
+    normalizedIds.length === 1 ? normalizedIds[0] : 'sales',
     null,
     {
       purgeBefore,
+      saleIds: normalizedIds.length ? normalizedIds : undefined,
       remote: remotePending ? 'pending' : 'completed',
       ...local,
     },
-    actor,
-    'Purga permanente solicitada desde StreamLinx Command Center.'
+    freshActor,
+    normalizedIds.length === 1
+      ? 'Venta eliminada definitivamente desde StreamLinx Command Center.'
+      : normalizedIds.length > 1
+        ? `Se eliminaron ${normalizedIds.length} ventas definitivamente desde StreamLinx Command Center.`
+        : 'Todas las ventas fueron eliminadas definitivamente desde StreamLinx Command Center.'
   )
 
   return { ok: true, pending: remotePending, purgeBefore, ...local }

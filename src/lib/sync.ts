@@ -177,14 +177,14 @@ export async function enqueueResetOperation(actorId: string) {
   })
 }
 
-export async function enqueueSalesPurgeOperation(actorId: string, purgeBefore: string) {
+export async function enqueueSalesPurgeOperation(actorId: string, purgeBefore: string, saleIds?: string[]) {
   await enqueueOperation({
     id: randomId('sales-purge'),
     entity: 'system',
     operation: 'purge_sales',
     createdAt: stamp(),
     attempts: 0,
-    payload: { actorId, purgeBefore },
+    payload: { actorId, purgeBefore, saleIds: saleIds?.length ? saleIds : undefined },
   })
 }
 
@@ -553,9 +553,12 @@ async function processDataOperation(operation: DataSyncOperation) {
     return data
   }
   if (operation.operation === 'purge_sales') {
-    const payload = (operation.payload || {}) as { purgeBefore?: string }
+    const payload = (operation.payload || {}) as { purgeBefore?: string; saleIds?: string[] }
     const purgeBefore = payload.purgeBefore || operation.createdAt
-    const { data, error } = await supabase!.rpc('purge_sales_data', { purge_before: purgeBefore })
+    const { data, error } = await supabase!.rpc('purge_sales_data', {
+      purge_before: purgeBefore,
+      sale_ids: payload.saleIds?.length ? payload.saleIds : null,
+    })
     if (error) throw error
     return data
   }
@@ -637,11 +640,34 @@ async function flushQueue() {
 }
 
 
-function readSalesPurgeMarkerValue(value: unknown) {
-  if (typeof value === 'string') return value
-  if (value && typeof value === 'object' && 'purgeBefore' in value) {
-    const purgeBefore = (value as { purgeBefore?: unknown }).purgeBefore
-    return typeof purgeBefore === 'string' ? purgeBefore : undefined
+type SalesPurgeMarker = { globalBefore?: string; saleIds?: string[] }
+
+function readSalesPurgeMarkerValue(value: unknown): SalesPurgeMarker | undefined {
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as { globalBefore?: unknown; purgeBefore?: unknown; saleIds?: unknown }
+      if (parsed && typeof parsed === 'object') {
+        return {
+          globalBefore: typeof parsed.globalBefore === 'string' ? parsed.globalBefore : undefined,
+          saleIds: Array.isArray(parsed.saleIds) ? parsed.saleIds.filter((id): id is string => typeof id === 'string') : undefined,
+        }
+      }
+    } catch {
+      return { globalBefore: value }
+    }
+    return { globalBefore: value }
+  }
+  if (value && typeof value === 'object') {
+    const marker = value as { globalBefore?: unknown; purgeBefore?: unknown; saleIds?: unknown }
+    const globalBefore = typeof marker.globalBefore === 'string'
+      ? marker.globalBefore
+      : typeof marker.purgeBefore === 'string' && (!Array.isArray(marker.saleIds) || marker.saleIds.length === 0)
+        ? marker.purgeBefore
+        : undefined
+    return {
+      globalBefore,
+      saleIds: Array.isArray(marker.saleIds) ? marker.saleIds.filter((id): id is string => typeof id === 'string') : undefined,
+    }
   }
   return undefined
 }
@@ -651,37 +677,41 @@ async function getLocalSalesPurgeMarker() {
   return readSalesPurgeMarkerValue(setting?.value)
 }
 
-export async function applyLocalSalesPurge(purgeBefore: string, persistMarker = true) {
-  const cutoff = Date.parse(purgeBefore)
-  if (!Number.isFinite(cutoff)) throw new Error('La fecha de purga de ventas no es válida.')
+export async function applyLocalSalesPurge(
+  purgeBefore: string,
+  persistMarker = true,
+  saleIds?: string[],
+  globalBefore?: string,
+) {
+  const globalCutoffText = globalBefore || (saleIds?.length ? undefined : purgeBefore)
+  const cutoff = globalCutoffText ? Date.parse(globalCutoffText) : NaN
+  if (globalCutoffText && !Number.isFinite(cutoff)) throw new Error('La fecha de purga de ventas no es válida.')
 
   let counts = { sales: 0, history: 0, audit: 0, backups: 0, closures: 0 }
   const now = stamp()
 
   await db.transaction('rw', [db.sales, db.auditEvents, db.historyRecords, db.backups, db.closures, db.syncQueue, db.settings], async () => {
     const [sales, histories, auditEvents, backups, closures, queue] = await Promise.all([
-      db.sales.toArray(),
-      db.historyRecords.toArray(),
-      db.auditEvents.toArray(),
-      db.backups.toArray(),
-      db.closures.toArray(),
-      db.syncQueue.toArray(),
+      db.sales.toArray(), db.historyRecords.toArray(), db.auditEvents.toArray(), db.backups.toArray(), db.closures.toArray(), db.syncQueue.toArray(),
     ])
 
-    const saleIds = new Set(
-      sales
-        .filter(sale => (Date.parse(String(sale.createdAt || sale.updatedAt || '')) || 0) <= cutoff)
-        .map(sale => String(sale.id))
-    )
+    const targetedIds = new Set((saleIds || []).map(String))
+    const idsToDelete = sales
+      .filter(sale => targetedIds.size
+        ? targetedIds.has(String(sale.id))
+        : Number.isFinite(cutoff) && (Date.parse(String(sale.createdAt || sale.updatedAt || '')) || 0) <= cutoff
+      )
+      .map(sale => String(sale.id))
 
-    if (saleIds.size) {
-      counts.sales = saleIds.size
-      await db.sales.bulkDelete([...saleIds])
+    const deletedSaleIds = new Set(idsToDelete)
+    if (deletedSaleIds.size) {
+      counts.sales = deletedSaleIds.size
+      await db.sales.bulkDelete(idsToDelete)
     }
 
     const historyIds = histories
       .filter(history => history.entity === 'sale' && (
-        saleIds.has(history.recordId) || (Date.parse(String(history.capturedAt || '')) || 0) <= cutoff
+        deletedSaleIds.has(history.recordId) || (!targetedIds.size && Number.isFinite(cutoff) && (Date.parse(String(history.capturedAt || '')) || 0) <= cutoff)
       ))
       .map(history => history.id)
     if (historyIds.length) {
@@ -691,7 +721,7 @@ export async function applyLocalSalesPurge(purgeBefore: string, persistMarker = 
 
     const auditIds = auditEvents
       .filter(event => event.recordType === 'sale' && (
-        saleIds.has(String(event.recordId || '')) || (Date.parse(String(event.timestamp || '')) || 0) <= cutoff
+        deletedSaleIds.has(String(event.recordId || '')) || (!targetedIds.size && Number.isFinite(cutoff) && (Date.parse(String(event.timestamp || '')) || 0) <= cutoff)
       ))
       .map(event => event.id)
     if (auditIds.length) {
@@ -699,31 +729,42 @@ export async function applyLocalSalesPurge(purgeBefore: string, persistMarker = 
       await db.auditEvents.bulkDelete(auditIds)
     }
 
+    // Any backup/closure created before a global purge cutoff is scrubbed. For
+    // a targeted purge, remove only the selected sale IDs from every cache copy.
     for (const backup of backups) {
-      if ((Date.parse(String(backup.createdAt || '')) || 0) > cutoff) continue
-      if (!Object.prototype.hasOwnProperty.call(backup.payload || {}, 'sales')) continue
-      const { sales: _sales, ...payloadWithoutSales } = backup.payload || {}
+      const shouldTouch = targetedIds.size
+        ? Object.prototype.hasOwnProperty.call(backup.payload || {}, 'sales')
+        : Number.isFinite(cutoff) && (Date.parse(String(backup.createdAt || '')) || 0) <= cutoff && Object.prototype.hasOwnProperty.call(backup.payload || {}, 'sales')
+      if (!shouldTouch) continue
+      const backupSales = Array.isArray((backup.payload || {}).sales) ? (backup.payload as {sales?: unknown[]}).sales || [] : []
+      const remainingSales = targetedIds.size
+        ? backupSales.filter(item => !item || typeof item !== 'object' || !targetedIds.has(String((item as Record<string, unknown>).id || '')))
+        : []
       await db.backups.put({
         ...backup,
-        payload: payloadWithoutSales,
-        contents: { ...backup.contents, sales: 0 },
+        payload: { ...backup.payload, sales: remainingSales },
+        contents: { ...backup.contents, sales: remainingSales.length },
       })
       counts.backups += 1
     }
 
     for (const closure of closures) {
-      if ((Date.parse(String(closure.closedAt || '')) || 0) > cutoff) continue
       if (!closure.sales?.length) continue
-      await db.closures.put({ ...closure, sales: [], updatedAt: now })
+      const shouldTouch = targetedIds.size
+        ? closure.sales.some(sale => targetedIds.has(String(sale.id)))
+        : Number.isFinite(cutoff) && (Date.parse(String(closure.closedAt || '')) || 0) <= cutoff
+      if (!shouldTouch) continue
+      const remainingSales = targetedIds.size ? closure.sales.filter(sale => !targetedIds.has(String(sale.id))) : []
+      await db.closures.put({ ...closure, sales: remainingSales, updatedAt: now })
       counts.closures += 1
     }
 
     const staleQueueIds = queue
       .filter(operation => {
         if (operation.entity === 'system' && operation.operation === 'purge_sales') return false
-        if (operation.entity === 'sales' && operation.recordId && saleIds.has(String(operation.recordId))) return true
-        if (['audit_events', 'history_records', 'backups', 'cash_closures'].includes(String(operation.entity))) {
-          return (Date.parse(String(operation.createdAt || '')) || 0) <= cutoff
+        if (operation.entity === 'sales' && operation.recordId && deletedSaleIds.has(String(operation.recordId))) return true
+        if (!targetedIds.size && ['audit_events', 'history_records', 'backups', 'cash_closures'].includes(String(operation.entity))) {
+          return Number.isFinite(cutoff) && (Date.parse(String(operation.createdAt || '')) || 0) <= cutoff
         }
         return false
       })
@@ -731,10 +772,15 @@ export async function applyLocalSalesPurge(purgeBefore: string, persistMarker = 
     if (staleQueueIds.length) await db.syncQueue.bulkDelete(staleQueueIds)
 
     if (persistMarker) {
+      const existing = await getLocalSalesPurgeMarker()
+      const nextGlobalBefore = globalCutoffText || existing?.globalBefore
+      const nextIds = new Set([...(existing?.saleIds || []), ...targetedIds])
+      // A global purge subsumes all previous individual IDs, so keep only the
+      // IDs added after that cutoff. Existing local markers are harmlessly kept.
       await db.settings.put({
         id: SALES_PURGE_MARKER_KEY,
         key: SALES_PURGE_MARKER_KEY,
-        value: purgeBefore,
+        value: JSON.stringify({ globalBefore: nextGlobalBefore, saleIds: [...nextIds] }),
         updatedAt: now,
       })
     }
@@ -746,8 +792,9 @@ export async function applyLocalSalesPurge(purgeBefore: string, persistMarker = 
 
 async function applyRemoteSalesPurgeMarker() {
   const marker = await getLocalSalesPurgeMarker()
-  if (!marker) return false
-  await applyLocalSalesPurge(marker, false)
+  if (!marker?.globalBefore && !marker?.saleIds?.length) return false
+  const effectiveBefore = marker.globalBefore || stamp()
+  await applyLocalSalesPurge(effectiveBefore, false, marker.saleIds, marker.globalBefore)
   return true
 }
 
@@ -758,7 +805,7 @@ export async function hasPendingSalesPurge() {
     .then(count => count > 0)
 }
 
-export async function purgeRemoteSales(purgeBefore: string) {
+export async function purgeRemoteSales(purgeBefore: string, saleIds?: string[]) {
   if (!supabaseConfigured || !supabase || !navigator.onLine) {
     return { ok: false, offline: true as const }
   }
@@ -766,7 +813,10 @@ export async function purgeRemoteSales(purgeBefore: string) {
     if (!(await ensureRemoteSession())) {
       return { ok: false, offline: isNetworkError(lastError), error: lastError || 'No hay una sesión remota activa.' }
     }
-    const { data, error } = await supabase.rpc('purge_sales_data', { purge_before: purgeBefore })
+    const { data, error } = await supabase.rpc('purge_sales_data', {
+      purge_before: purgeBefore,
+      sale_ids: saleIds?.length ? saleIds : null,
+    })
     if (error) {
       if (isNetworkError(error)) return { ok: false, offline: true as const, error: error.message }
       return { ok: false, offline: false as const, error: error.message }

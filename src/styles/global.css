@@ -1658,3 +1658,10 @@ html[data-theme='light'] .streamlinx-command-center{color-scheme:dark}
   .checkout-editor-right .discount-editor,
   .checkout-editor-right .checkout-cash-status{grid-column:1;grid-row:auto}
 }
+
+.slx-panel-head-actions{display:flex;align-items:center;gap:10px}
+.slx-danger-btn.small{width:auto;padding:9px 12px}
+.slx-admin-badge{display:inline-flex;align-items:center;gap:7px;padding:10px 12px;border:1px solid #4b2a20;border-radius:10px;background:#24130e;font-size:12px;font-weight:800;letter-spacing:.4px}
+.slx-row-btn-danger{color:#d65b39!important}
+.slx-danger-btn:disabled,.slx-ghost-btn:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:900px){.slx-panel-head-actions{flex-wrap:wrap;justify-content:flex-end}.slx-danger-zone{grid-template-columns:1fr}.slx-danger-actions{flex-wrap:wrap}}

@@ -37,7 +37,7 @@ export type UserSyncOperation = {
 export type DataSyncOperation = {
   id: string
   entity: SyncEntity | 'system'
-  operation: 'upsert' | 'reset'
+  operation: 'upsert' | 'reset' | 'purge_sales'
   recordId?: string
   payload?: unknown
   createdAt: string
