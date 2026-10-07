@@ -903,6 +903,11 @@ export async function getUsers() {
       consumedLocalIds.add(local.id)
     }
 
+    const remotePin =
+      'pin' in profile
+        ? (profile as { pin?: unknown }).pin
+        : undefined
+
     const next: User = {
       ...(local || {
         id: profile.id,
@@ -931,7 +936,9 @@ export async function getUsers() {
         profile.active,
 
       pin:
-        ('pin' in profile && profile.pin) || local?.pin || '',
+        (typeof remotePin === 'string' ? remotePin : undefined) ||
+        local?.pin ||
+        '',
 
       permissions:
         local?.permissions,
