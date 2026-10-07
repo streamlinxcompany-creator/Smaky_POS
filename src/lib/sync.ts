@@ -355,6 +355,9 @@ async function upsertRemote(entity: SyncEntity, payload: unknown) {
       // después de que Supabase insertó la venta, reintentar con UPSERT como UPDATE
       // exigiría el permiso sales.delete a un trabajador. Ignoramos el duplicado
       // por id y dejamos que la reconciliación lea la versión remota.
+      // IMPORTANTE: Supabase devuelve un ARRAY con select('*'). Normalizamos a una
+      // sola fila para no convertir accidentalmente ese array en una venta local con
+      // id="undefined".
       query = supabase.from('sales').upsert(saleRow(payload as Sale), { onConflict: 'id', ignoreDuplicates: true }).select('*')
       break
     case 'cash_closures': query = supabase.from('cash_closures').upsert(closureRow(payload as CashClosure), { onConflict: 'id' }).select('*').single(); break
@@ -366,6 +369,10 @@ async function upsertRemote(entity: SyncEntity, payload: unknown) {
   }
   const { data, error } = await query
   if (error) throw error
+  if (entity === 'sales') {
+    if (Array.isArray(data)) return data[0] || null
+    return data || null
+  }
   return data
 }
 
@@ -410,7 +417,9 @@ function remoteToLocal(entity: SyncEntity, row: any) {
       businessDateKey: row.business_date_key || base.businessDateKey || undefined, total: Number(row.total ?? base.total ?? 0),
       deletedAt: row.deleted_at || undefined, deletedBy: row.deleted_by || undefined,
     } as Order
-    case 'sales': return {
+    case 'sales':
+      if (!isUsableRemoteSaleRow(row)) return undefined
+      return {
       ...(base as Sale), id: String(row.id), createdAt: String(row.created_at || base.createdAt || stamp()),
       updatedAt: String(row.updated_at || base.updatedAt || stamp()), userId: String(row.user_id || base.userId || ''),
       customerId: row.customer_id || undefined, payment: String(row.payment || base.payment || ''), orderId: row.order_id || undefined,
@@ -662,6 +671,13 @@ async function processUserOperation(operation: UserSyncOperation) {
   }
 }
 
+function isSalesPurgeGuardError(error: unknown) {
+  const value = error as { code?: string; message?: string; details?: string; hint?: string } | null | undefined
+  const code = String(value?.code || '')
+  const text = `${value?.message || ''} ${value?.details || ''} ${value?.hint || ''}`.toLowerCase()
+  return code === '45001' || /venta .*eliminada definitivamente|venta .*fue eliminada definitivamente|sales_purge_guard|purged_sale/i.test(text)
+}
+
 async function flushQueue() {
   const operations = await db.syncQueue.orderBy('createdAt').toArray()
   const priority = operations.filter(operation => operation.entity === 'system' && operation.operation === 'purge_sales')
@@ -672,6 +688,15 @@ async function flushQueue() {
       else await processDataOperation(operation as DataSyncOperation)
       await markSyncSuccess(operation.id)
     } catch (error) {
+      if (operation.entity === 'sales' && isSalesPurgeGuardError(error)) {
+        // Supabase is authoritative: this sale was already permanently purged.
+        // Never retry the stale outbox row and never resurrect the local copy.
+        if (operation.recordId) {
+          await applyLocalSalesPurge(operation.createdAt || stamp(), false, [String(operation.recordId)])
+        }
+        await markSyncSuccess(operation.id)
+        continue
+      }
       await markSyncFailure(operation.id, error)
       if (isNetworkError(error)) throw error
       // Authorization/validation errors stay in the outbox so the data is not
@@ -1017,10 +1042,13 @@ export async function syncNow(): Promise<SyncResult> {
         return { ...(await getSyncState()), ok: true }
       }
     } else {
-      // On a different device, pull the remote purge marker before flushing the
-      // outbox so stale IndexedDB sales/history cannot be uploaded again.
+      // On a different device, pull the remote purge marker and authoritative
+      // sales set before flushing the outbox. This clears stale IndexedDB sales
+      // first; any stale queued sale that survives that pass is rejected by the
+      // server-side purge guard and cleaned from the outbox below.
       await reconcileEntity('settings')
       await applyRemoteSalesPurgeMarker()
+      await reconcileEntity('sales')
       await flushQueue()
     }
 
