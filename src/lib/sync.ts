@@ -520,15 +520,10 @@ async function reconcileEntity(entity: SyncEntity) {
   const remoteById = new Map(remoteRows.map(row => [String(row.id), row]))
   const pendingIds = new Set(pending.filter(op => op.entity === entity && op.operation === 'upsert' && op.recordId).map(op => String(op.recordId)))
 
-  const salesAuthoritative = entity === 'sales' && await (async () => {
-    try {
-      const { getSessionUser } = await import('./auth')
-      const actor = getSessionUser()
-      return Boolean(actor && (actor.role === 'manager' || actor.role === 'admin' || actor.permissions.includes('sales.view')))
-    } catch {
-      return false
-    }
-  })()
+  // Una lectura remota exitosa de ventas convierte a Supabase en la fuente de verdad.
+  // No debe depender de la sesión local ni de permisos almacenados en IndexedDB:
+  // otro dispositivo conectado debe terminar con el mismo conjunto de ventas.
+  const salesAuthoritative = entity === 'sales'
 
   for (const local of localRows as any[]) {
     const id = String(local.id)
