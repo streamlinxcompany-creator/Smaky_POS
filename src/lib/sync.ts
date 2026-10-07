@@ -729,21 +729,58 @@ export async function applyLocalSalesPurge(
       await db.auditEvents.bulkDelete(auditIds)
     }
 
-    // Any backup/closure created before a global purge cutoff is scrubbed. For
-    // a targeted purge, remove only the selected sale IDs from every cache copy.
+    // Scrub every local backup copy that can still carry the deleted invoice:
+    // top-level sales, sale history, sale audit events and the embedded sales
+    // list inside cash-closure snapshots. This prevents a later restore/export
+    // from resurrecting the invoice.
     for (const backup of backups) {
-      const shouldTouch = targetedIds.size
-        ? Object.prototype.hasOwnProperty.call(backup.payload || {}, 'sales')
-        : Number.isFinite(cutoff) && (Date.parse(String(backup.createdAt || '')) || 0) <= cutoff && Object.prototype.hasOwnProperty.call(backup.payload || {}, 'sales')
-      if (!shouldTouch) continue
-      const backupSales = Array.isArray((backup.payload || {}).sales) ? (backup.payload as {sales?: unknown[]}).sales || [] : []
-      const remainingSales = targetedIds.size
-        ? backupSales.filter(item => !item || typeof item !== 'object' || !targetedIds.has(String((item as Record<string, unknown>).id || '')))
+      const payload = { ...(backup.payload || {}) } as Record<string, unknown>
+      const hasBackupCollections = ['sales', 'history', 'events', 'closures'].some(key => Object.prototype.hasOwnProperty.call(payload, key))
+      if (!hasBackupCollections || !purgedIdList.length) continue
+
+      const backupSales = Array.isArray(payload.sales) ? payload.sales : []
+      const remainingSales = backupSales.filter(item => !item || typeof item !== 'object' || !deletedSaleIds.has(String((item as Record<string, unknown>).id || '')))
+
+      const backupHistory = Array.isArray(payload.history) ? payload.history : []
+      const remainingHistory = backupHistory.filter(item => {
+        if (!item || typeof item !== 'object') return true
+        const row = item as Record<string, unknown>
+        return !(String(row.entity || '') === 'sale' && deletedSaleIds.has(String(row.recordId || '')))
+      })
+
+      const backupEvents = Array.isArray(payload.events) ? payload.events : []
+      const remainingEvents = backupEvents.filter(item => {
+        if (!item || typeof item !== 'object') return true
+        const row = item as Record<string, unknown>
+        return !(String(row.recordType || '') === 'sale' && deletedSaleIds.has(String(row.recordId || '')))
+      })
+
+      const backupClosures = Array.isArray(payload.closures)
+        ? payload.closures.map(item => {
+            if (!item || typeof item !== 'object') return item
+            const row = item as Record<string, unknown>
+            if (!Array.isArray(row.sales)) return item
+            return {
+              ...row,
+              sales: row.sales.filter(sale => !sale || typeof sale !== 'object' || !deletedSaleIds.has(String((sale as Record<string, unknown>).id || ''))),
+            }
+          })
         : []
+
+      payload.sales = remainingSales
+      payload.history = remainingHistory
+      payload.events = remainingEvents
+      payload.closures = backupClosures
+
       await db.backups.put({
         ...backup,
-        payload: { ...backup.payload, sales: remainingSales },
-        contents: { ...backup.contents, sales: remainingSales.length },
+        payload,
+        contents: {
+          ...backup.contents,
+          sales: remainingSales.length,
+          history: remainingHistory.length,
+          audit: remainingEvents.length,
+        },
       })
       counts.backups += 1
     }
@@ -759,10 +796,23 @@ export async function applyLocalSalesPurge(
       counts.closures += 1
     }
 
+    const purgedIdList = [...deletedSaleIds]
+    const queueReferencesPurgedSale = (operation: typeof queue[number]) => {
+      if (!purgedIdList.length) return false
+      if (operation.entity === 'sales' && operation.recordId && deletedSaleIds.has(String(operation.recordId))) return true
+      if (!['audit_events', 'history_records', 'backups', 'cash_closures'].includes(String(operation.entity))) return false
+      try {
+        const serialized = JSON.stringify(operation.payload ?? {})
+        return purgedIdList.some(id => serialized.includes(`\"${id}\"`)) || purgedIdList.some(id => serialized.includes(id))
+      } catch {
+        return false
+      }
+    }
+
     const staleQueueIds = queue
       .filter(operation => {
         if (operation.entity === 'system' && operation.operation === 'purge_sales') return false
-        if (operation.entity === 'sales' && operation.recordId && deletedSaleIds.has(String(operation.recordId))) return true
+        if (queueReferencesPurgedSale(operation)) return true
         if (!targetedIds.size && ['audit_events', 'history_records', 'backups', 'cash_closures'].includes(String(operation.entity))) {
           return Number.isFinite(cutoff) && (Date.parse(String(operation.createdAt || '')) || 0) <= cutoff
         }

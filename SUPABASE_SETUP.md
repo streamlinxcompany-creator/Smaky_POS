@@ -10,7 +10,7 @@ En el Dashboard de Supabase:
 
 Aplica todas las migraciones en orden:
 
-`supabase/migrations/0001_smaky_pos.sql` → `0002_invoice_settings_permission.sql` → `0003_offline_sync.sql` → `0004_user_pin.sql` → `0005_sales_purge.sql`
+`supabase/migrations/0001_smaky_pos.sql` → `0002_invoice_settings_permission.sql` → `0003_offline_sync.sql` → `0004_user_pin.sql` → `0005_sales_purge.sql` → `0006_streamlinx_sales_admin_purge.sql` → `0007_harden_sales_purge.sql`
 
 El script crea las tablas, RLS, funciones auxiliares, trigger de perfiles y la vista `pos_login_profiles`.
 
@@ -78,11 +78,11 @@ No agregues una variable `VITE_...` con una `sb_secret_...`.
 
 El Centro StreamLinx incluye una operación privilegiada llamada `Purgar ventas definitivamente`. A diferencia del reset de pruebas, esta acción elimina las filas de `sales`, retira el historial y auditoría de las facturas, limpia snapshots de ventas y publica un marcador para que otros dispositivos borren su caché IndexedDB sin volver a subir los datos antiguos. No crea un backup automático.
 
-La función SQL está en `supabase/migrations/0005_sales_purge.sql` y debe quedar aplicada en Supabase antes de usar la opción.
+La función SQL está en `supabase/migrations/0005_sales_purge.sql`, fue reforzada por `0006_streamlinx_sales_admin_purge.sql` y `0007_harden_sales_purge.sql`, y las tres deben quedar aplicadas en Supabase antes de usar la opción.
 
 ## 6. Orden exacto
 
-1. Aplicar las cinco migraciones en orden (o ejecutar `supabase db push`).
+1. Aplicar las siete migraciones en orden (o ejecutar `supabase db push`).
 2. Crear el usuario `u-owner@smaky.local`.
 3. Desplegar `admin-users`.
 4. Configurar las dos variables en Cloudflare.

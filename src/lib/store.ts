@@ -756,7 +756,11 @@ export async function getClosures() {
 }
 
 
-export async function purgeSalesData(actor: User, saleIds?: string[]) {
+type SalesPurgeResult =
+  | { ok: false; error: string }
+  | { ok: true; pending: boolean; purgeBefore: string; sales: number; history: number; audit: number; backups: number; closures: number }
+
+export async function purgeSalesData(actor: User, saleIds?: string[]): Promise<SalesPurgeResult> {
   const freshActor = await db.users.get(actor.id)
   if (!freshActor?.active || !hasPermission(freshActor, 'sales.delete')) {
     return { ok: false, error: 'El usuario actual no tiene autorización para administrar ventas desde StreamLinx.' }
@@ -785,20 +789,19 @@ export async function purgeSalesData(actor: User, saleIds?: string[]) {
     normalizedIds.length ? 'SYSTEM_SALE_PURGE_EXECUTED' : 'SYSTEM_SALES_PURGE_EXECUTED',
     'SYSTEM',
     'sales-purge',
-    normalizedIds.length === 1 ? normalizedIds[0] : 'sales',
+    'sales-purge',
     null,
     {
       purgeBefore,
-      saleIds: normalizedIds.length ? normalizedIds : undefined,
+      purgedCount: local.sales,
       remote: remotePending ? 'pending' : 'completed',
-      ...local,
     },
     freshActor,
     normalizedIds.length === 1
       ? 'Venta eliminada definitivamente desde StreamLinx Command Center.'
       : normalizedIds.length > 1
-        ? `Se eliminaron ${normalizedIds.length} ventas definitivamente desde StreamLinx Command Center.`
-        : 'Todas las ventas fueron eliminadas definitivamente desde StreamLinx Command Center.'
+        ? `Se eliminaron ${local.sales} ventas definitivamente desde StreamLinx Command Center.`
+        : `Todas las ventas (${local.sales}) fueron eliminadas definitivamente desde StreamLinx Command Center.`
   )
 
   return { ok: true, pending: remotePending, purgeBefore, ...local }
