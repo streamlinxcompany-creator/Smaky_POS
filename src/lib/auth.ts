@@ -296,6 +296,36 @@ export async function getLoginProfiles(
     )
 }
 
+export async function getManagedProfiles(): Promise<Array<LoginProfile & { pin: string; permissions?: PermissionKey[] }>> {
+  if (!supabaseConfigured || !supabase || !navigator.onLine) return []
+
+  try {
+    const { data, error } = await supabase.functions.invoke('admin-users', {
+      body: { action: 'list' },
+    })
+
+    if (error || !data?.profiles) {
+      if (error) console.error('Smaky managed profiles error:', error)
+      return []
+    }
+
+    return (data.profiles as Record<string, unknown>[]).map(row => ({
+      id: String(row.id),
+      name: String(row.name || 'Usuario'),
+      role: String(row.role || 'employee') as Role,
+      rank: String(row.rank || 'Trabajador'),
+      active: Boolean(row.active),
+      authEmail: String(row.authEmail || ''),
+      legacyId: row.legacyId ? String(row.legacyId) : undefined,
+      pin: String(row.pin || ''),
+      permissions: Array.isArray(row.permissions) ? row.permissions as PermissionKey[] : undefined,
+    }))
+  } catch (error) {
+    console.error('Smaky managed profiles exception:', error)
+    return []
+  }
+}
+
 function localLogin(
   user: User,
   pin: string

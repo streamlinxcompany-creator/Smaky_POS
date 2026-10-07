@@ -77,6 +77,31 @@ Deno.serve(async (request) => {
   try { body = await request.json() as Record<string, unknown> } catch { return json({ error: 'Solicitud inválida.' }, 400) }
   const action = String(body.action || '')
 
+  if (action === 'list') {
+    if (actor.role !== 'manager') return json({ error: 'Solo el gerente puede consultar los PIN.' }, 403)
+
+    const { data: profiles, error: profilesError } = await admin
+      .from('profiles')
+      .select('id, name, role, rank, active, permissions, auth_email, legacy_id, pin')
+      .order('name')
+
+    if (profilesError) return json({ error: profilesError.message }, 400)
+
+    return json({
+      profiles: (profiles || []).map(profile => ({
+        id: profile.id,
+        name: profile.name,
+        role: profile.role,
+        rank: profile.rank,
+        active: profile.active,
+        permissions: profile.permissions,
+        authEmail: profile.auth_email,
+        legacyId: profile.legacy_id,
+        pin: profile.pin || '',
+      })),
+    })
+  }
+
   if (action === 'provision') {
     if (actor.role !== 'manager') return json({ error: 'Solo el gerente puede migrar perfiles locales.' }, 403)
     const legacyId = String(body.legacyId || '').trim()
@@ -93,7 +118,7 @@ Deno.serve(async (request) => {
 
     const { data: existingProfile } = await admin
       .from('profiles')
-      .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
+      .select('id, name, role, rank, active, permissions, auth_email, legacy_id, pin')
       .eq('legacy_id', legacyId)
       .maybeSingle()
     if (existingProfile) {
@@ -101,9 +126,9 @@ Deno.serve(async (request) => {
       if (passwordError) return json({ error: passwordError.message }, 400)
       const { data: updatedExisting, error: updateExistingError } = await admin
         .from('profiles')
-        .update({ name, rank, role, active: true, permissions })
+        .update({ name, rank, role, active: true, permissions, pin })
         .eq('id', existingProfile.id)
-        .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
+        .select('id, name, role, rank, active, permissions, auth_email, legacy_id, pin')
         .maybeSingle()
       if (updateExistingError || !updatedExisting) return json({ error: updateExistingError?.message || 'No fue posible actualizar el perfil migrado.' }, 400)
       return json({
@@ -115,6 +140,7 @@ Deno.serve(async (request) => {
         permissions: updatedExisting.permissions,
         authEmail: updatedExisting.auth_email,
         legacyId: updatedExisting.legacy_id,
+        pin: updatedExisting.pin || pin,
       })
     }
 
@@ -143,10 +169,11 @@ Deno.serve(async (request) => {
         role,
         active: true,
         permissions,
+        pin,
         legacy_id: legacyId,
         auth_email: email,
       }, { onConflict: 'id' })
-      .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
+      .select('id, name, role, rank, active, permissions, auth_email, legacy_id, pin')
       .maybeSingle()
     if (profileError || !profile) {
       await admin.auth.admin.deleteUser(created.user.id)
@@ -162,6 +189,7 @@ Deno.serve(async (request) => {
       permissions: profile.permissions,
       authEmail: profile.auth_email,
       legacyId: profile.legacy_id,
+      pin: profile.pin || pin,
     })
   }
 
@@ -181,7 +209,7 @@ Deno.serve(async (request) => {
     // reutilizamos el perfil existente en lugar de crear otra cuenta.
     const { data: existingProfile, error: existingError } = await admin
       .from('profiles')
-      .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
+      .select('id, name, role, rank, active, permissions, auth_email, legacy_id, pin')
       .eq('legacy_id', legacyId)
       .maybeSingle()
 
@@ -210,7 +238,7 @@ Deno.serve(async (request) => {
           legacy_id: legacyId,
           auth_email: existingProfile.auth_email || `${legacyId}@smaky.local`,
         }, { onConflict: 'id' })
-        .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
+        .select('id, name, role, rank, active, permissions, auth_email, legacy_id, pin')
         .maybeSingle()
 
       if (updateExistingError || !updatedExisting) {
@@ -226,6 +254,7 @@ Deno.serve(async (request) => {
         permissions: updatedExisting.permissions,
         authEmail: updatedExisting.auth_email,
         legacyId: updatedExisting.legacy_id,
+        pin: updatedExisting.pin || pin,
       })
     }
 
@@ -251,7 +280,7 @@ Deno.serve(async (request) => {
       // Recuperamos entonces el mismo perfil y devolvemos éxito.
       const { data: recoveredProfile } = await admin
         .from('profiles')
-        .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
+        .select('id, name, role, rank, active, permissions, auth_email, legacy_id, pin')
         .eq('legacy_id', legacyId)
         .maybeSingle()
 
@@ -289,10 +318,11 @@ Deno.serve(async (request) => {
         role: 'employee',
         active: true,
         permissions,
+        pin,
         legacy_id: legacyId,
         auth_email: email,
       }, { onConflict: 'id' })
-      .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
+      .select('id, name, role, rank, active, permissions, auth_email, legacy_id, pin')
       .maybeSingle()
     if (profileError || !profile) {
       await admin.auth.admin.deleteUser(created.user.id)
@@ -308,6 +338,7 @@ Deno.serve(async (request) => {
       permissions: profile.permissions,
       authEmail: profile.auth_email,
       legacyId: profile.legacy_id,
+      pin: profile.pin || pin,
     })
   }
 
@@ -316,7 +347,7 @@ Deno.serve(async (request) => {
     if (!targetId) return json({ error: 'Perfil objetivo no especificado.' }, 400)
     const { data: target, error: targetError } = await admin
       .from('profiles')
-      .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
+      .select('id, name, role, rank, active, permissions, auth_email, legacy_id, pin')
       .eq('id', targetId)
       .maybeSingle()
     if (targetError || !target) return json({ error: 'No encontramos el perfil.' }, 404)
@@ -346,6 +377,7 @@ Deno.serve(async (request) => {
 
     if (typeof changes.pin === 'string' && changes.pin) {
       if (!validPin(changes.pin)) return json({ error: 'El PIN debe tener 4 números.' }, 400)
+      profileUpdate.pin = changes.pin
       const { error: passwordError } = await admin.auth.admin.updateUserById(targetId, { password: pinPassword(changes.pin) })
       if (passwordError) return json({ error: passwordError.message }, 400)
     }
@@ -354,7 +386,7 @@ Deno.serve(async (request) => {
       .from('profiles')
       .update(profileUpdate)
       .eq('id', targetId)
-      .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
+      .select('id, name, role, rank, active, permissions, auth_email, legacy_id, pin')
       .maybeSingle()
     if (updateError || !updated) return json({ error: updateError?.message || 'No fue posible actualizar el perfil.' }, 400)
 
@@ -367,6 +399,7 @@ Deno.serve(async (request) => {
       permissions: updated.permissions,
       authEmail: updated.auth_email,
       legacyId: updated.legacy_id,
+      pin: updated.pin || '',
     })
   }
 
@@ -382,7 +415,7 @@ Deno.serve(async (request) => {
       .from('profiles')
       .update({ active: false })
       .eq('id', targetId)
-      .select('id, name, role, rank, active, permissions, auth_email, legacy_id')
+      .select('id, name, role, rank, active, permissions, auth_email, legacy_id, pin')
       .maybeSingle()
     if (error || !updated) return json({ error: error?.message || 'No fue posible desactivar el perfil.' }, 400)
     return json({
@@ -395,6 +428,7 @@ Deno.serve(async (request) => {
       permissions: updated.permissions,
       authEmail: updated.auth_email,
       legacyId: updated.legacy_id,
+      pin: updated.pin || '',
     })
   }
 

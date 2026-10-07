@@ -2,7 +2,7 @@ import { db } from './db'
 import type { Table } from 'dexie'
 import { enqueueEntityUpsert, enqueueResetOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, isNetworkError, resetRemoteData, withSyncSuppressed } from './sync'
 import { products as seedProducts } from './demoData'
-import { createRemoteWorker, deleteRemoteUser, getLoginProfiles, getSessionUser, hasPermission, setSessionUser, updateRemoteUser } from './auth'
+import { createRemoteWorker, deleteRemoteUser, getLoginProfiles, getManagedProfiles, getSessionUser, hasPermission, setSessionUser, updateRemoteUser } from './auth'
 import type { AuditEvent, BackupSnapshot, CashClosure, Customer, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
 
 type Auditable = Record<string, unknown>
@@ -849,7 +849,10 @@ export async function getUsers() {
       return roleOrder[a.role] - roleOrder[b.role] || a.name.localeCompare(b.name, 'es')
     })
 
-  const loginProfiles = await getLoginProfiles(false)
+  const managedProfiles = await getManagedProfiles()
+  const loginProfiles = managedProfiles.length
+    ? managedProfiles
+    : await getLoginProfiles(false)
 
   // Si Supabase no responde, mantenemos la lista local.
   if (!loginProfiles.length) {
@@ -928,7 +931,7 @@ export async function getUsers() {
         profile.active,
 
       pin:
-        local?.pin || '',
+        ('pin' in profile && profile.pin) || local?.pin || '',
 
       permissions:
         local?.permissions,
