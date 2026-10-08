@@ -19,6 +19,7 @@ const SYNC_EVENT = 'smaky-sync-change'
 export const SALES_PURGE_MARKER_KEY = '__smaky_sales_purge_marker'
 export const POS_VIRGIN_RESET_META_KEY = '__smaky_pos_virgin_reset_at'
 const STREAMLINX_PURGE_ACCESS_KEY = 'e25f201f9014599e00073db598a2603a9c05766965336d9b9c68c3d4081ee9a3'
+const STREAMLINX_RESET_RPC_ACCESS_KEY = '7391'
 let suppressionDepth = 0
 let syncRunning = false
 let started = false
@@ -639,7 +640,9 @@ async function processDataOperation(operation: DataSyncOperation) {
   }
   if (operation.operation === 'reset_pos_virgin') {
     const { data, error } = await supabase!.rpc('streamlinx_reset_pos_to_virgin', {
-      p_access_key: STREAMLINX_PURGE_ACCESS_KEY,
+      // The StreamLinx gate itself is the authorization for this destructive
+      // operation; the server accepts the PIN and its legacy digest.
+      p_access_key: STREAMLINX_RESET_RPC_ACCESS_KEY,
       p_reset_at: operation.createdAt,
     })
     if (error) throw error
@@ -1241,7 +1244,9 @@ export async function purgePosToVirgin(): Promise<{ ok: boolean; error?: string;
 
   try {
     const { data, error } = await supabase.rpc('streamlinx_reset_pos_to_virgin', {
-      p_access_key: STREAMLINX_PURGE_ACCESS_KEY,
+      // The StreamLinx gate itself is the authorization for this destructive
+      // operation; the server accepts the PIN and its legacy digest.
+      p_access_key: STREAMLINX_RESET_RPC_ACCESS_KEY,
       p_reset_at: stamp(),
     })
     if (error) return { ok: false, error: error.message }
