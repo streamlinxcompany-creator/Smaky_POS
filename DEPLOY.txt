@@ -1,12 +1,13 @@
-SMAKY POS — PAQUETE LIMPIO
+DEPLOY SMaky POS
 
-1) Desde esta carpeta:
+1. Desde esta carpeta, enlaza Supabase si hace falta:
+   npx supabase link --project-ref jipmbegkgxnlqthmbvpp
+
+2. Aplica las migraciones pendientes:
    npx supabase db push
 
-2) Despliega este proyecto en Cloudflare.
+3. Despliega el proyecto en Cloudflare Pages desde GitHub.
 
-3) Recarga con Ctrl+Shift+R.
+4. En el navegador, usa Ctrl + Shift + R para forzar la actualización.
 
-IMPORTANTE:
-- No borrar supabase/migrations. Es el historial de esquema necesario para Supabase CLI.
-- El resto de documentación antigua y archivos locales de trabajo fueron retirados de este paquete.
+No uses `supabase db reset` en el proyecto remoto.
