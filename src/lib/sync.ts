@@ -25,6 +25,7 @@ let syncRunning = false
 let started = false
 let retryTimer: number | null = null
 let scheduledSyncTimer: number | null = null
+let settingsPollingTimer: number | null = null
 let lastError: string | undefined
 let lastSyncedAt: string | undefined
 let lastAutomaticSyncRequest = 0
@@ -486,7 +487,18 @@ async function putLocalRemote(entity: SyncEntity, remoteRow: any) {
   const table = entityTable(entity) as Table<any, string>
   const local = remoteToLocal(entity, remoteRow)
   if (!local) return
+  const previous = entity === 'settings' ? await table.get(String(local.id)) : undefined
   await withSyncSuppressed(() => table.put(local))
+
+  // Configuración remota recién aplicada: avisa a las pantallas abiertas para
+  // que vuelvan a leer IndexedDB en vez de quedarse con el estado React antiguo.
+  if (entity === 'settings' && JSON.stringify(previous?.value) !== JSON.stringify(local.value)) {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('smaky-settings-change', {
+        detail: { key: String(local.key || local.id), source: 'remote-sync' },
+      }))
+    }
+  }
 }
 
 async function fetchAll(entity: SyncEntity) {
@@ -562,10 +574,10 @@ async function reconcileEntity(entity: SyncEntity) {
   const remoteById = new Map(remoteRows.map(row => [String(row.id), row]))
   const pendingIds = new Set(pending.filter(op => op.entity === entity && op.operation === 'upsert' && op.recordId).map(op => String(op.recordId)))
 
-  // Una lectura remota exitosa de ventas convierte a Supabase en la fuente de verdad.
-  // No debe depender de la sesión local ni de permisos almacenados en IndexedDB:
-  // otro dispositivo conectado debe terminar con el mismo conjunto de ventas.
-  const authoritativeEntity = entity === 'sales' || entity === 'cash_closures'
+  // Supabase es autoritativo para ventas, cierres y configuración compartida.
+  // Las filas locales solo pueden ganar si hay una operación explícita pendiente
+  // de enviar; las copias viejas en caché no deben sobrescribir el estado remoto.
+  const authoritativeEntity = entity === 'sales' || entity === 'cash_closures' || entity === 'settings'
 
   for (const local of localRows as any[]) {
     const id = String(local.id)
@@ -574,10 +586,17 @@ async function reconcileEntity(entity: SyncEntity) {
 
     if (authoritativeEntity) {
       if (!remote) {
-        // A successful online read of Supabase is the source of truth for
-        // sales and cash closures. Missing remotely means deleted remotely;
-        // never resurrect the stale local copy.
-        await withSyncSuppressed(() => (entityTable(entity) as Table<any, string>).delete(id))
+        if (entity === 'settings') {
+          // Bootstrap: si la instalación todavía no tiene esta preferencia en
+          // Supabase, sube el valor local inicial. Nunca borres settings locales
+          // solo porque el servidor aún no tenga la fila.
+          const saved = await upsertRemote('settings', local)
+          if (saved) await putLocalRemote('settings', saved)
+        } else {
+          // En ventas/cierres, si una lectura remota exitosa no encuentra la fila,
+          // significa que fue borrada: limpiar caché y evitar resurrecciones.
+          await withSyncSuppressed(() => (entityTable(entity) as Table<any, string>).delete(id))
+        }
         continue
       }
       await putLocalRemote(entity, remote)
@@ -649,6 +668,32 @@ async function processDataOperation(operation: DataSyncOperation) {
     return data
   }
   if (!operation.entity || operation.entity === 'system' || !operation.payload) return
+
+  if (operation.entity === 'settings') {
+    // Antes de enviar una preferencia que estuvo pendiente (por ejemplo en un
+    // equipo offline), consulta la versión vigente en Supabase. Si el servidor
+    // ya tiene una edición posterior, descarta la operación vieja y adopta la
+    // versión compartida; así una caché atrasada no revierte Consumidor final,
+    // métodos de pago, categorías ni campos de pedidos.
+    const setting = operation.payload as SystemSetting
+    const { data: remoteSetting, error } = await supabase!.from('settings')
+      .select('*')
+      .eq('id', String(setting.id))
+      .maybeSingle()
+    if (error) throw error
+    if (remoteSetting) {
+      const localTime = Date.parse(String(setting.updatedAt || operation.createdAt || '')) || 0
+      const remoteTime = Date.parse(String(remoteSetting.updated_at || '')) || 0
+      const operationTime = Date.parse(String(operation.createdAt || '')) || 0
+      const operationAge = operationTime ? Date.now() - operationTime : Number.POSITIVE_INFINITY
+      const isFreshOnlineEdit = operation.attempts === 0 && operationAge >= 0 && operationAge < 5_000
+      if (!isFreshOnlineEdit && remoteTime >= localTime) {
+        await putLocalRemote('settings', remoteSetting)
+        return
+      }
+    }
+  }
+
   const remote = await upsertRemote(operation.entity, operation.payload)
   if (remote) await putLocalRemote(operation.entity, remote)
 }
@@ -1309,8 +1354,52 @@ export async function resetRemoteData(): Promise<{ ok: true; counts?: Record<str
   }
 }
 
+async function refreshRemoteSettings() {
+  if (!supabase || !supabaseConfigured || !navigator.onLine || syncRunning) return
+
+  // Toma el cerrojo antes de esperar la sesión para no solaparse con otro ciclo.
+  syncRunning = true
+  lastError = undefined
+  emitSyncChange()
+  try {
+    if (!(await ensureRemoteSession())) return
+    const { data, error } = await supabase.from('settings').select('*').order('id')
+    if (error) throw error
+    const rows = (data || []) as any[]
+    const queue = await db.syncQueue.toArray()
+    const pendingIds = new Set(queue
+      .filter(operation => operation.entity === 'settings' && operation.operation === 'upsert' && operation.recordId)
+      .map(operation => String(operation.recordId)))
+
+    // Solo se aplica una fila remota si no hay una edición local pendiente. Las
+    // escrituras pendientes se resuelven en syncNow/flushQueue con una consulta
+    // de conflicto antes de enviarse.
+    for (const row of rows) {
+      const id = String(row.id)
+      if (pendingIds.has(id)) continue
+      await putLocalRemote('settings', row)
+    }
+    lastSyncedAt = stamp()
+  } catch (error) {
+    lastError = cleanError(error)
+  } finally {
+    syncRunning = false
+    emitSyncChange()
+  }
+}
+
 export async function syncNow(): Promise<SyncResult> {
-  if (syncRunning) return { ...(await getSyncState()), ok: !lastError }
+  if (syncRunning) {
+    // Si apareció una escritura nueva durante una reconciliación corta de settings,
+    // no perdemos la solicitud: programa un ciclo completo cuando se libere el lock.
+    if (navigator.onLine && scheduledSyncTimer === null && typeof window !== 'undefined') {
+      scheduledSyncTimer = window.setTimeout(() => {
+        scheduledSyncTimer = null
+        void syncNow()
+      }, 1_000)
+    }
+    return { ...(await getSyncState()), ok: !lastError }
+  }
   if (!supabaseConfigured || !supabase) return { ...(await getSyncState()), ok: false }
   if (!navigator.onLine) return { ...(await getSyncState()), ok: false }
 
@@ -1387,8 +1476,23 @@ export function startSync() {
   started = true
   window.addEventListener('online', () => { scheduleRetry(true) })
   window.addEventListener('offline', () => { emitSyncChange() })
-  window.addEventListener('focus', () => { scheduleRetry() })
+  window.addEventListener('focus', () => { scheduleRetry(true) })
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') scheduleRetry(true)
+  })
   window.addEventListener('smaky-auth-change', () => { scheduleRetry(true) })
+  // main.tsx emite este evento después de terminar seed(). Esto garantiza que
+  // una recarga con el perfil ya iniciado también consulte Supabase al arrancar.
+  window.addEventListener('smaky-data-ready', () => { scheduleRetry(true) })
+
+  // Las pantallas abiertas reciben configuraciones cambiadas desde otros equipos
+  // sin necesitar cerrar sesión. Se consulta únicamente la tabla pequeña settings;
+  // las demás entidades se reconcilian al iniciar, volver a la pestaña o reconectar.
+  if (settingsPollingTimer === null) {
+    settingsPollingTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refreshRemoteSettings()
+    }, 10_000)
+  }
 }
 
 export const SYNC_CHANGE_EVENT = SYNC_EVENT

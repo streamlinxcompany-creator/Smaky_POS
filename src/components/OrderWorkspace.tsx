@@ -132,7 +132,22 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
     return categoryMatch && (!q || product.name.toLowerCase().includes(q))
   })
 
-  useEffect(() => { void Promise.all([getProducts(), getProductCategories(), getPaymentMethods(), getOrderFields(), getGeneralSettings()]).then(([productsData, categoryData, paymentMethodData, fieldData, settings]) => { setProducts(productsData); setCategories(categoryData); setPaymentMethods(paymentMethodData); setOrderFields(fieldData); setReceiptFontSize(settings.receiptFontSize); if (paymentMethodData.length) setPayment(paymentMethodData[0].id) }) }, [])
+  useEffect(() => {
+    const loadSharedConfiguration = () => {
+      void Promise.all([getProducts(), getProductCategories(), getPaymentMethods(), getOrderFields(), getGeneralSettings()])
+        .then(([productsData, categoryData, paymentMethodData, fieldData, settings]) => {
+          setProducts(productsData)
+          setCategories(categoryData)
+          setPaymentMethods(paymentMethodData)
+          setOrderFields(fieldData)
+          setReceiptFontSize(settings.receiptFontSize)
+          if (paymentMethodData.length) setPayment(current => paymentMethodData.some(method => method.id === current) ? current : paymentMethodData[0].id)
+        })
+    }
+    loadSharedConfiguration()
+    window.addEventListener('smaky-settings-change', loadSharedConfiguration)
+    return () => window.removeEventListener('smaky-settings-change', loadSharedConfiguration)
+  }, [])
 
   useEffect(() => {
     if (payment !== 'cash') setCashReceived('')

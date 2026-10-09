@@ -37,7 +37,10 @@ export function Products({ embedded = false }: { embedded?: boolean }) {
   }
 
   useEffect(() => {
-    load()
+    void load()
+    const refreshCatalogSettings = () => { void load() }
+    window.addEventListener('smaky-settings-change', refreshCatalogSettings)
+    return () => window.removeEventListener('smaky-settings-change', refreshCatalogSettings)
   }, [])
 
   const filtered = useMemo(() => {

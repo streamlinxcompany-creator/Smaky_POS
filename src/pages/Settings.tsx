@@ -64,7 +64,12 @@ export function Settings() {
     setGeneralSettings(general)
   }
 
-  useEffect(() => { void load() }, [])
+  useEffect(() => {
+    void load()
+    const onSettingsChanged = () => { void load() }
+    window.addEventListener('smaky-settings-change', onSettingsChanged)
+    return () => window.removeEventListener('smaky-settings-change', onSettingsChanged)
+  }, [])
 
   const clearFeedback = () => { setError(''); setMessage('') }
   const flashError = (caught: unknown) => setError(caught instanceof Error ? caught.message : 'No fue posible guardar el cambio.')
