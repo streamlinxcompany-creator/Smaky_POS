@@ -62,7 +62,6 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
   const [cashReceived, setCashReceived] = useState('')
   const [discountType, setDiscountType] = useState<'percent' | 'fixed'>('percent')
   const [discountValue, setDiscountValue] = useState('')
-  const [discountOpen, setDiscountOpen] = useState(false)
   const [notes, setNotes] = useState(initialOrder?.notes || '')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
@@ -226,7 +225,6 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
 
   const clearDiscount = () => {
     setDiscountValue('')
-    setDiscountOpen(false)
   }
 
   const saveDraft = async (print = true): Promise<Order | null> => {
@@ -479,8 +477,13 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
           <div className="item-editor-body checkout-editor-body">
             <div className="checkout-editor-layout">
               <div className="checkout-editor-column checkout-editor-left">
-                <div className="checkout-summary-card">
-                  <div className="checkout-summary-card-head"><div><span>Pedido</span><b>#{order?.orderNumber}</b></div><div><span>Productos</span><b>{items.length} líneas · {units} unidades</b></div></div>
+                <div className="checkout-summary-card checkout-module-card">
+                  <div className="checkout-module-heading">
+                    <div className="checkout-module-icon"><ShoppingCart size={17}/></div>
+                    <div><span>MÓDULO 01</span><b>Pedido</b></div>
+                    <strong>#{order?.orderNumber}</strong>
+                  </div>
+                  <div className="checkout-summary-card-head"><div><span>Productos</span><b>{items.length} líneas · {units} unidades</b></div></div>
                   <div className="checkout-customer-strip">
                     <div><span>Cliente</span><b>{currentCustomer?.name || 'Consumidor final'}</b></div>
                     {currentCustomer?.phone && <div><span>Teléfono</span><b>{currentCustomer.phone}</b></div>}
@@ -493,50 +496,58 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
                   </div>
                 </div>
 
-                <div className="item-editor-section checkout-payment-section">
-                  <div className="item-editor-section-head"><div><b>Medio de pago</b><span>Selecciona cómo te están pagando</span></div><strong>{paymentMethods.find(method => method.id === payment)?.name || fallbackPaymentLabel(payment)}</strong></div>
+                <div className="item-editor-section checkout-payment-section checkout-module-card">
+                  <div className="checkout-module-heading">
+                    <div className="checkout-module-icon"><CreditCard size={17}/></div>
+                    <div><span>MÓDULO 02</span><b>Medios de pago</b></div>
+                  </div>
+                  <div className="item-editor-section-head"><div><b>¿Cómo paga el cliente?</b><span>Selecciona un solo medio de pago</span></div><strong>{paymentMethods.find(method => method.id === payment)?.name || fallbackPaymentLabel(payment)}</strong></div>
                   <div className="payment-grid checkout-payment-grid">{paymentMethods.map(method => <button key={method.id} className={payment === method.id ? 'selected' : ''} disabled={saving} onClick={() => setPayment(method.id)} aria-pressed={payment === method.id}>{method.name}</button>)}</div>
                 </div>
 
-                {payment === 'cash' && <div className="checkout-cash-card">
-                  <div className="checkout-cash-head"><div><span>ARQUEO DE EFECTIVO</span><b>Calcula el cambio automáticamente</b></div><Banknote size={20}/></div>
-                  <label className="checkout-cash-field">
-                    <span>EFECTIVO RECIBIDO</span>
-                    <div className="checkout-cash-input-wrap"><span>$</span><input autoComplete="off" inputMode="decimal" type="number" min="0" step="100" value={cashReceived} onChange={event => setCashReceived(event.target.value)} placeholder={String(total)} disabled={saving}/></div>
-                  </label>
-                  <div className="checkout-cash-presets">{cashPresets.map(value => <button key={value} type="button" disabled={saving} onClick={() => setCashReceived(String(value))}>{value === total ? 'Exacto' : money(value)}</button>)}</div>
-                  <div className={`checkout-change-box ${cashIsSufficient ? 'ready' : 'insufficient'}`}>
-                    <div><span>Total</span><strong>{money(total)}</strong></div>
-                    <Calculator size={18}/>
-                    <div className="checkout-change-result"><span>{cashIsSufficient ? 'Devolver' : 'Faltante'}</span><strong>{money(cashIsSufficient ? cashChange : cashMissing)}</strong></div>
+                <div className={`checkout-cash-card checkout-module-card ${payment !== 'cash' ? 'checkout-cash-not-needed' : ''}`}>
+                  <div className="checkout-module-heading">
+                    <div className="checkout-module-icon"><Banknote size={17}/></div>
+                    <div><span>MÓDULO 03</span><b>Arqueo de efectivo</b></div>
+                    {payment === 'cash' && <span className={`checkout-module-status ${cashIsSufficient ? 'ok' : 'wait'}`}>{cashIsSufficient ? 'LISTO' : 'PENDIENTE'}</span>}
                   </div>
-                  {!cashIsSufficient && <small className="checkout-cash-hint">Recibe al menos {money(total)} para poder confirmar el cobro.</small>}
-                </div>}
+                  {payment === 'cash' ? <>
+                    <p className="checkout-module-description">Registra cuánto efectivo recibes y calcula el cambio automáticamente.</p>
+                    <label className="checkout-cash-field">
+                      <span>EFECTIVO RECIBIDO</span>
+                      <div className="checkout-cash-input-wrap"><span>$</span><input autoComplete="off" inputMode="decimal" type="number" min="0" step="100" value={cashReceived} onChange={event => setCashReceived(event.target.value)} placeholder={String(total)} disabled={saving}/></div>
+                    </label>
+                    <div className="checkout-cash-presets">{cashPresets.map(value => <button key={value} type="button" disabled={saving} onClick={() => setCashReceived(String(value))}>{value === total ? 'Exacto' : money(value)}</button>)}</div>
+                    <div className={`checkout-change-box ${cashIsSufficient ? 'ready' : 'insufficient'}`}>
+                      <div><span>Total a pagar</span><strong>{money(total)}</strong></div>
+                      <Calculator size={18}/>
+                      <div className="checkout-change-result"><span>{cashIsSufficient ? 'Devolver' : 'Faltante'}</span><strong>{money(cashIsSufficient ? cashChange : cashMissing)}</strong></div>
+                    </div>
+                    {!cashIsSufficient && <small className="checkout-cash-hint">Recibe al menos {money(total)} para poder confirmar el cobro.</small>}
+                  </> : <div className="checkout-cash-no-required"><CreditCard size={21}/><div><b>No se requiere arqueo</b><span>El medio seleccionado es {paymentMethods.find(method => method.id === payment)?.name || fallbackPaymentLabel(payment)}. Puedes completar el cobro sin ingresar efectivo.</span></div></div>}
+                </div>
               </div>
 
               <div className="checkout-editor-column checkout-editor-right">
-                <div className="checkout-total-card">
-                  <div className="checkout-total-main"><span>Total a cobrar</span><strong>{money(total)}</strong></div>
-                  <button type="button" className={`discount-trigger ${discountAmount > 0 ? 'active' : ''}`} onClick={() => setDiscountOpen(current => !current)}><Tag size={15}/><span>Descuento</span><b>{discountAmount > 0 ? `−${money(discountAmount)}` : 'Agregar'}</b></button>
-                  {discountAmount > 0 && <div className="checkout-discount-line"><span>Subtotal {money(subtotal)}</span><strong>−{money(discountAmount)}</strong></div>}
-                  {dirty && <small>Los cambios pendientes se guardarán antes de cobrar.</small>}
-                </div>
-
-                {discountOpen && <div className="discount-editor">
-                  <div className="discount-editor-head"><div><b>Aplicar descuento</b><span>Elige porcentaje o valor fijo.</span></div><button type="button" className="item-editor-close" onClick={() => setDiscountOpen(false)} aria-label="Cerrar descuento"><X size={16}/></button></div>
+                <div className="discount-editor checkout-discount-module">
+                  <div className="checkout-module-heading">
+                    <div className="checkout-module-icon"><Tag size={17}/></div>
+                    <div><span>MÓDULO 04</span><b>Aplicar descuento</b></div>
+                    <span className="checkout-module-status optional">{discountAmount > 0 ? 'APLICADO' : 'OPCIONAL'}</span>
+                  </div>
+                  <p className="checkout-module-description">Elige un porcentaje o un valor fijo. El total se actualiza automáticamente.</p>
+                  <div className="checkout-discount-total">
+                    <div><span>Total a cobrar</span><strong>{money(total)}</strong></div>
+                    <small>{discountAmount > 0 ? `Subtotal ${money(subtotal)} · Descuento −${money(discountAmount)}` : `Subtotal sin descuento ${money(subtotal)}`}</small>
+                  </div>
                   <div className="discount-type-switch"><button type="button" className={discountType === 'percent' ? 'selected' : ''} onClick={() => { setDiscountType('percent'); setDiscountValue('') }}>Porcentaje</button><button type="button" className={discountType === 'fixed' ? 'selected' : ''} onClick={() => { setDiscountType('fixed'); setDiscountValue('') }}>Valor fijo</button></div>
-                  <label className="discount-input"><span>{discountType === 'percent' ? 'PORCENTAJE' : 'VALOR DEL DESCUENTO'}</span><div><input inputMode="decimal" type="number" min="0" max={discountType === 'percent' ? 100 : subtotal} step="1" value={discountValue} onChange={event => setDiscountValue(event.target.value)} placeholder={discountType === 'percent' ? '10' : '5000'}/><b>{discountType === 'percent' ? '%' : '$'}</b></div></label>
-                  <div className="discount-presets">{(discountType === 'percent' ? [5, 10, 15, 20] : [1000, 2000, 5000, 10000]).filter(value => value <= (discountType === 'percent' ? 100 : subtotal)).map(value => <button type="button" key={value} onClick={() => selectDiscountPreset(value)}>{discountType === 'percent' ? `${value}%` : money(value)}</button>)}</div>
-                  {discountAmount > 0 && <button type="button" className="discount-remove" onClick={clearDiscount}>Quitar descuento</button>}
-                </div>}
-
-                <div className={`checkout-cash-status ${cashIsSufficient ? 'ready' : 'blocked'}`}>
-                  <span>{payment === 'cash' ? (cashIsSufficient ? 'EFECTIVO LISTO' : 'FALTA EFECTIVO') : 'PAGO DIGITAL'}</span>
-                  <b>{payment === 'cash' ? (cashIsSufficient ? `Cambio ${money(cashChange)}` : `Faltan ${money(cashMissing)}`) : 'No requiere arqueo'}</b>
+                  <label className="discount-input"><span>{discountType === 'percent' ? 'PORCENTAJE' : 'VALOR DEL DESCUENTO'}</span><div><input inputMode="decimal" type="number" min="0" max={discountType === 'percent' ? 100 : subtotal} step="1" value={discountValue} onChange={event => setDiscountValue(event.target.value)} placeholder={discountType === 'percent' ? '10' : '5000'} disabled={saving}/><b>{discountType === 'percent' ? '%' : '$'}</b></div></label>
+                  <div className="discount-presets">{(discountType === 'percent' ? [5, 10, 15, 20] : [1000, 2000, 5000, 10000]).filter(value => value <= (discountType === 'percent' ? 100 : subtotal)).map(value => <button type="button" key={value} disabled={saving} onClick={() => selectDiscountPreset(value)}>{discountType === 'percent' ? `${value}%` : money(value)}</button>)}</div>
+                  {discountAmount > 0 && <button type="button" className="discount-remove" disabled={saving} onClick={clearDiscount}>Quitar descuento</button>}
+                  {dirty && <small className="checkout-discount-pending">Los cambios pendientes se guardarán antes de cobrar.</small>}
                 </div>
               </div>
             </div>
-
             <div className="checkout-slider-section">
               <div className="checkout-slider-head"><div><b>Desliza para confirmar</b><span>{cashIsSufficient ? 'El pago solo se registra al llegar hasta el final.' : 'Completa el efectivo recibido para habilitar la confirmación.'}</span></div><span className={paymentProgress >= 96 && cashIsSufficient ? 'checkout-slider-ready' : ''}>{paymentProgress >= 96 && cashIsSufficient ? 'LISTO' : 'VERIFICACIÓN'}</span></div>
               <div ref={paymentSliderRef} className={`confirm-slider ${paymentProgress >= 96 && cashIsSufficient ? 'ready' : ''} ${!cashIsSufficient ? 'blocked' : ''}`}>

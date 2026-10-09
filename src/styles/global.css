@@ -1671,3 +1671,97 @@ html[data-theme='light'] .streamlinx-command-center{color-scheme:dark}
 .slx-panel-subtitle{margin:6px 0 0;max-width:720px;color:#77716d;font-size:12px;line-height:1.45}.slx-data-table td small{display:block;margin-top:3px;color:#68625e;font-size:11px}
 
 .pos-sync-warning{margin:0 0 14px;align-items:flex-start;line-height:1.45;white-space:normal}.pos-sync-warning span{flex:1;min-width:0;overflow-wrap:anywhere}.pos-sync-warning button{white-space:nowrap;border:1px solid currentColor;border-radius:7px;padding:7px 10px;font-weight:700;background:rgba(0,0,0,.12)}
+
+/* v12.9.7 — checkout reordenado en cuatro módulos fijos */
+.checkout-editor-modal .checkout-editor-layout{
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:14px!important;
+  align-items:stretch!important;
+}
+.checkout-editor-modal .checkout-editor-column{display:contents!important}
+.checkout-editor-modal .checkout-module-card,
+.checkout-editor-modal .checkout-discount-module{
+  min-width:0;
+  padding:15px;
+  border:1px solid #2b2e2f;
+  border-radius:14px;
+  background:linear-gradient(155deg,#151718 0%,#101213 100%);
+  box-shadow:0 8px 20px rgba(0,0,0,.12);
+}
+.checkout-editor-modal .checkout-summary-card{grid-column:1;grid-row:1}
+.checkout-editor-modal .checkout-payment-section{grid-column:2;grid-row:1;display:block!important}
+.checkout-editor-modal .checkout-cash-card{grid-column:1;grid-row:2;align-content:start}
+.checkout-editor-modal .checkout-discount-module{grid-column:2;grid-row:2;align-content:start;animation:none;gap:13px}
+.checkout-module-heading{display:flex;align-items:center;gap:10px;min-width:0;margin-bottom:13px}
+.checkout-module-icon{width:34px;height:34px;flex:0 0 34px;display:grid;place-items:center;border:1px solid #3a302b;border-radius:10px;background:#211711;color:#e38b62}
+.checkout-module-heading>div:nth-child(2){flex:1;min-width:0}
+.checkout-module-heading>div:nth-child(2)>span{display:block;margin-bottom:3px;font-size:9px;font-weight:900;letter-spacing:1.1px;color:#9b7968}
+.checkout-module-heading>div:nth-child(2)>b{display:block;font-size:15px;line-height:1.25;color:#f3eeea}
+.checkout-module-heading>strong{margin-left:auto;font-size:15px;white-space:nowrap}
+.checkout-module-status{margin-left:auto;padding:5px 8px;border:1px solid #2c5739;border-radius:999px;background:#16251b;color:#98d6a7;font-size:9px;font-weight:900;letter-spacing:.6px;white-space:nowrap}
+.checkout-module-status.wait{background:#261712;border-color:#633a2d;color:#e4a185}
+.checkout-module-status.optional{background:#191718;border-color:#40302a;color:#bf927a}
+.checkout-editor-modal .checkout-summary-card-head{margin-bottom:9px}
+.checkout-editor-modal .checkout-customer-strip{margin-bottom:9px}
+.checkout-editor-modal .checkout-summary-card .confirm-order-list{max-height:180px;overflow:auto}
+.checkout-editor-modal .checkout-payment-section .item-editor-section-head{align-items:flex-start;gap:8px;margin-top:2px}
+.checkout-editor-modal .checkout-payment-section .item-editor-section-head>div{min-width:0}
+.checkout-editor-modal .checkout-payment-section .item-editor-section-head strong{white-space:nowrap;font-size:12px}
+.checkout-editor-modal .checkout-payment-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.checkout-editor-modal .checkout-payment-grid button{min-width:0;min-height:48px!important;border-radius:10px}
+.checkout-module-description{margin:0 0 2px;color:#77736f;font-size:12px;line-height:1.5}
+.checkout-editor-modal .checkout-cash-card{display:grid;gap:12px}
+.checkout-editor-modal .checkout-cash-head{display:none}
+.checkout-editor-modal .checkout-cash-input-wrap input{min-width:0}
+.checkout-editor-modal .checkout-cash-presets{grid-template-columns:repeat(2,minmax(0,1fr))}
+.checkout-editor-modal .checkout-cash-presets button{min-height:38px;font-size:12px}
+.checkout-editor-modal .checkout-change-box{margin-top:1px}
+.checkout-cash-no-required{display:flex;align-items:flex-start;gap:11px;padding:17px 13px;border:1px dashed #363433;border-radius:11px;background:#101213;color:#a49b95}
+.checkout-cash-no-required>svg{flex:0 0 auto;color:#d28a65;margin-top:1px}
+.checkout-cash-no-required b,.checkout-cash-no-required span{display:block}
+.checkout-cash-no-required b{font-size:13px;color:#ddd5ce}
+.checkout-cash-no-required span{margin-top:5px;font-size:12px;line-height:1.5;color:#77716d}
+.checkout-discount-total{padding:13px;border:1px solid #4a3025;border-radius:11px;background:linear-gradient(110deg,#251711,#171312);display:grid;gap:7px}
+.checkout-discount-total>div{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.checkout-discount-total>div span{font-size:12px;font-weight:800;color:#c0a89a}
+.checkout-discount-total>div strong{font:800 27px 'Plus Jakarta Sans',sans-serif;letter-spacing:-.7px;color:#fff4ed;white-space:nowrap}
+.checkout-discount-total>small{font-size:11px;line-height:1.4;color:#ba8f7a}
+.checkout-editor-modal .discount-type-switch{gap:8px}
+.checkout-editor-modal .discount-type-switch button{min-height:42px;border-radius:9px}
+.checkout-editor-modal .discount-input>span{font-size:10px}
+.checkout-editor-modal .discount-input>div{min-height:49px}
+.checkout-editor-modal .discount-input input{min-width:0}
+.checkout-editor-modal .discount-presets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+.checkout-editor-modal .discount-presets button{min-width:0;min-height:38px;padding:7px 4px;border-radius:8px;font-size:11px}
+.checkout-editor-modal .discount-remove{justify-self:start;min-height:34px;padding:7px 10px;border:1px solid #593027;border-radius:8px;background:#241410;color:#e49a80;font-size:11px;font-weight:800}
+.checkout-discount-pending{display:block;padding-top:9px;border-top:1px solid #2a2a2a;color:#c6a28c;font-size:11px;line-height:1.4}
+.checkout-editor-modal .checkout-slider-section{grid-column:1/-1}
+.checkout-editor-modal .checkout-editor-footer{position:sticky;bottom:0;z-index:10;background:#101213;border-top:1px solid #2b2e2f}
+@media(max-width:860px){
+  .checkout-editor-modal .checkout-editor-layout{grid-template-columns:minmax(0,1fr)!important}
+  .checkout-editor-modal .checkout-summary-card,
+  .checkout-editor-modal .checkout-payment-section,
+  .checkout-editor-modal .checkout-cash-card,
+  .checkout-editor-modal .checkout-discount-module{grid-column:1!important;grid-row:auto!important}
+  .checkout-editor-modal .checkout-summary-card .confirm-order-list{max-height:220px}
+}
+@media(max-width:560px){
+  .checkout-editor-modal .checkout-editor-body{padding:12px;gap:12px}
+  .checkout-editor-modal .checkout-editor-layout{gap:11px!important}
+  .checkout-editor-modal .checkout-module-card,
+  .checkout-editor-modal .checkout-discount-module{padding:12px}
+  .checkout-editor-modal .checkout-module-heading{margin-bottom:10px}
+  .checkout-editor-modal .checkout-discount-total>div strong{font-size:24px}
+  .checkout-editor-modal .discount-presets{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+html[data-theme='light'] .checkout-editor-modal .checkout-module-card,
+html[data-theme='light'] .checkout-editor-modal .checkout-discount-module{background:linear-gradient(155deg,#fffdfa,#f7f0e9);border-color:#e4d8ce;color:#42352c}
+html[data-theme='light'] .checkout-editor-modal .checkout-module-heading>div:nth-child(2)>b{color:#40342c}
+html[data-theme='light'] .checkout-editor-modal .checkout-module-icon{background:#fff1e7;border-color:#e5cdbd;color:#a74a27}
+html[data-theme='light'] .checkout-editor-modal .checkout-cash-no-required{background:#fffaf4;border-color:#e6d9cf}
+html[data-theme='light'] .checkout-editor-modal .checkout-cash-no-required b{color:#43372f}
+html[data-theme='light'] .checkout-editor-modal .checkout-discount-total{background:linear-gradient(110deg,#fff2e7,#f7e9de);border-color:#e3c7b6}
+html[data-theme='light'] .checkout-editor-modal .checkout-discount-total>div span{color:#8f563b}
+html[data-theme='light'] .checkout-editor-modal .checkout-discount-total>div strong{color:#3d2b20}
+html[data-theme='light'] .checkout-editor-modal .checkout-discount-total>small{color:#9a5e40}
