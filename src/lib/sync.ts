@@ -1228,23 +1228,51 @@ export async function purgeRemoteSales(purgeBefore: string, saleIds?: string[]) 
   }
 }
 
-export async function ensureRemoteSession() {
+export async function ensureRemoteSession(matchLocalIdentity = false) {
   if (!supabaseConfigured || !supabase || !navigator.onLine) return false
   try {
-    const { data } = await supabase.auth.getSession()
-    if (data.session) return true
-
-    // Offline login uses the durable local profile as the credential cache.
-    // When connectivity comes back we establish the real Supabase session
-    // automatically so the outbox can drain without forcing a second login.
     const { getSessionUser } = await import('./auth')
     const local = getSessionUser()
-    if (!local?.authEmail || !/^\d{4}$/.test(local.pin)) return false
+    const { data, error: sessionError } = await supabase.auth.getSession()
+    const session = data.session
+    const nowSeconds = Math.floor(Date.now() / 1000)
+
+    // A device can have the app's local manager profile while the Supabase
+    // client still holds an Auth session from a previous user. For sensitive
+    // profile-management calls, ensure both identities match before invoking
+    // the Edge Function. Supabase still performs the real server-side check.
+    const hasLocalCredentials = Boolean(local?.authEmail && /^\d{4}$/.test(local.pin))
+    // Compare the synthetic account email, not the local id: old locally
+    // seeded profiles can have ids such as `u-owner` while the Auth UUID is
+    // different even for the same account.
+    const identityMismatch = Boolean(
+      matchLocalIdentity && session && local?.authEmail && session.user.email &&
+      local.authEmail.toLowerCase() !== session.user.email.toLowerCase()
+    )
+
+    if (session && !identityMismatch && (!session.expires_at || session.expires_at > nowSeconds + 60)) {
+      return true
+    }
+
+    if (session && !identityMismatch) {
+      const refreshed = await supabase.auth.refreshSession()
+      if (!refreshed.error && refreshed.data.session) return true
+      lastError = refreshed.error?.message || sessionError?.message || 'La sesión remota expiró y no se pudo renovar.'
+    }
+
+    // Restore the identity that the POS itself says is currently signed in.
+    // On phones this also fixes a stale Auth session left behind after the tab
+    // was suspended or another profile was previously used on the same browser.
+    if (!hasLocalCredentials || !local) {
+      lastError = 'No hay una sesión Supabase vigente ni credenciales locales para renovarla. Cierra sesión y vuelve a entrar con tu PIN.'
+      return false
+    }
+
     const result = await supabase.auth.signInWithPassword({
       email: local.authEmail,
       password: `SmakyPOS#${local.pin}`,
     })
-    if (result.error || !result.data.user) {
+    if (result.error || !result.data.session) {
       lastError = result.error?.message || 'No fue posible restaurar la sesión Supabase.'
       return false
     }

@@ -1007,40 +1007,79 @@ export async function createRemoteWorker(
   }
 }
 
+async function describeFunctionError(error: unknown, fallback: string): Promise<string> {
+  const candidate = error as { message?: string; context?: Response }
+  const response = candidate?.context
+  if (response && typeof response.clone === 'function') {
+    try {
+      const copy = response.clone()
+      const raw = await copy.text()
+      if (raw) {
+        try {
+          const payload = JSON.parse(raw) as Record<string, unknown>
+          const detail = payload.error || payload.message || payload.details || payload.hint
+          if (typeof detail === 'string' && detail.trim()) return `${detail.trim()} (HTTP ${copy.status})`
+        } catch {
+          return `${raw.slice(0, 400)} (HTTP ${copy.status})`
+        }
+      }
+      return `${candidate.message || fallback} (HTTP ${copy.status})`
+    } catch {
+      // Preserve the SDK error if its response body cannot be read.
+    }
+  }
+  return candidate?.message || fallback
+}
+
 export async function updateRemoteUser(
   targetId: string,
   changes: Partial<User>
 ) {
-  if (
-    !supabaseConfigured ||
-    !supabase ||
-    !navigator.onLine
-  ) {
-    return null
-  }
+  if (!supabaseConfigured || !supabase || !navigator.onLine) return null
 
-  const {
-    data,
-    error,
-  } = await supabase.functions.invoke(
-    'admin-users',
-    {
-      body: {
-        action: 'update',
-        targetId,
-        changes,
-      },
+  const invokeUpdate = () => supabase!.functions.invoke('admin-users', {
+    body: { action: 'update', targetId, changes },
+  })
+
+  let result = await invokeUpdate()
+
+  // A phone may wake up with an expired Auth token. Refresh and retry once;
+  // if no refresh token survives, re-authenticate with the currently selected
+  // local POS profile (the Edge Function still verifies its role server-side).
+  const firstStatus = (result.error as { context?: Response } | null)?.context?.status
+  if (result.error && firstStatus === 401) {
+    let recovered = false
+    try {
+      const refreshed = await supabase.auth.refreshSession()
+      recovered = !refreshed.error && Boolean(refreshed.data.session)
+    } catch {
+      recovered = false
     }
-  )
 
-  if (error) {
-    throw new Error(
-      error.message ||
-      'No fue posible actualizar la cuenta remota.'
-    )
+    if (!recovered) {
+      const local = getSessionUser()
+      if (local?.authEmail && /^\d{4}$/.test(local.pin)) {
+        try {
+          const login = await supabase.auth.signInWithPassword({
+            email: local.authEmail,
+            password: authPasswordFromPin(local.pin),
+          })
+          recovered = !login.error && Boolean(login.data.session)
+        } catch {
+          recovered = false
+        }
+      }
+    }
+
+    if (recovered) result = await invokeUpdate()
   }
 
-  return data as {
+  if (result.error) {
+    throw new Error(await describeFunctionError(result.error, 'No fue posible actualizar la cuenta remota.'))
+  }
+  if (!result.data) throw new Error('Supabase no devolvió la confirmación del perfil actualizado.')
+
+  return result.data as {
     id: string
     name: string
     role: Role

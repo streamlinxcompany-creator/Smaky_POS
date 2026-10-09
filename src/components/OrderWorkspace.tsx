@@ -344,6 +344,12 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
   const requestClose = () => {
     if (saving || checkoutOpen) return
     if (!items.length && !order) return onClose()
+
+    // If the current order version has already been printed and no editable
+    // changes were made afterwards, closing should return to the orders list
+    // directly. The warning is only for an unprinted/modified order.
+    if (order?.comandaStatus === 'printed' && !dirty) return onClose()
+
     setClosePromptOpen(true)
   }
 

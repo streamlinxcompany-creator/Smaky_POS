@@ -101,6 +101,11 @@ export function Users({
   const [saving, setSaving] =
     useState(false)
 
+  const [loadingProfile, setLoadingProfile] =
+    useState(false)
+
+  const profileLoadSequenceRef = useRef(0)
+
   // Bloqueo síncrono: evita que un doble clic/evento concurrente
   // envíe dos solicitudes de creación al mismo tiempo.
   const creatingWorkerRef = useRef(false)
@@ -164,8 +169,10 @@ export function Users({
   }
 
   const closeConfig = () => {
+    profileLoadSequenceRef.current += 1
     setConfiguring(null)
     setForm(null)
+    setLoadingProfile(false)
     setError('')
     setShowPin(false)
     setDeleting(false)
@@ -374,59 +381,66 @@ export function Users({
     }
   }
 
-  const openConfig = async (
-    user: User
-  ) => {
+  const openConfig = async (user: User) => {
+    const loadSequence = ++profileLoadSequenceRef.current
     setConfiguring(user)
-
-    setForm({
-      name: user.name,
-      pin: user.pin,
-      rank:
-        user.rank ||
-        (
-          user.role === 'employee'
-            ? 'Trabajador'
-            : user.role === 'admin'
-              ? 'Administrador'
-              : 'Gerente General'
-        ),
-      role: user.role,
-      active: user.active,
-      permissions:
-        getUserPermissions(user),
-    })
-
     setError('')
     setShowPin(false)
 
-    if (currentUser?.role === 'manager') {
-      const remote = await getManagedProfile(user.id)
-      if (remote) {
-        const hydrated: User = {
-          ...user,
-          id: remote.id,
-          legacyId: remote.legacyId,
-          authEmail: remote.authEmail,
-          name: remote.name,
-          role: remote.role,
-          rank: remote.rank,
-          active: remote.active,
-          pin: remote.pin,
-          permissions: remote.permissions || defaultPermissionsForRole(remote.role),
-          updatedAt: new Date().toISOString(),
-        }
+    // When getUsers obtained the manager list, it already contains the
+    // authoritative permissions and PIN. Use those values immediately instead
+    // of making a second Edge Function request every time a profile is opened.
+    if (currentUser?.role !== 'manager' || Array.isArray(user.permissions)) {
+      setLoadingProfile(false)
+      setForm({
+        name: user.name,
+        pin: user.pin || '',
+        rank: user.rank || (user.role === 'employee' ? 'Trabajador' : user.role === 'admin' ? 'Administrador' : 'Gerente General'),
+        role: user.role,
+        active: user.active,
+        permissions: getUserPermissions(user),
+      })
+      return
+    }
 
-        setConfiguring(hydrated)
-        setForm({
-          name: hydrated.name,
-          pin: hydrated.pin,
-          rank: hydrated.rank || 'Trabajador',
-          role: hydrated.role,
-          active: hydrated.active,
-          permissions: getUserPermissions(hydrated),
-        })
+    // On a fallback/basic user list, permissions are unknown. Show a loading
+    // state rather than briefly displaying role defaults as saved permissions.
+    setForm(null)
+    setLoadingProfile(true)
+    try {
+      const remote = await getManagedProfile(user.id)
+      if (profileLoadSequenceRef.current !== loadSequence) return
+      if (!remote) throw new Error('No se pudieron cargar los permisos actuales desde Supabase. Comprueba la conexión e inténtalo de nuevo.')
+
+      const hydrated: User = {
+        ...user,
+        id: remote.id,
+        legacyId: remote.legacyId,
+        authEmail: remote.authEmail,
+        name: remote.name,
+        role: remote.role,
+        rank: remote.rank,
+        active: remote.active,
+        pin: remote.pin || '',
+        permissions: remote.permissions || defaultPermissionsForRole(remote.role),
+        updatedAt: new Date().toISOString(),
       }
+
+      setConfiguring(hydrated)
+      setForm({
+        name: hydrated.name,
+        pin: hydrated.pin,
+        rank: hydrated.rank || 'Trabajador',
+        role: hydrated.role,
+        active: hydrated.active,
+        permissions: getUserPermissions(hydrated),
+      })
+    } catch (caught) {
+      if (profileLoadSequenceRef.current !== loadSequence) return
+      setConfiguring(null)
+      setError(caught instanceof Error ? caught.message : String(caught))
+    } finally {
+      if (profileLoadSequenceRef.current === loadSequence) setLoadingProfile(false)
     }
   }
 
@@ -613,6 +627,10 @@ export function Users({
             Agregar
           </button>
         </div>
+      )}
+
+      {error && !creating && !configuring && (
+        <div className="workspace-error" role="alert">{error}</div>
       )}
 
       <div className="users-toolbar">
@@ -947,6 +965,19 @@ export function Users({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {configuring && loadingProfile && !form && (
+        <div className="modal-backdrop">
+          <div className="modal user-config-modal users-loading" role="status" aria-live="polite">
+            <div className="users-loading-dot"></div>
+            <div>
+              <b>Cargando permisos de {configuring.name}…</b>
+              <p>Consultando la configuración guardada en Supabase para no mostrar permisos desactualizados.</p>
+            </div>
+            <button type="button" className="secondary" onClick={closeConfig}>Cancelar</button>
           </div>
         </div>
       )}

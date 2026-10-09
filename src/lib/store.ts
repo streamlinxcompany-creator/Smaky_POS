@@ -2,7 +2,7 @@ import { db } from './db'
 import type { Table } from 'dexie'
 import { applyLocalCashClosurePurge, applyLocalSalesPurge, enqueueCashClosuresPurgeOperation, enqueueEntityUpsert, enqueueResetOperation, enqueueSalesPurgeOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, isNetworkError, purgeRemoteCashClosures, purgeRemoteSales, resetRemoteData, purgePosToVirgin, withSyncSuppressed } from './sync'
 import { products as seedProducts } from './demoData'
-import { createRemoteWorker, defaultPermissionsForRole, deleteRemoteUser, getLoginProfiles, getManagedProfile, getSessionUser, hasPermission, isStreamlinxOperator, PERMISSION_DEFINITIONS, setSessionUser, updateRemoteUser } from './auth'
+import { createRemoteWorker, defaultPermissionsForRole, deleteRemoteUser, getLoginProfiles, getManagedProfile, getManagedProfiles, getSessionUser, hasPermission, isStreamlinxOperator, PERMISSION_DEFINITIONS, setSessionUser, updateRemoteUser } from './auth'
 import type { AuditEvent, BackupSnapshot, CashClosure, Customer, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
 
 type Auditable = Record<string, unknown>
@@ -1826,6 +1826,43 @@ export async function getUsers() {
   }
 
   if (navigator.onLine) {
+    // For the manager screen, preload the authoritative profile details in a
+    // single request. That includes each worker's actual saved permissions
+    // and PIN, so opening a worker does not flash role defaults for 3-5s while
+    // another Edge Function request loads the real values.
+    const sessionUser = getSessionUser()
+    if (sessionUser?.role === 'manager') {
+      try {
+        const sessionReady = await ensureRemoteSession(true)
+        if (sessionReady) {
+          const managedProfiles = await getManagedProfiles()
+          if (managedProfiles.length) {
+            return managedProfiles
+              .map(profile => ({
+                id: profile.id,
+                legacyId: profile.legacyId,
+                authEmail: profile.authEmail,
+                name: profile.name,
+                role: profile.role,
+                rank: profile.rank,
+                active: profile.active,
+                pin: profile.pin || '',
+                permissions: Array.isArray(profile.permissions)
+                  ? profile.permissions
+                  : defaultPermissionsForRole(profile.role),
+                updatedAt: new Date().toISOString(),
+              } as User))
+              .sort((a, b) =>
+                roleOrder[a.role] - roleOrder[b.role] ||
+                a.name.localeCompare(b.name, 'es')
+              )
+          }
+        }
+      } catch (error) {
+        console.warn('Smaky: no fue posible precargar permisos remotos; intentando la lista básica.', error)
+      }
+    }
+
     try {
       const remoteProfiles = await getLoginProfiles(false)
 
@@ -1840,7 +1877,9 @@ export async function getUsers() {
             rank: profile.rank,
             active: profile.active,
             pin: '',
-            permissions: defaultPermissionsForRole(profile.role),
+            // Do not pretend role defaults are the worker's saved permissions.
+            // Users.tsx will explicitly hydrate the profile if this fallback is used.
+            permissions: undefined,
             updatedAt: new Date().toISOString(),
           } as User))
           .sort(
@@ -2136,12 +2175,17 @@ export async function updateUserSettings(
 
   if (navigator.onLine) {
     try {
-      await ensureRemoteSession()
+      const remoteSessionReady = await ensureRemoteSession(true)
+      if (!remoteSessionReady) {
+        throw new Error('No se pudo renovar la sesión de Supabase en este dispositivo. Cierra sesión y vuelve a entrar con el PIN de Gerente; después vuelve a guardar los permisos.')
+      }
       remote = await updateRemoteUser(
         targetId,
         safeChanges
       )
     } catch (error) {
+      // Only queue changes when the failure really is a network interruption.
+      // Authorization and database errors must stay visible to the manager.
       if (!isNetworkError(error)) throw error
     }
   }

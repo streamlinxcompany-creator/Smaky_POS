@@ -392,6 +392,9 @@ Deno.serve(async (request) => {
     if (targetError || !target) return json({ error: 'No encontramos el perfil.' }, 404)
 
     const changes = (body.changes && typeof body.changes === 'object') ? body.changes as Record<string, unknown> : {}
+    if (Array.isArray(changes.permissions) && actor.role !== 'manager') {
+      return json({ error: 'La sesión remota no corresponde a un Gerente autorizado. Cierra sesión en este dispositivo y vuelve a entrar con el PIN del Gerente.' }, 403)
+    }
     const wantsRoleChange = changes.role !== undefined && changes.role !== target.role
     const wantsActiveChange = changes.active !== undefined && changes.active !== target.active
     if (target.role === 'manager') {
