@@ -12,6 +12,7 @@ import type { PermissionKey } from './lib/types'
 import { StreamLinx } from './pages/StreamLinx'
 import { Settings } from './pages/Settings'
 import { Customers } from './pages/Customers'
+import { Inventory } from './pages/Inventory'
 
 function PermissionArea({ permission, children, fallback = '/' }: { permission: PermissionKey; children: ReactNode; fallback?: string }) {
   const user = getSessionUser()
@@ -33,12 +34,13 @@ export default function App() {
       <Route path="/pedidos" element={<Navigate to="/pos" replace/>}/>
       <Route path="/ventas" element={<PermissionArea permission="sales.view"><Sales/></PermissionArea>}/>
       <Route path="/clientes" element={<PermissionArea permission="customers.manage"><Customers/></PermissionArea>}/>
+      <Route path="/inventario" element={<PermissionArea permission="inventory.manage"><Inventory/></PermissionArea>}/>
       <Route path="/productos" element={<Navigate to="/configuraciones" replace/>}/>
       <Route path="/reportes" element={<PermissionArea permission="reports.view"><Reports/></PermissionArea>}/>
       <Route path="/usuarios" element={<Navigate to="/configuraciones" replace/>}/>
       <Route path="/cierre-caja" element={<PermissionArea permission="cashClosing.access"><CashClosing/></PermissionArea>}/>
       <Route path="/configuraciones" element={<ManagementArea><Settings/></ManagementArea>}/>
-      <Route path="/inventario" element={<Navigate to="/productos" replace/>}/>
+
       <Route path="*" element={<Navigate to="/pos" replace/>}/>
     </Route>
   </Routes></BrowserRouter>

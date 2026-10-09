@@ -149,7 +149,7 @@ Deno.serve(async (request) => {
     const pin = String(body.pin || '')
     const role = String(body.role || 'employee')
     const allowedRoles = ['admin', 'employee']
-    const allowedPermissions = ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access','settings.general','settings.orders','settings.payments','settings.categories','invoice.settings']
+    const allowedPermissions = ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','inventory.manage','reports.view','cashClosing.access','settings.general','settings.orders','settings.payments','settings.categories','invoice.settings']
     const permissions = Array.from(new Set((Array.isArray(body.permissions) ? body.permissions : []).map(String).filter(item => allowedPermissions.includes(item))))
     if (!/^[A-Za-z0-9_-]{1,80}$/.test(legacyId) || name.length < 2 || rank.length < 2 || !validPin(pin) || !allowedRoles.includes(role)) {
       return json({ error: 'Datos del perfil local inválidos.' }, 400)
@@ -413,7 +413,7 @@ Deno.serve(async (request) => {
     if (typeof changes.active === 'boolean') profileUpdate.active = changes.active
     if (wantsRoleChange) profileUpdate.role = String(changes.role)
     if (actor.role === 'manager' && Array.isArray(changes.permissions)) {
-      const allowed = ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access','settings.general','settings.orders','settings.payments','settings.categories','invoice.settings']
+      const allowed = ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','inventory.manage','reports.view','cashClosing.access','settings.general','settings.orders','settings.payments','settings.categories','invoice.settings']
       profileUpdate.permissions = Array.from(new Set(changes.permissions.filter(item => allowed.includes(String(item)))))
     }
 

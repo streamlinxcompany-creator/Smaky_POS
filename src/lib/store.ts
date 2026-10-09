@@ -214,7 +214,7 @@ const seedManager: User = {
   pin: '1234',
   rank: 'Gerente General',
   active: true,
-  permissions: ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access'],
+  permissions: ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','inventory.manage','reports.view','cashClosing.access'],
   authEmail: 'u-owner@smaky.local',
   legacyId: 'u-owner',
   updatedAt: '2026-01-01T00:00:00.000Z'
@@ -243,7 +243,7 @@ export async function seed() {
   if (!(await db.users.get(seedManager.id))) await db.users.add(seedManager)
 
   const currentUsers = await db.users.toArray()
-  const allPermissionKeys: PermissionKey[] = ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','reports.view','cashClosing.access']
+  const allPermissionKeys: PermissionKey[] = ['dashboard.view','pos.access','customers.manage','customers.export','sales.view','sales.delete','products.manage','inventory.manage','reports.view','cashClosing.access']
   for (const user of currentUsers) {
     const permissions = user.permissions?.length
       ? Array.from(new Set([...user.permissions, 'customers.manage' as PermissionKey, ...(user.role === 'admin' ? ['customers.export' as PermissionKey] : [])]))

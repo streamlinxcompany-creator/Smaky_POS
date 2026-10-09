@@ -1,9 +1,10 @@
-import { ArrowRight, Banknote, Calculator, Check, CreditCard, FileText, Minus, Plus, Printer, Search, ShoppingCart, SlidersHorizontal, Tag, Trash2, UserRound, X } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Banknote, Calculator, Check, CreditCard, FileText, Minus, PackageX, Plus, Printer, Search, ShoppingCart, SlidersHorizontal, Tag, Trash2, UserRound, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent } from 'react'
 import { completeOrder, createOrder, getGeneralSettings, getOrderFields, getPaymentMethods, getProductCategories, getProducts, updateOrderComandaStatus, updateOrderItems } from '../lib/store'
 import { money, time, date } from '../lib/format'
 import type { Customer, Order, PaymentMethod, PaymentMethodConfig, Product, Sale, SaleItem, User } from '../lib/types'
 import { printOrderComanda, printSaleReceipt } from '../lib/print'
+import { checkInventorySaleShortages, type InventoryShortage } from '../lib/inventory'
 
 const modificationChips = ['Sin salsas', 'Sin tomate', 'Sin lechuga', 'Sin cebolla', 'Sin queso']
 const fallbackPaymentLabel = (payment: PaymentMethod) => payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : payment === 'card' ? 'Tarjeta' : payment
@@ -76,6 +77,7 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
   const paymentDragOffsetRef = useRef(0)
   const [completedSale, setCompletedSale] = useState<Sale | null>(null)
   const [paymentCountdown, setPaymentCountdown] = useState(0)
+  const [inventoryWarning, setInventoryWarning] = useState<{ shortages: InventoryShortage[]; checkFailed?: string } | null>(null)
 
   const isLocked = order?.status === 'paid' || order?.status === 'cancelled'
   const initialItems = order?.items || []
@@ -300,8 +302,31 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
     }
   }
 
-  const payNow = async () => {
+  const payNow = async (continueDespiteInventoryWarning = false) => {
     if (!order || order.status === 'paid' || saving || !items.length || !cashIsSufficient || paymentProgressRef.current < 96) return
+
+    // Check the authoritative stock on Supabase before finalizing the sale.
+    // This check is advisory only: continuing always remains possible and the
+    // database trigger will record the real resulting balance, including negatives.
+    if (!continueDespiteInventoryWarning) {
+      setSaving(true)
+      setError('')
+      try {
+        const shortages = await checkInventorySaleShortages(items.map(item => ({ productId: item.productId, name: item.name, quantity: item.quantity })))
+        if (shortages.length) {
+          setInventoryWarning({ shortages })
+          return
+        }
+      } catch (caught) {
+        const checkMessage = caught instanceof Error ? caught.message : 'No fue posible consultar el inventario en este momento.'
+        setInventoryWarning({ shortages: [], checkFailed: checkMessage })
+        return
+      } finally {
+        setSaving(false)
+      }
+    }
+
+    setInventoryWarning(null)
     setSaving(true)
     setError('')
     try {
@@ -563,6 +588,26 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
             <button className="secondary" disabled={saving} onClick={() => { setCheckoutOpen(false); setCashReceived(''); paymentProgressRef.current = 0; setPaymentProgress(0) }}>Cancelar</button>
             <div className="checkout-footer-total"><span>Total</span><strong>{money(total)}</strong></div>
           </footer>
+        </section>
+      </div>}
+
+      {inventoryWarning && <div className="item-editor-backdrop inventory-shortage-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !saving) { setInventoryWarning(null); paymentProgressRef.current = 0; setPaymentProgress(0) } }}>
+        <section className="item-editor-modal inventory-shortage-modal" role="alertdialog" aria-modal="true" aria-labelledby="inventory-shortage-title">
+          <header className="item-editor-head">
+            <div className="inventory-shortage-icon"><AlertTriangle size={23}/></div>
+            <div><span className="item-editor-kicker">CONTROL DE EXISTENCIAS</span><h3 id="inventory-shortage-title">{inventoryWarning.checkFailed ? 'No pudimos verificar el inventario' : 'Faltan ingredientes para este pedido'}</h3><p>{inventoryWarning.checkFailed ? 'La venta no se bloqueará. Puedes cancelar para intentarlo de nuevo o continuar; cuando se sincronice, el inventario reflejará el consumo real.' : 'Las existencias actuales no alcanzan para cubrir la receta configurada. Puedes continuar con la venta; los saldos quedarán en negativo si es necesario.'}</p></div>
+            <button className="item-editor-close" disabled={saving} onClick={() => { setInventoryWarning(null); paymentProgressRef.current = 0; setPaymentProgress(0) }} aria-label="Cerrar"><X size={18}/></button>
+          </header>
+          <div className="item-editor-body inventory-shortage-body">
+            {inventoryWarning.checkFailed ? <div className="inventory-shortage-check-error"><PackageX size={19}/><span>{inventoryWarning.checkFailed}</span></div> : <div className="inventory-shortage-list">
+              {inventoryWarning.shortages.map(shortage => <div className="inventory-shortage-row" key={shortage.inventoryItemId}>
+                <div><b>{shortage.itemName}</b><span>Necesario: {shortage.requiredQuantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })} {shortage.unit}</span></div>
+                <div className="inventory-shortage-values"><span>Disponible</span><strong className="inventory-shortage-available">{shortage.availableQuantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })} {shortage.unit}</strong><small>Faltan {shortage.shortageQuantity.toLocaleString('es-CO', { maximumFractionDigits: 3 })} {shortage.unit}</small></div>
+              </div>)}
+            </div>}
+            <div className="inventory-shortage-assurance"><Check size={16}/><span>La venta puede continuar. No se cambiarán las cantidades para esconder el faltante: Supabase registrará el saldo real incluso si queda negativo.</span></div>
+          </div>
+          <footer className="item-editor-footer inventory-shortage-actions"><button className="secondary" disabled={saving} onClick={() => { setInventoryWarning(null); paymentProgressRef.current = 0; setPaymentProgress(0) }}>Cancelar venta</button><button className="primary" disabled={saving} onClick={() => { setInventoryWarning(null); void payNow(true) }}>{saving ? 'Procesando…' : 'Continuar con la venta'}</button></footer>
         </section>
       </div>}
 

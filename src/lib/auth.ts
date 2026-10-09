@@ -72,6 +72,12 @@ export const PERMISSION_DEFINITIONS: Array<{
     group: 'Configuraciones',
   },
   {
+    key: 'inventory.manage',
+    label: 'Inventario',
+    description: 'Administrar existencias, movimientos, recetas y trazabilidad de consumos.',
+    group: 'Operación',
+  },
+  {
     key: 'settings.general',
     label: 'General',
     description: 'Modificar apariencia y preferencias generales.',

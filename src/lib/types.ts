@@ -7,6 +7,7 @@ export type PermissionKey =
   | 'sales.view'
   | 'sales.delete'
   | 'products.manage'
+  | 'inventory.manage'
   | 'reports.view'
   | 'cashClosing.access'
   | 'settings.general'
@@ -70,6 +71,80 @@ export type Product = {
   /** Registro retirado de la operación; sólo StreamLinx lo consulta. */
   deletedAt?: string
   deletedBy?: string
+}
+
+
+export type InventoryUnitKind = 'mass' | 'volume' | 'custom'
+export type InventoryMovementKind = 'initial_stock' | 'entry' | 'exit' | 'sale_consumption' | 'sale_reversal'
+
+/** Stock quantities are stored in base units (g/ml/or the chosen custom unit). */
+export type InventoryItem = {
+  id: string
+  name: string
+  category: string
+  unit: string
+  unitKind: InventoryUnitKind
+  baseUnit: string
+  unitFactor: number
+  stockBase: number
+  lowStockBase: number | null
+  active: boolean
+  note: string
+  createdAt: string
+  updatedAt: string
+  createdBy?: string
+  createdByName?: string
+}
+
+export type InventoryRecipe = {
+  id: string
+  productId: string
+  productName: string
+  inventoryItemId: string
+  itemName: string
+  quantityBase: number
+  quantityDisplay: number
+  quantityUnit: string
+  quantityFactor: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type InventoryRecipeProduct = {
+  id: string
+  productId: string
+  productName: string
+  componentProductId: string
+  componentProductName: string
+  quantity: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type InventoryMovement = {
+  id: string
+  inventoryItemId: string
+  itemName: string
+  movementType: InventoryMovementKind
+  quantityBase: number
+  displayQuantity: number
+  displayUnit: string
+  stockBeforeBase: number
+  stockAfterBase: number
+  reason: string
+  occurredAt: string
+  actorId?: string
+  actorName: string
+  saleId?: string
+  saleOrderNumber?: number
+  saleTotal?: number
+  salePayment?: string
+  saleSnapshot?: Record<string, unknown> | null
+  productId?: string
+  productName?: string
+  soldProductQuantity?: number
+  saleLineIndex?: number
+  reversalOf?: string
 }
 
 export type SaleItem = {
