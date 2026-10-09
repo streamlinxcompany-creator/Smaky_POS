@@ -1241,7 +1241,9 @@ export async function ensureRemoteSession(matchLocalIdentity = false) {
     // client still holds an Auth session from a previous user. For sensitive
     // profile-management calls, ensure both identities match before invoking
     // the Edge Function. Supabase still performs the real server-side check.
-    const hasLocalCredentials = Boolean(local?.authEmail && /^\d{4}$/.test(local.pin))
+    const localEmail = local?.authEmail?.trim()
+    const localPin = local?.pin
+    const hasLocalCredentials = Boolean(localEmail && localPin && /^\d{4}$/.test(localPin))
     // Compare the synthetic account email, not the local id: old locally
     // seeded profiles can have ids such as `u-owner` while the Auth UUID is
     // different even for the same account.
@@ -1263,14 +1265,14 @@ export async function ensureRemoteSession(matchLocalIdentity = false) {
     // Restore the identity that the POS itself says is currently signed in.
     // On phones this also fixes a stale Auth session left behind after the tab
     // was suspended or another profile was previously used on the same browser.
-    if (!hasLocalCredentials || !local) {
-      lastError = 'No hay una sesión Supabase vigente ni credenciales locales para renovarla. Cierra sesión y vuelve a entrar con tu PIN.'
+    if (!hasLocalCredentials || !local || !localEmail || !localPin || !/^\d{4}$/.test(localPin)) {
+      lastError = 'No hay una sesión Supabase vigente ni credenciales locales válidas para renovarla. Cierra sesión y vuelve a entrar con tu PIN.'
       return false
     }
 
     const result = await supabase.auth.signInWithPassword({
-      email: local.authEmail,
-      password: `SmakyPOS#${local.pin}`,
+      email: localEmail,
+      password: `SmakyPOS#${localPin}`,
     })
     if (result.error || !result.data.session) {
       lastError = result.error?.message || 'No fue posible restaurar la sesión Supabase.'
