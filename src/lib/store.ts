@@ -2,7 +2,7 @@ import { db } from './db'
 import type { Table } from 'dexie'
 import { applyLocalCashClosurePurge, applyLocalSalesPurge, enqueueCashClosuresPurgeOperation, enqueueEntityUpsert, enqueueResetOperation, enqueueSalesPurgeOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, isNetworkError, purgeRemoteCashClosures, purgeRemoteSales, resetRemoteData, purgePosToVirgin, withSyncSuppressed } from './sync'
 import { products as seedProducts } from './demoData'
-import { createRemoteWorker, defaultPermissionsForRole, deleteRemoteUser, getLoginProfiles, getManagedProfile, getSessionUser, hasPermission, isStreamlinxOperator, setSessionUser, updateRemoteUser } from './auth'
+import { createRemoteWorker, defaultPermissionsForRole, deleteRemoteUser, getLoginProfiles, getManagedProfile, getSessionUser, hasPermission, isStreamlinxOperator, PERMISSION_DEFINITIONS, setSessionUser, updateRemoteUser } from './auth'
 import type { AuditEvent, BackupSnapshot, CashClosure, Customer, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
 
 type Auditable = Record<string, unknown>
@@ -2046,17 +2046,9 @@ export async function updateUserSettings(
             (
               key
             ): key is PermissionKey =>
-              [
-                'dashboard.view',
-                'pos.access',
-                'customers.manage',
-                'customers.export',
-                'sales.view',
-                'sales.delete',
-                'products.manage',
-                'reports.view',
-                'cashClosing.access'
-              ].includes(key)
+              PERMISSION_DEFINITIONS.some(
+                definition => definition.key === key
+              )
           ),
           'pos.access'
         ])
@@ -2155,6 +2147,22 @@ export async function updateUserSettings(
   }
 
   if (remote) {
+    // Do not tell the UI that permissions were saved unless Supabase returns
+    // the same effective permission set. This also exposes a stale admin-users
+    // Edge Function instead of silently losing newer permission keys.
+    if (safeChanges.permissions) {
+      const expected = [...new Set(safeChanges.permissions)].sort()
+      const confirmed = [...new Set(remote.permissions || [])].sort()
+      if (
+        expected.length !== confirmed.length ||
+        expected.some((permission, index) => permission !== confirmed[index])
+      ) {
+        throw new Error(
+          'Supabase no confirmó todos los permisos. Actualiza la función admin-users de Supabase y vuelve a guardar.'
+        )
+      }
+    }
+
     Object.assign(after, {
       id: remote.id,
       authEmail: remote.authEmail,
