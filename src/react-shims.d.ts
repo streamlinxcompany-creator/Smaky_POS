@@ -7,6 +7,7 @@ declare module 'react' {
   export const StrictMode: any
   export function useState<S>(initialState: S | (() => S)): [S, (value: S | ((prev: S) => S)) => void]
   export function useEffect(effect: () => void | (() => void), deps?: any[]): void
+  export function useCallback<T extends (...args: any[]) => any>(callback: T, deps: any[]): T
   export function useMemo<T>(factory: () => T, deps: any[]): T
   export function useRef<T>(initialValue: T): { current: T }
 }
