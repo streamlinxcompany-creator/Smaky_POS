@@ -487,16 +487,22 @@ async function putLocalRemote(entity: SyncEntity, remoteRow: any) {
   const table = entityTable(entity) as Table<any, string>
   const local = remoteToLocal(entity, remoteRow)
   if (!local) return
-  const previous = entity === 'settings' ? await table.get(String(local.id)) : undefined
+  const previous = entity === 'settings'
+    ? await table.get(String(local.id)) as SystemSetting | undefined
+    : undefined
   await withSyncSuppressed(() => table.put(local))
 
-  // Configuración remota recién aplicada: avisa a las pantallas abiertas para
-  // que vuelvan a leer IndexedDB en vez de quedarse con el estado React antiguo.
-  if (entity === 'settings' && JSON.stringify(previous?.value) !== JSON.stringify(local.value)) {
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('smaky-settings-change', {
-        detail: { key: String(local.key || local.id), source: 'remote-sync' },
-      }))
+  // Solo los registros de settings tienen key/value. No acceder a esas
+  // propiedades sobre el union de entidades de sincronización.
+  if (entity === 'settings') {
+    const previousSetting = previous as SystemSetting | undefined
+    const nextSetting = local as SystemSetting
+    if (JSON.stringify(previousSetting?.value) !== JSON.stringify(nextSetting.value)) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('smaky-settings-change', {
+          detail: { key: String(nextSetting.key || nextSetting.id), source: 'remote-sync' },
+        }))
+      }
     }
   }
 }
