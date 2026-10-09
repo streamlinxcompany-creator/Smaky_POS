@@ -2,6 +2,7 @@ import { AlertTriangle, Check, FileText, MapPin, Phone, Plus, Search, UserPlus, 
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { OrderWorkspace } from '../components/OrderWorkspace'
 import { getSessionUser } from '../lib/auth'
+import { getSyncState, SYNC_CHANGE_EVENT, syncOrdersNow, type SyncState } from '../lib/sync'
 import { createCustomer, getClosureByDate, getCustomers, getGeneralSettings, getOrderFields, getOrders, recordBusinessDayKey, updateCustomer } from '../lib/store'
 import { date, money, time } from '../lib/format'
 import type { CashClosure, Customer, Order, OrderFieldConfig, OrderStatus } from '../lib/types'
@@ -25,6 +26,7 @@ export function POS() {
   const user = getSessionUser()
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
+  const [syncState, setSyncState] = useState<SyncState>({ syncing: false, pending: 0 })
   const [creating, setCreating] = useState(false)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false)
@@ -53,7 +55,46 @@ export function POS() {
     setLoading(false)
   }
 
-  useEffect(() => { void refresh() }, [])
+  useEffect(() => {
+    let disposed = false
+    let refreshTimer: number | null = null
+    const refreshWhenSyncChanges = () => {
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null
+        if (!disposed) void refresh()
+      }, 120)
+    }
+    const runOrderSync = async () => {
+      const state = await syncOrdersNow()
+      if (disposed) return
+      setSyncState(state)
+      await refresh()
+    }
+    const onSyncChange = (event: Event) => {
+      const state = (event as CustomEvent<SyncState>).detail
+      if (state) setSyncState(state)
+      refreshWhenSyncChanges()
+    }
+    const onOnline = () => { void runOrderSync() }
+    void refresh()
+    void getSyncState().then(state => { if (!disposed) setSyncState(state) })
+    // La lista se lee primero desde IndexedDB y después desde Supabase. Así el
+    // POS abre rápido, pero no se queda congelado mostrando solo la caché local.
+    void runOrderSync()
+    const poll = window.setInterval(() => {
+      if (!disposed && navigator.onLine && document.visibilityState === 'visible') void runOrderSync()
+    }, 12_000)
+    window.addEventListener(SYNC_CHANGE_EVENT, onSyncChange)
+    window.addEventListener('online', onOnline)
+    return () => {
+      disposed = true
+      window.clearInterval(poll)
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer)
+      window.removeEventListener(SYNC_CHANGE_EVENT, onSyncChange)
+      window.removeEventListener('online', onOnline)
+    }
+  }, [])
   useEffect(() => {
     const loadFields = () => { void Promise.all([getOrderFields(), getGeneralSettings()]).then(([fields, general]) => { setOrderFields(fields); setGeneralSettings(general) }) }
     loadFields()
@@ -206,6 +247,11 @@ export function POS() {
 
   if (!user) return null
 
+  const syncWarning = syncState.pending > 0 && syncState.lastError ? <div className="customers-feedback error pos-sync-warning" role="alert">
+    <span><b>{syncState.pending} cambio(s) pendiente(s) de sincronizar.</b> {syncState.lastError}</span>
+    <button type="button" onClick={() => { void syncOrdersNow().then(async state => { setSyncState(state); await refresh() }) }}>Reintentar</button>
+  </div> : null
+
   if (creating) return <OrderWorkspace
     user={user}
     initialCustomer={selectedCustomer}
@@ -220,9 +266,9 @@ export function POS() {
     onOrderChange={updateLocalOrder}
   />
 
-  if (loading) return <><div className="pos-orders-page"><div className="pos-orders-loading">Cargando pedidos de hoy…</div></div>{customerPickerModal}</>
+  if (loading) return <>{syncWarning}<div className="pos-orders-page"><div className="pos-orders-loading">Cargando pedidos de hoy…</div></div>{customerPickerModal}</>
 
-  if (!todayOrders.length) return <><div className="pos-landing">
+  if (!todayOrders.length) return <>{syncWarning}<div className="pos-landing">
     <div className="pos-landing-card">
       <div className="pos-landing-icon"><UtensilsCrossed size={26}/></div>
       <p className="eyebrow">PUNTO DE VENTA</p>
@@ -234,7 +280,7 @@ export function POS() {
     {customerPickerModal}
   </div></>
 
-  return <div className="pos-orders-page">
+  return <>{syncWarning}<div className="pos-orders-page">
     <div className="page-heading compact pos-orders-heading">
       <div>
         <p className="eyebrow">PUNTO DE VENTA</p>
@@ -261,5 +307,5 @@ export function POS() {
 
     {closureWarningModal}
     {customerPickerModal}
-  </div>
+  </div></>
 }

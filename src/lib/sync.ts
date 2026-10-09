@@ -26,6 +26,7 @@ let started = false
 let retryTimer: number | null = null
 let scheduledSyncTimer: number | null = null
 let settingsPollingTimer: number | null = null
+let pendingQueueRetryTimer: number | null = null
 let lastError: string | undefined
 let lastSyncedAt: string | undefined
 let lastAutomaticSyncRequest = 0
@@ -57,6 +58,35 @@ function emitSyncChange() {
 
 async function pendingCount() {
   return db.syncQueue.count()
+}
+
+function clearPendingQueueRetryIfEmpty(pending: number) {
+  if (pending === 0 && pendingQueueRetryTimer !== null && typeof window !== 'undefined') {
+    window.clearTimeout(pendingQueueRetryTimer)
+    pendingQueueRetryTimer = null
+  }
+}
+
+/**
+ * Una escritura que falla no debe quedarse pendiente para siempre hasta que
+ * alguien recargue la página. Reintentamos con espera creciente mientras haya
+ * conexión; un error permanente queda visible como lastError.
+ */
+function schedulePendingQueueRetry() {
+  if (typeof window === 'undefined' || !navigator.onLine || !supabaseConfigured || !supabase || pendingQueueRetryTimer !== null) return
+  void db.syncQueue.toArray().then(queue => {
+    if (!queue.length) {
+      clearPendingQueueRetryIfEmpty(0)
+      return
+    }
+    if (pendingQueueRetryTimer !== null || !navigator.onLine) return
+    const attempts = Math.max(0, ...queue.map(operation => Number(operation.attempts) || 0))
+    const delay = attempts < 2 ? 3_000 : attempts < 5 ? 8_000 : 20_000
+    pendingQueueRetryTimer = window.setTimeout(() => {
+      pendingQueueRetryTimer = null
+      void syncNow()
+    }, delay)
+  }).catch(() => undefined)
 }
 
 export async function getSyncState(): Promise<SyncState> {
@@ -210,10 +240,13 @@ export async function markSyncFailure(operationId: string, error: unknown) {
   })
   lastError = cleanError(error)
   emitSyncChange()
+  schedulePendingQueueRetry()
 }
 
 async function markSyncSuccess(operationId: string) {
   await db.syncQueue.delete(operationId)
+  const pending = await db.syncQueue.count()
+  clearPendingQueueRetryIfEmpty(pending)
   emitSyncChange()
 }
 
@@ -583,7 +616,7 @@ async function reconcileEntity(entity: SyncEntity) {
   // Supabase es autoritativo para ventas, cierres y configuración compartida.
   // Las filas locales solo pueden ganar si hay una operación explícita pendiente
   // de enviar; las copias viejas en caché no deben sobrescribir el estado remoto.
-  const authoritativeEntity = entity === 'sales' || entity === 'cash_closures' || entity === 'settings'
+  const authoritativeEntity = entity === 'orders' || entity === 'sales' || entity === 'cash_closures' || entity === 'settings'
 
   for (const local of localRows as any[]) {
     const id = String(local.id)
@@ -1396,8 +1429,8 @@ async function refreshRemoteSettings() {
 
 export async function syncNow(): Promise<SyncResult> {
   if (syncRunning) {
-    // Si apareció una escritura nueva durante una reconciliación corta de settings,
-    // no perdemos la solicitud: programa un ciclo completo cuando se libere el lock.
+    // Si apareció una escritura durante otro ciclo, no perdemos la solicitud:
+    // programa otra pasada cuando se libere el cerrojo.
     if (navigator.onLine && scheduledSyncTimer === null && typeof window !== 'undefined') {
       scheduledSyncTimer = window.setTimeout(() => {
         scheduledSyncTimer = null
@@ -1409,56 +1442,97 @@ export async function syncNow(): Promise<SyncResult> {
   if (!supabaseConfigured || !supabase) return { ...(await getSyncState()), ok: false }
   if (!navigator.onLine) return { ...(await getSyncState()), ok: false }
 
-  // A StreamLinx purge has its own RPC and deliberately does not require the
-  // normal Smaky/Supabase user session. Let that queued destructive operation
-  // drain even when the POS itself is logged out.
-  await applyRemotePosVirginResetState()
-
-  const localSalesPurgePending = await hasPendingSalesPurge()
-  const localClosurePurgePending = await hasPendingCashClosurePurge()
-  const localPurgePending = localSalesPurgePending || localClosurePurgePending
-  const remoteSessionReady = await ensureRemoteSession()
-  if (!remoteSessionReady && !localPurgePending) return { ...(await getSyncState()), ok: false }
-
+  // El cerrojo se toma ANTES de cualquier await remoto. De otro modo, dos
+  // solicitudes simultáneas podían empezar a subir la misma outbox a la vez.
   syncRunning = true
   lastError = undefined
   emitSyncChange()
   try {
-    // A local offline purge must execute remotely before any older outbox item.
+    // StreamLinx tiene su propio marcador remoto y no depende de que el perfil
+    // normal del POS esté abierto para limpiar las copias locales anteriores.
+    await applyRemotePosVirginResetState()
+
+    const localSalesPurgePending = await hasPendingSalesPurge()
+    const localClosurePurgePending = await hasPendingCashClosurePurge()
+    const localPurgePending = localSalesPurgePending || localClosurePurgePending
+    const remoteSessionReady = await ensureRemoteSession()
+    if (!remoteSessionReady && !localPurgePending) {
+      schedulePendingQueueRetry()
+      return { ...(await getSyncState()), ok: false }
+    }
+
+    // Una purga pendiente va primero. En los demás casos, limpiamos el estado
+    // remoto antes de vaciar la outbox para evitar resurrecciones de datos.
     if (localPurgePending) {
       await flushQueue()
       if (!remoteSessionReady && !(await hasPendingSalesPurge()) && !(await hasPendingCashClosurePurge())) {
         await applyRemoteSalesPurgeMarker()
         lastSyncedAt = stamp()
-        return { ...(await getSyncState()), ok: true }
+        const state = await getSyncState()
+        return { ...state, ok: state.pending === 0 && !state.lastError }
       }
     } else {
-      // On a different device, pull the remote purge marker and authoritative
-      // sales set before flushing the outbox. This clears stale IndexedDB sales
-      // first; any stale queued sale that survives that pass is rejected by the
-      // server-side purge guard and cleaned from the outbox below.
       await reconcileEntity('settings')
       await applyRemoteSalesPurgeMarker()
+      await reconcileEntity('orders')
       await reconcileEntity('sales')
       await reconcileEntity('cash_closures')
       await flushQueue()
     }
 
-    // A successful remote purge creates/updates the marker. Pull it again before
-    // reconciling sales so every browser clears stale cached records first.
+    // Recoger de nuevo el marcador después de procesar cualquier purga remota.
     await reconcileEntity('settings')
     await applyRemoteSalesPurgeMarker()
 
     const entities: SyncEntity[] = ['settings', 'products', 'customers', 'orders', 'sales', 'cash_closures', 'audit_events', 'history_records', 'backups']
     for (const entity of entities) await reconcileEntity(entity)
     lastSyncedAt = stamp()
-    return { ...(await getSyncState()), ok: true }
+    const state = await getSyncState()
+    clearPendingQueueRetryIfEmpty(state.pending)
+    return { ...state, ok: state.pending === 0 && !state.lastError }
   } catch (error) {
     lastError = cleanError(error)
     return { ...(await getSyncState()), ok: false }
   } finally {
     syncRunning = false
     emitSyncChange()
+    schedulePendingQueueRetry()
+  }
+}
+
+/** Sync only the order queue and remote order list while the POS screen is open. */
+export async function syncOrdersNow(): Promise<SyncResult> {
+  if (syncRunning) return { ...(await getSyncState()), ok: false }
+  if (!supabaseConfigured || !supabase || !navigator.onLine) return { ...(await getSyncState()), ok: false }
+
+  // También protege este ciclo corto de pedidos contra solapamientos con el
+  // sincronizador general y las actualizaciones de preferencias.
+  syncRunning = true
+  lastError = undefined
+  emitSyncChange()
+  try {
+    const remoteSessionReady = await ensureRemoteSession()
+    if (!remoteSessionReady) {
+      schedulePendingQueueRetry()
+      return { ...(await getSyncState()), ok: false }
+    }
+    await applyRemotePosVirginResetState()
+    await applyRemoteSalesPurgeMarker()
+    // Primero intenta enviar todas las operaciones pendientes (incluido el
+    // pedido guardado offline); después descarga el listado autoritativo.
+    await flushQueue()
+    await reconcileEntity('orders')
+    lastSyncedAt = stamp()
+    const state = await getSyncState()
+    clearPendingQueueRetryIfEmpty(state.pending)
+    return { ...state, ok: state.pending === 0 && !state.lastError }
+  } catch (error) {
+    lastError = cleanError(error)
+    return { ...(await getSyncState()), ok: false }
+  } finally {
+    syncRunning = false
+    emitSyncChange()
+    schedulePendingQueueRetry()
   }
 }
 
