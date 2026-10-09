@@ -397,16 +397,22 @@ async function upsertRemote(entity: SyncEntity, payload: unknown) {
     case 'products': query = supabase.from('products').upsert(productRow(payload as Product), { onConflict: 'id' }).select('*').single(); break
     case 'customers': query = supabase.from('customers').upsert(customerRow(payload as Customer), { onConflict: 'id' }).select('*').single(); break
     case 'orders': query = supabase.from('orders').upsert(orderRow(payload as Order), { onConflict: 'id' }).select('*').single(); break
-    case 'sales':
-      // Las ventas son registros append-only. Si una respuesta de red se perdió
-      // después de que Supabase insertó la venta, reintentar con UPSERT como UPDATE
-      // exigiría el permiso sales.delete a un trabajador. Ignoramos el duplicado
-      // por id y dejamos que la reconciliación lea la versión remota.
-      // IMPORTANTE: Supabase devuelve un ARRAY con select('*'). Normalizamos a una
-      // sola fila para no convertir accidentalmente ese array en una venta local con
-      // id="undefined".
-      query = supabase.from('sales').upsert(saleRow(payload as Sale), { onConflict: 'id', ignoreDuplicates: true }).select('*')
+    case 'sales': {
+      const sale = payload as Sale
+      if (sale.deletedAt) {
+        // A normal delete in the Sales screen is a soft delete. It MUST update
+        // the remote row's deleted_at; insert-only/ignoreDuplicates would leave
+        // Supabase unchanged, so the next reconciliation would restore the sale.
+        // The sales.update RLS policy already requires sales.delete permission.
+        query = supabase.from('sales').update(saleRow(sale)).eq('id', sale.id).select('*').maybeSingle()
+      } else {
+        // Ordinary sale creation is insert-only. If the response was lost after
+        // Supabase accepted it, retrying must not overwrite the existing sale.
+        // Supabase returns an array here; normalize it below.
+        query = supabase.from('sales').upsert(saleRow(sale), { onConflict: 'id', ignoreDuplicates: true }).select('*')
+      }
       break
+    }
     case 'cash_closures': query = supabase.from('cash_closures').upsert(closureRow(payload as CashClosure), { onConflict: 'id' }).select('*').single(); break
     case 'settings': query = supabase.from('settings').upsert(settingRow(payload as SystemSetting), { onConflict: 'id' }).select('*').single(); break
     case 'audit_events': query = supabase.from('audit_events').insert(auditRow(payload as AuditEvent)); break
@@ -417,6 +423,22 @@ async function upsertRemote(entity: SyncEntity, payload: unknown) {
   const { data, error } = await query
   if (error) throw error
   if (entity === 'sales') {
+    const sale = payload as Sale
+    if (sale.deletedAt && !data) {
+      // UPDATE may return no row if RLS filtered it or the row was physically
+      // purged in another device. Distinguish these cases so a permission issue
+      // is surfaced instead of silently clearing the outbox and resurrecting it.
+      const { data: stillExists, error: lookupError } = await supabase
+        .from('sales')
+        .select('id')
+        .eq('id', sale.id)
+        .maybeSingle()
+      if (lookupError) throw lookupError
+      if (stillExists) {
+        throw new Error('Supabase no confirmó la eliminación de la venta. Verifica el permiso sales.delete del perfil.')
+      }
+      return null
+    }
     if (Array.isArray(data)) return data[0] || null
     return data || null
   }
