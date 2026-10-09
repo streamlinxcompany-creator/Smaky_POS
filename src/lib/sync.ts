@@ -26,6 +26,9 @@ let started = false
 let retryTimer: number | null = null
 let scheduledSyncTimer: number | null = null
 let settingsPollingTimer: number | null = null
+let liveSyncFallbackTimer: number | null = null
+let liveSyncDebounceTimer: number | null = null
+let liveSyncChannel: { unsubscribe: () => Promise<unknown> } | null = null
 let pendingQueueRetryTimer: number | null = null
 let lastError: string | undefined
 let lastSyncedAt: string | undefined
@@ -415,9 +418,12 @@ async function upsertRemote(entity: SyncEntity, payload: unknown) {
     }
     case 'cash_closures': query = supabase.from('cash_closures').upsert(closureRow(payload as CashClosure), { onConflict: 'id' }).select('*').single(); break
     case 'settings': query = supabase.from('settings').upsert(settingRow(payload as SystemSetting), { onConflict: 'id' }).select('*').single(); break
-    case 'audit_events': query = supabase.from('audit_events').insert(auditRow(payload as AuditEvent)); break
-    case 'history_records': query = supabase.from('history_records').insert(historyRow(payload as HistoryRecord)); break
-    case 'backups': query = supabase.from('backup_snapshots').insert(backupRow(payload as BackupSnapshot)); break
+    // Append-only entities still need idempotent delivery: a network timeout can
+    // happen after Postgres committed the row but before the client cleared its
+    // outbox. On retry, DO NOTHING on the same primary key is success, not an error.
+    case 'audit_events': query = supabase.from('audit_events').upsert(auditRow(payload as AuditEvent), { onConflict: 'id', ignoreDuplicates: true }); break
+    case 'history_records': query = supabase.from('history_records').upsert(historyRow(payload as HistoryRecord), { onConflict: 'id', ignoreDuplicates: true }); break
+    case 'backups': query = supabase.from('backup_snapshots').upsert(backupRow(payload as BackupSnapshot), { onConflict: 'id', ignoreDuplicates: true }); break
     default: throw new Error(`Entidad no soportada: ${entity}`)
   }
   const { data, error } = await query
@@ -1478,6 +1484,7 @@ export async function syncNow(): Promise<SyncResult> {
     const localClosurePurgePending = await hasPendingCashClosurePurge()
     const localPurgePending = localSalesPurgePending || localClosurePurgePending
     const remoteSessionReady = await ensureRemoteSession()
+    if (remoteSessionReady) startRealtimeSubscription()
     if (!remoteSessionReady && !localPurgePending) {
       schedulePendingQueueRetry()
       return { ...(await getSyncState()), ok: false }
@@ -1538,6 +1545,7 @@ export async function syncOrdersNow(): Promise<SyncResult> {
       schedulePendingQueueRetry()
       return { ...(await getSyncState()), ok: false }
     }
+    startRealtimeSubscription()
     await applyRemotePosVirginResetState()
     await applyRemoteSalesPurgeMarker()
     // Primero intenta enviar todas las operaciones pendientes (incluido el
@@ -1560,6 +1568,38 @@ export async function syncOrdersNow(): Promise<SyncResult> {
 
 export async function syncAfterLogin() {
   await syncNow()
+}
+
+function scheduleRealtimeSync() {
+  if (typeof window === 'undefined' || !navigator.onLine || !supabaseConfigured || !supabase) return
+  if (liveSyncDebounceTimer !== null) window.clearTimeout(liveSyncDebounceTimer)
+  liveSyncDebounceTimer = window.setTimeout(() => {
+    liveSyncDebounceTimer = null
+    if (document.visibilityState === 'visible' && navigator.onLine) void syncNow()
+  }, 350)
+}
+
+/**
+ * Listen for remote writes and reconcile local caches shortly afterwards.
+ * The SQL migration adds these tables to supabase_realtime; a slow fallback
+ * sync remains enabled to recover if a websocket notification is missed.
+ */
+function startRealtimeSubscription() {
+  if (liveSyncChannel || !supabaseConfigured || !supabase) return
+  const tables = [
+    'settings', 'products', 'customers', 'orders', 'sales', 'cash_closures',
+    'audit_events', 'history_records', 'backup_snapshots',
+  ] as const
+  let channel = supabase.channel('smaky-pos-live-sync')
+  for (const table of tables) {
+    channel = channel.on('postgres_changes', { event: '*', schema: 'public', table }, () => {
+      scheduleRealtimeSync()
+    })
+  }
+  liveSyncChannel = channel
+  channel.subscribe((status) => {
+    if (status === 'SUBSCRIBED') scheduleRealtimeSync()
+  })
 }
 
 function scheduleRetry(force = false) {
@@ -1587,13 +1627,17 @@ export function startSync() {
   // una recarga con el perfil ya iniciado también consulte Supabase al arrancar.
   window.addEventListener('smaky-data-ready', () => { scheduleRetry(true) })
 
-  // Las pantallas abiertas reciben configuraciones cambiadas desde otros equipos
-  // sin necesitar cerrar sesión. Se consulta únicamente la tabla pequeña settings;
-  // las demás entidades se reconcilian al iniciar, volver a la pestaña o reconectar.
+  // The websocket normally propagates changes in well under a second. These
+  // polling fallbacks recover missed notifications and still skip hidden/offline tabs.
   if (settingsPollingTimer === null) {
     settingsPollingTimer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void refreshRemoteSettings()
-    }, 10_000)
+      if (document.visibilityState === 'visible' && navigator.onLine) void refreshRemoteSettings()
+    }, 30_000)
+  }
+  if (liveSyncFallbackTimer === null) {
+    liveSyncFallbackTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && navigator.onLine) void syncNow()
+    }, 45_000)
   }
 }
 
