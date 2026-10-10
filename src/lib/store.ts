@@ -185,6 +185,8 @@ const CATEGORY_SETTING_KEY = 'productCategories'
 const PAYMENT_METHODS_SETTING_KEY = 'paymentMethods'
 export const ORDER_FIELDS_SETTING_KEY = 'orderFields'
 export const GENERAL_SETTINGS_KEY = 'generalSettings'
+export const INVENTORY_UNITS_SETTING_KEY = 'inventoryUnits'
+export const DEFAULT_INVENTORY_UNITS = ['unidad', 'pieza', 'porción', 'kg', 'g', 'L', 'ml', 'frasco', 'paquete', 'botella']
 
 export const DEFAULT_ORDER_FIELDS: import('./types').OrderFieldConfig[] = [
   { id: 'name', label: 'Nombre', type: 'text', enabled: true, required: true, system: true },
@@ -192,6 +194,56 @@ export const DEFAULT_ORDER_FIELDS: import('./types').OrderFieldConfig[] = [
   { id: 'address', label: 'Dirección', type: 'address', enabled: true, required: false, system: true },
   { id: 'notes', label: 'Observaciones', type: 'textarea', enabled: true, required: false, system: true },
 ]
+
+
+function normalizeUnitNames(values: unknown[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const value of values) {
+    const name = String(value ?? '').trim().replace(/\s+/g, ' ')
+    const normalized = name.toLocaleLowerCase('es')
+    if (!name || name.length > 32 || seen.has(normalized)) continue
+    seen.add(normalized)
+    result.push(name)
+  }
+  return result
+}
+
+/** Base and custom units shared through the existing Supabase-backed settings sync. */
+export async function getCustomInventoryUnits(): Promise<string[]> {
+  const setting = await db.settings.get(INVENTORY_UNITS_SETTING_KEY)
+  if (!Array.isArray(setting?.value)) return []
+  const base = new Set(DEFAULT_INVENTORY_UNITS.map(unit => unit.toLocaleLowerCase('es')))
+  return normalizeUnitNames(setting.value).filter(unit => !base.has(unit.toLocaleLowerCase('es')))
+}
+
+export async function getInventoryUnits(): Promise<string[]> {
+  const custom = await getCustomInventoryUnits()
+  const base = new Set(DEFAULT_INVENTORY_UNITS.map(unit => unit.toLocaleLowerCase('es')))
+  return [...DEFAULT_INVENTORY_UNITS, ...custom.filter(unit => !base.has(unit.toLocaleLowerCase('es')))]
+}
+
+export async function saveCustomInventoryUnits(units: string[], actor: User): Promise<string[]> {
+  if (!actor || !['manager', 'admin'].includes(actor.role)) {
+    throw new Error('Solo el gerente o administrador puede configurar las unidades de medida compartidas.')
+  }
+  const before = await getCustomInventoryUnits()
+  const base = new Set(DEFAULT_INVENTORY_UNITS.map(unit => unit.toLocaleLowerCase('es')))
+  const after = normalizeUnitNames(units).filter(unit => !base.has(unit.toLocaleLowerCase('es')))
+  const now = new Date().toISOString()
+  const setting: SystemSetting = {
+    id: INVENTORY_UNITS_SETTING_KEY,
+    key: INVENTORY_UNITS_SETTING_KEY,
+    value: after,
+    updatedAt: now,
+  }
+  await persistPut(db.settings, 'settings', setting)
+  await audit('INVENTORY_UNITS_UPDATED', 'INVENTORY', 'setting', INVENTORY_UNITS_SETTING_KEY, { units: before }, { units: after }, actor)
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('smaky-settings-change', { detail: { key: INVENTORY_UNITS_SETTING_KEY } }))
+  }
+  return after
+}
 
 export const DEFAULT_GENERAL_SETTINGS: import('./types').GeneralSettings = {
   themeMode: 'dark',

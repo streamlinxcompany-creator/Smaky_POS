@@ -1,13 +1,14 @@
-import { Banknote, Check, ChevronRight, CreditCard, Pencil, Plus, Settings2, Tag, Trash2, WalletCards, Users as UsersIcon, Package, ClipboardList, Palette, Sun, Moon, Monitor, GripVertical, X, FileText } from 'lucide-react'
+import { Banknote, Check, ChevronRight, CreditCard, Pencil, Plus, Settings2, Tag, Trash2, WalletCards, Users as UsersIcon, Package, ClipboardList, Palette, Sun, Moon, Monitor, GripVertical, X, FileText, Ruler } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { getSessionUser, hasPermission } from '../lib/auth'
-import { addPaymentMethod, addProductCategory, DEFAULT_GENERAL_SETTINGS, DEFAULT_ORDER_FIELDS, DEFAULT_PRODUCT_CATEGORIES, deletePaymentMethod, deleteProductCategory, getAllProducts, getGeneralSettings, getOrderFields, getPaymentMethods, getProductCategories, updateGeneralSettings, updateOrderFields, updatePaymentMethod, updateProductCategory } from '../lib/store'
+import { addPaymentMethod, addProductCategory, DEFAULT_GENERAL_SETTINGS, DEFAULT_ORDER_FIELDS, DEFAULT_PRODUCT_CATEGORIES, DEFAULT_INVENTORY_UNITS, deletePaymentMethod, deleteProductCategory, getAllProducts, getCustomInventoryUnits, getGeneralSettings, getInventoryUnits, getOrderFields, getPaymentMethods, getProductCategories, saveCustomInventoryUnits, updateGeneralSettings, updateOrderFields, updatePaymentMethod, updateProductCategory } from '../lib/store'
 import type { GeneralSettings, OrderFieldConfig, OrderFieldType, PaymentMethodConfig, ThemeMode } from '../lib/types'
 import type { LucideIcon } from 'lucide-react'
 import { Users } from './Users'
 import { Products } from './Products'
+import { getInventorySnapshot } from '../lib/inventory'
 
-type SettingsSection = 'general' | 'orders' | 'payments' | 'categories' | 'products' | 'invoice' | 'users'
+type SettingsSection = 'general' | 'orders' | 'payments' | 'categories' | 'products' | 'inventory' | 'invoice' | 'users'
 
 const paymentIcon = (id: string) => id === 'cash' ? Banknote : id === 'transfer' ? WalletCards : CreditCard
 
@@ -17,6 +18,7 @@ const sectionMeta: Array<{ id: SettingsSection; label: string; description: stri
   { id: 'payments', label: 'Medios de pago', description: 'Cobros' },
   { id: 'categories', label: 'Categorías', description: 'Productos' },
   { id: 'products', label: 'Productos', description: 'Catálogo' },
+  { id: 'inventory', label: 'Inventario', description: 'Unidades de medida' },
   { id: 'invoice', label: 'Factura', description: 'Comprobante' },
 ]
 
@@ -26,6 +28,9 @@ export function Settings() {
   const [categories, setCategories] = useState<string[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>([])
   const [products, setProducts] = useState<Awaited<ReturnType<typeof getAllProducts>>>([])
+  const [inventoryUnits, setInventoryUnits] = useState<string[]>(DEFAULT_INVENTORY_UNITS)
+  const [customInventoryUnits, setCustomInventoryUnits] = useState<string[]>([])
+  const [newInventoryUnit, setNewInventoryUnit] = useState('')
   const [categoryName, setCategoryName] = useState('')
   const [editingCategory, setEditingCategory] = useState<string | null>(null)
   const [editingCategoryName, setEditingCategoryName] = useState('')
@@ -54,14 +59,17 @@ export function Settings() {
   const canManageOrders = !!user && hasPermission(user, 'settings.orders')
   const canManagePayments = !!user && hasPermission(user, 'settings.payments')
   const canManageCategories = !!user && hasPermission(user, 'settings.categories')
+  const canManageInventory = !!user && ['manager', 'admin'].includes(user.role)
 
   const load = async () => {
-    const [nextCategories, nextProducts, methods, fields, general] = await Promise.all([getProductCategories(), getAllProducts(), getPaymentMethods(), getOrderFields(), getGeneralSettings()])
+    const [nextCategories, nextProducts, methods, fields, general, units, customUnits] = await Promise.all([getProductCategories(), getAllProducts(), getPaymentMethods(), getOrderFields(), getGeneralSettings(), getInventoryUnits(), getCustomInventoryUnits()])
     setCategories(nextCategories)
     setProducts(nextProducts)
     setPaymentMethods(methods)
     setOrderFields(fields)
     setGeneralSettings(general)
+    setInventoryUnits(units)
+    setCustomInventoryUnits(customUnits)
   }
 
   useEffect(() => {
@@ -95,6 +103,43 @@ export function Settings() {
       setEditingCategoryName('')
       await load()
       setMessage('Categoría actualizada.')
+    } catch (caught) { flashError(caught) } finally { setSaving(false) }
+  }
+
+  const addInventoryUnit = async () => {
+    if (!user || !canManageInventory || saving) return
+    const label = newInventoryUnit.trim().replace(/\s+/g, ' ')
+    if (!label) return
+    if (label.length > 32) { flashError(new Error('La unidad no puede superar 32 caracteres.')); return }
+    if (inventoryUnits.some(unit => unit.toLocaleLowerCase('es') === label.toLocaleLowerCase('es'))) {
+      flashError(new Error('Esa unidad ya existe.'))
+      return
+    }
+    setSaving(true); clearFeedback()
+    try {
+      const nextCustom = await saveCustomInventoryUnits([...customInventoryUnits, label], user)
+      setCustomInventoryUnits(nextCustom)
+      setInventoryUnits(await getInventoryUnits())
+      setNewInventoryUnit('')
+      setMessage('Unidad agregada; se sincronizará con los demás dispositivos.')
+    } catch (caught) { flashError(caught) } finally { setSaving(false) }
+  }
+
+  const removeInventoryUnit = async (unit: string) => {
+    if (!user || !canManageInventory || saving) return
+    if (DEFAULT_INVENTORY_UNITS.some(base => base.toLocaleLowerCase('es') === unit.toLocaleLowerCase('es'))) return
+    if (!window.confirm(`¿Eliminar la unidad “${unit}”?`)) return
+    setSaving(true); clearFeedback()
+    try {
+      const snapshot = await getInventorySnapshot()
+      const normalized = unit.toLocaleLowerCase('es')
+      const usedByItem = snapshot.items.some(item => item.unit.toLocaleLowerCase('es') === normalized)
+      const usedByRecipe = snapshot.recipes.some(recipe => recipe.quantityUnit.toLocaleLowerCase('es') === normalized)
+      if (usedByItem || usedByRecipe) throw new Error(`No se puede eliminar “${unit}” porque ya está usada por un ingrediente o una receta.`)
+      const nextCustom = await saveCustomInventoryUnits(customInventoryUnits.filter(item => item.toLocaleLowerCase('es') !== normalized), user)
+      setCustomInventoryUnits(nextCustom)
+      setInventoryUnits(await getInventoryUnits())
+      setMessage('Unidad eliminada de las opciones compartidas.')
     } catch (caught) { flashError(caught) } finally { setSaving(false) }
   }
 
@@ -203,11 +248,12 @@ export function Settings() {
     ...(canManage || canManagePayments ? ['payments' as const] : []),
     ...(canManage || canManageCategories ? ['categories' as const] : []),
     ...(canManageProducts ? ['products' as const] : []),
+    ...(canManageInventory ? ['inventory' as const] : []),
     ...(canManage || canManageInvoice ? ['invoice' as const] : []),
     ...(isManager ? ['users' as const] : []),
   ]
   const activeSection = allowedSections.includes(section) ? section : allowedSections[0]
-  const contentTitle = activeSection === 'general' ? 'General' : activeSection === 'orders' ? 'Pedidos' : activeSection === 'payments' ? 'Medios de pago' : activeSection === 'categories' ? 'Categorías' : activeSection === 'products' ? 'Productos' : activeSection === 'invoice' ? 'Factura' : 'Usuarios'
+  const contentTitle = activeSection === 'general' ? 'General' : activeSection === 'orders' ? 'Pedidos' : activeSection === 'payments' ? 'Medios de pago' : activeSection === 'categories' ? 'Categorías' : activeSection === 'products' ? 'Productos' : activeSection === 'inventory' ? 'Inventario' : activeSection === 'invoice' ? 'Factura' : 'Usuarios'
 
   return <div className="settings-page">
     <aside className="settings-sidebar">
@@ -224,7 +270,7 @@ export function Settings() {
     </aside>
 
     <main className="settings-content">
-      <header className="settings-content-head"><div><span className="settings-overline">CONFIGURACIÓN</span><h2>{contentTitle}</h2></div><div className="settings-head-count">{activeSection === 'orders' ? `${orderFields.filter(field => field.enabled).length} campos activos` : activeSection === 'payments' ? `${paymentMethods.length} medios` : activeSection === 'categories' ? `${categories.length} categorías` : activeSection === 'products' ? `${products.length} productos` : activeSection === 'invoice' ? `${generalSettings.receiptFontSize}px` : activeSection === 'users' ? 'Accesos' : 'Preferencias'}</div></header>
+      <header className="settings-content-head"><div><span className="settings-overline">CONFIGURACIÓN</span><h2>{contentTitle}</h2></div><div className="settings-head-count">{activeSection === 'orders' ? `${orderFields.filter(field => field.enabled).length} campos activos` : activeSection === 'payments' ? `${paymentMethods.length} medios` : activeSection === 'categories' ? `${categories.length} categorías` : activeSection === 'products' ? `${products.length} productos` : activeSection === 'inventory' ? `${customInventoryUnits.length} personalizadas` : activeSection === 'invoice' ? `${generalSettings.receiptFontSize}px` : activeSection === 'users' ? 'Accesos' : 'Preferencias'}</div></header>
 
       {(error || message) && <div className={`settings-feedback ${error ? 'error' : 'success'}`}>{error || message}</div>}
 
@@ -247,6 +293,7 @@ export function Settings() {
         <div className="settings-list-row settings-list-row-click" onClick={() => setSection('payments')}><div className="settings-row-icon"><CreditCard size={16}/></div><div className="settings-row-copy"><b>Medios de pago</b><span>{paymentMethods.length} disponibles en el cobro</span></div><ChevronRight size={15}/></div>
         <div className="settings-list-row settings-list-row-click" onClick={() => setSection('categories')}><div className="settings-row-icon"><Tag size={16}/></div><div className="settings-row-copy"><b>Categorías</b><span>{categories.length} categorías · {products.length} productos</span></div><ChevronRight size={15}/></div>
         {canManageProducts && <div className="settings-list-row settings-list-row-click" onClick={() => setSection('products')}><div className="settings-row-icon"><Package size={16}/></div><div className="settings-row-copy"><b>Productos</b><span>{products.length} en el catálogo</span></div><ChevronRight size={15}/></div>}
+        {canManageInventory && <div className="settings-list-row settings-list-row-click" onClick={() => setSection('inventory')}><div className="settings-row-icon"><Ruler size={16}/></div><div className="settings-row-copy"><b>Inventario</b><span>{inventoryUnits.length} unidades disponibles</span></div><ChevronRight size={15}/></div>}
         {isManager && <div className="settings-list-row settings-list-row-click" onClick={() => setSection('users')}><div className="settings-row-icon"><UsersIcon size={16}/></div><div className="settings-row-copy"><b>Usuarios y permisos</b><span>Control de acceso por usuario</span></div><ChevronRight size={15}/></div>}
         <div className="settings-list-row settings-preference-row"><div className="settings-row-icon"><UsersIcon size={16}/></div><div className="settings-row-copy"><b>Consumidor final</b><span>Mostrarlo como opción rápida al iniciar un pedido.</span></div><label className="settings-toggle"><input type="checkbox" checked={generalSettings.showConsumerFinal} disabled={saving} onChange={event => void saveGeneral({ showConsumerFinal: event.target.checked })}/><span></span></label></div>
         </section>
@@ -256,6 +303,28 @@ export function Settings() {
         <section className="settings-list-card settings-feature-card">
           <div className="settings-feature-head"><div className="settings-row-icon settings-feature-icon"><FileText size={17}/></div><div><b>Tamaño de letra de la factura</b><span>Se aplica a las próximas impresiones de comprobantes.</span></div></div>
           <label className="settings-field-editor-label"><span>Tamaño</span><select value={generalSettings.receiptFontSize} disabled={saving} onChange={event => void saveGeneral({ receiptFontSize: Number(event.target.value) })}>{Array.from({ length: 17 }, (_, index) => index + 4).map(size => <option key={size} value={size}>{size}px</option>)}</select></label>
+        </section>
+      </div>}
+
+      {activeSection === 'inventory' && canManageInventory && <div className="settings-stack">
+        <section className="settings-list-card settings-feature-card settings-inventory-units-card">
+          <div className="settings-feature-head"><div className="settings-row-icon settings-feature-icon"><Ruler size={17}/></div><div><b>Unidades de medida</b><span>Personaliza cómo cuentas tus ingredientes. Las unidades se comparten entre todos los dispositivos.</span></div></div>
+          <form className="settings-inventory-unit-add" onSubmit={event => { event.preventDefault(); void addInventoryUnit() }}>
+            <label><span>Nueva unidad</span><input value={newInventoryUnit} onChange={event => setNewInventoryUnit(event.target.value)} placeholder="Ej. bandeja, cucharón, paquete" maxLength={32} disabled={saving}/></label>
+            <button className="primary" type="submit" disabled={saving || !newInventoryUnit.trim()}><Plus size={15}/>{saving ? 'Guardando…' : 'Agregar unidad'}</button>
+          </form>
+          <div className="settings-inventory-unit-section-label"><b>Unidades disponibles</b><span>{inventoryUnits.length}</span></div>
+          <div className="settings-inventory-unit-list">
+            {inventoryUnits.map(unit => {
+              const isBase = DEFAULT_INVENTORY_UNITS.some(base => base.toLocaleLowerCase('es') === unit.toLocaleLowerCase('es'))
+              return <div className="settings-inventory-unit-row" key={unit}>
+                <div className="settings-inventory-unit-mark"><Ruler size={15}/></div>
+                <div className="settings-row-copy"><b>{unit}</b><span>{isBase ? 'Incluida en Smaky' : 'Personalizada'}</span></div>
+                {isBase ? <span className="settings-inventory-unit-badge">Base</span> : <button className="settings-action-btn danger" type="button" disabled={saving} onClick={() => void removeInventoryUnit(unit)} title={`Eliminar unidad ${unit}`} aria-label={`Eliminar unidad ${unit}`}><Trash2 size={14}/></button>}
+              </div>
+            })}
+          </div>
+          <p className="settings-inventory-unit-note">Las unidades base no se pueden eliminar. Las personalizadas aparecen al crear ingredientes y en recetas cuando son compatibles. Solo kg/g y L/ml convierten automáticamente; las demás unidades son independientes. Una unidad usada no se puede quitar.</p>
         </section>
       </div>}
 

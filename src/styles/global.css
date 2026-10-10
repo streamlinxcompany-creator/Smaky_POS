@@ -1806,3 +1806,28 @@ html[data-theme='light'] .checkout-editor-modal .checkout-discount-total>small{c
 .inventory-recipe-components-head{margin-top:14px}
 @media(max-width:760px){.inventory-recipe-component-line{grid-template-columns:minmax(0,1fr) 90px 33px;align-items:end}.inventory-recipe-component-line label:first-child{grid-column:1/-1}.inventory-recipe-component-line .inventory-remove-line{grid-column:3;grid-row:2}}
 .inventory-load-more{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;padding:14px 8px;color:#77716c;font-size:11px;text-align:center}.inventory-load-more button{display:inline-flex;align-items:center;justify-content:center;gap:7px;width:auto;min-height:38px;padding:9px 13px;border:1px solid #39302b;background:#191412;color:#d6ac98;border-radius:9px;font-size:11px;font-weight:800}.inventory-load-more button:disabled{opacity:.55;cursor:wait}.inventory-load-more span{max-width:320px;line-height:1.4}
+
+/* Inventario en Configuraciones: unidades compartidas, compactas y editables. */
+.settings-inventory-units-card{display:grid;gap:14px}
+.settings-inventory-unit-add{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:9px;padding:14px;border:1px solid #292d2e;background:#111314;border-radius:11px}
+.settings-inventory-unit-add label{display:grid;gap:6px;min-width:0}
+.settings-inventory-unit-add label>span{font-size:11px;font-weight:900;letter-spacing:.7px;color:#77716c;text-transform:uppercase}
+.settings-inventory-unit-add input{width:100%;min-width:0;background:#090b0c;border:1px solid #303435;border-radius:9px;color:#eee;padding:11px 12px;outline:0;font:inherit;font-size:13px}
+.settings-inventory-unit-add input:focus{border-color:#824027}
+.settings-inventory-unit-add .primary{display:flex;align-items:center;justify-content:center;gap:6px;width:auto;white-space:nowrap;min-height:40px}
+.settings-inventory-unit-section-label{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 1px}
+.settings-inventory-unit-section-label b{font-size:13px;color:#ded7d1}
+.settings-inventory-unit-section-label span{display:grid;place-items:center;min-width:25px;height:25px;padding:0 7px;border:1px solid #343738;background:#151819;border-radius:8px;color:#c4bbb4;font-size:11px;font-weight:900}
+.settings-inventory-unit-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.settings-inventory-unit-row{display:grid;grid-template-columns:31px minmax(0,1fr) auto;align-items:center;gap:9px;min-width:0;padding:10px;border:1px solid #282c2d;background:#101213;border-radius:10px}
+.settings-inventory-unit-mark{display:grid;place-items:center;width:31px;height:31px;border:1px solid #493025;background:#211511;border-radius:9px;color:#d58a66}
+.settings-inventory-unit-row .settings-row-copy{min-width:0}
+.settings-inventory-unit-row .settings-row-copy b{display:block;overflow:hidden;color:#e8e0da;font-size:12px;text-overflow:ellipsis;white-space:nowrap}
+.settings-inventory-unit-row .settings-row-copy span{display:block;margin-top:3px;color:#77716c;font-size:10px}
+.settings-inventory-unit-badge{padding:4px 6px;border:1px solid #303536;background:#171a1b;border-radius:6px;color:#8e8882;font-size:9px;font-weight:900;text-transform:uppercase}
+.settings-inventory-unit-note{margin:0;padding:10px 12px;border-left:2px solid #6f3825;background:#151211;color:#837970;font-size:11px;line-height:1.5}
+.inventory-recipe-editor-head{padding:10px 12px}
+.inventory-recipe-editor-head span{font-size:10px;margin-top:3px}
+.inventory-recipe-editor-head b small{font-size:10px;font-weight:600;color:#88817b}
+.inventory-recipe-note-compact{align-items:center;padding:8px 10px;font-size:10px;line-height:1.35}
+@media(max-width:640px){.settings-inventory-unit-add{grid-template-columns:1fr}.settings-inventory-unit-add .primary{width:100%}.settings-inventory-unit-list{grid-template-columns:1fr}}
