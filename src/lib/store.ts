@@ -1,4 +1,5 @@
 import { db } from './db'
+import { supabase, supabaseConfigured } from './supabase'
 import type { Table } from 'dexie'
 import { applyLocalCashClosurePurge, applyLocalSalesPurge, enqueueCashClosuresPurgeOperation, enqueueEntityUpsert, enqueueResetOperation, enqueueSalesPurgeOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, isNetworkError, purgeRemoteCashClosures, purgeRemoteSales, resetRemoteData, purgePosToVirgin, withSyncSuppressed } from './sync'
 import { products as seedProducts } from './demoData'
@@ -186,7 +187,7 @@ const PAYMENT_METHODS_SETTING_KEY = 'paymentMethods'
 export const ORDER_FIELDS_SETTING_KEY = 'orderFields'
 export const GENERAL_SETTINGS_KEY = 'generalSettings'
 export const INVENTORY_UNITS_SETTING_KEY = 'inventoryUnits'
-export const DEFAULT_INVENTORY_UNITS = ['unidad', 'pieza', 'porción', 'kg', 'g', 'L', 'ml', 'frasco', 'paquete', 'botella']
+export const DEFAULT_INVENTORY_UNITS = ['unidad']
 
 export const DEFAULT_ORDER_FIELDS: import('./types').OrderFieldConfig[] = [
   { id: 'name', label: 'Nombre', type: 'text', enabled: true, required: true, system: true },
@@ -209,9 +210,51 @@ function normalizeUnitNames(values: unknown[]): string[] {
   return result
 }
 
+/** Read the shared unit list. Prefer pending local edits; otherwise refresh it from Supabase. */
+async function readInventoryUnitsSetting(): Promise<SystemSetting | undefined> {
+  let local = await db.settings.get(INVENTORY_UNITS_SETTING_KEY)
+  const pendingCount = await db.syncQueue
+    .where('[entity+recordId]')
+    .equals(['settings', INVENTORY_UNITS_SETTING_KEY])
+    .count()
+    .catch(() => 0)
+
+  // Never overwrite a unit list that has not reached the server yet.
+  if (pendingCount > 0 || !supabaseConfigured || !supabase || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+    return local
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('settings')
+      .select('id,key,updated_at,data')
+      .eq('id', INVENTORY_UNITS_SETTING_KEY)
+      .maybeSingle()
+
+    if (!error && data && Array.isArray((data.data as Record<string, unknown> | null)?.value)) {
+      const remoteUpdatedAt = String(data.updated_at || (data.data as Record<string, unknown> | null)?.updatedAt || new Date(0).toISOString())
+      const localTime = Date.parse(local?.updatedAt || '') || 0
+      const remoteTime = Date.parse(remoteUpdatedAt) || 0
+      if (!local || remoteTime >= localTime) {
+        local = {
+          id: INVENTORY_UNITS_SETTING_KEY,
+          key: String(data.key || INVENTORY_UNITS_SETTING_KEY),
+          value: normalizeUnitNames(((data.data as Record<string, unknown>).value as unknown[]) || []),
+          updatedAt: remoteUpdatedAt,
+        }
+        await db.settings.put(local)
+      }
+    }
+  } catch {
+    // Offline and temporary RLS/network errors fall back to the local cache.
+  }
+
+  return local
+}
+
 /** Base and custom units shared through the existing Supabase-backed settings sync. */
 export async function getCustomInventoryUnits(): Promise<string[]> {
-  const setting = await db.settings.get(INVENTORY_UNITS_SETTING_KEY)
+  const setting = await readInventoryUnitsSetting()
   if (!Array.isArray(setting?.value)) return []
   const base = new Set(DEFAULT_INVENTORY_UNITS.map(unit => unit.toLocaleLowerCase('es')))
   return normalizeUnitNames(setting.value).filter(unit => !base.has(unit.toLocaleLowerCase('es')))
