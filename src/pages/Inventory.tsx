@@ -67,6 +67,18 @@ function normalizeSaleSnapshot(movement: InventoryMovement): Sale | null {
   return snapshot as unknown as Sale
 }
 
+function notifyCatalogProductLinked(productId: string) {
+  const linkSignal = { productId, at: Date.now() }
+  try { localStorage.setItem('smaky-inventory-catalog-linked', JSON.stringify(linkSignal)) } catch { /* BroadcastChannel below is the primary cross-tab signal */ }
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const channel = new BroadcastChannel('smaky-inventory-catalog-link')
+      channel.postMessage(linkSignal)
+      channel.close()
+    }
+  } catch { /* the POS can refresh inventory state on the next open */ }
+}
+
 export function Inventory() {
   const user = getSessionUser()
   const [snapshot, setSnapshot] = useState<InventorySnapshot>(emptySnapshot)
@@ -85,6 +97,8 @@ export function Inventory() {
   const [showItemForm, setShowItemForm] = useState(false)
   const [showCatalogProductForm, setShowCatalogProductForm] = useState(false)
   const [catalogProductForm, setCatalogProductForm] = useState<CatalogProductForm>({ productId: '', initialQuantity: '0', lowStockQuantity: '' })
+  const [requestedCatalogProductId, setRequestedCatalogProductId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('linkProductId'))
+  const [lockedCatalogProductId, setLockedCatalogProductId] = useState<string | null>(null)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
   const [itemForm, setItemForm] = useState<ItemForm>({ name: '', category: '', unit: 'unidad', initialQuantity: '0', lowStockQuantity: '', note: '' })
@@ -147,6 +161,33 @@ export function Inventory() {
       window.removeEventListener('smaky-settings-change', handleSettingsChange)
     }
   }, [refresh])
+
+
+  useEffect(() => {
+    if (!requestedCatalogProductId || loading) return
+    const productId = requestedCatalogProductId
+    const product = products.find(row => row.id === productId)
+    const existing = snapshot.items.find(item => item.recordKind === 'catalog_product' && item.catalogProductId === productId && item.active)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('linkProductId')
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+    setActiveTab('products')
+    setRequestedCatalogProductId(null)
+    if (existing) {
+      notifyCatalogProductLinked(productId)
+      setFeedback(`${product?.name || existing.name} ya está vinculado al inventario.`)
+      return
+    }
+    if (!product || product.deletedAt || !product.active) {
+      setPageError('El producto seleccionado ya no está activo en el catálogo. Vuelve al pedido y comprueba el producto.')
+      return
+    }
+    setCatalogProductForm({ productId, initialQuantity: '0', lowStockQuantity: '' })
+    setLockedCatalogProductId(productId)
+    setPageError('')
+    setFeedback('')
+    setShowCatalogProductForm(true)
+  }, [requestedCatalogProductId, loading, products, snapshot.items])
 
   const ingredientItems = useMemo(() => snapshot.items.filter(item => item.recordKind !== 'catalog_product'), [snapshot.items])
   const catalogStockItems = useMemo(() => snapshot.items.filter(item => item.recordKind === 'catalog_product'), [snapshot.items])
@@ -212,6 +253,7 @@ export function Inventory() {
   const openLinkCatalogProduct = () => {
     setShowEntryChoice(false)
     setCatalogProductForm({ productId: '', initialQuantity: '0', lowStockQuantity: '' })
+    setLockedCatalogProductId(null)
     setPageError(''); setFeedback(''); setShowCatalogProductForm(true)
   }
 
@@ -227,7 +269,9 @@ export function Inventory() {
     setSaving(true); setPageError(''); setFeedback('')
     try {
       await linkCatalogProductToInventory({ productId, initialQuantity, lowStockQuantity: low })
+      notifyCatalogProductLinked(productId)
       setShowCatalogProductForm(false)
+      setLockedCatalogProductId(null)
       setActiveTab('products')
       setFeedback('Producto vinculado al inventario. Las ventas descontarán su existencia automáticamente.')
       await refresh(true)
@@ -555,7 +599,7 @@ export function Inventory() {
 
     {showEntryChoice && <div className="modal-backdrop inventory-modal-backdrop" onClick={event => { if (event.target === event.currentTarget) setShowEntryChoice(false) }}><div className="modal inventory-modal inventory-entry-choice-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-entry-choice-title"><div className="modal-header"><div><p className="eyebrow">NUEVO REGISTRO</p><h2 id="inventory-entry-choice-title">¿Qué quieres agregar?</h2><p className="muted">Elige cómo se controla en tu restaurante.</p></div><button className="inventory-icon-btn" onClick={() => setShowEntryChoice(false)} aria-label="Cerrar"><X size={18}/></button></div><div className="inventory-entry-choice-grid"><button type="button" onClick={openCreateIngredient}><span className="inventory-entry-choice-icon ingredient"><Boxes size={22}/></span><b>Ingrediente o insumo</b><small>Carne, pan, salsas y materiales que usan las recetas.</small><span className="inventory-entry-choice-action">Crear ingrediente <Plus size={15}/></span></button><button type="button" onClick={openLinkCatalogProduct} disabled={!availableCatalogProducts.length}><span className="inventory-entry-choice-icon product"><Package size={22}/></span><b>Producto del catálogo</b><small>Producto ya creado en Smaky; registra cuántas unidades llegaron.</small><span className="inventory-entry-choice-action">Vincular producto <Plus size={15}/></span>{!availableCatalogProducts.length && <em>Todos los productos activos ya están vinculados.</em>}</button></div></div></div>}
 
-    {showCatalogProductForm && <div className="modal-backdrop inventory-modal-backdrop" onClick={event => { if (event.target === event.currentTarget && !saving) setShowCatalogProductForm(false) }}><div className="modal inventory-modal inventory-catalog-link-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-catalog-link-title"><div className="modal-header"><div><p className="eyebrow">PRODUCTO DE CATÁLOGO</p><h2 id="inventory-catalog-link-title">Controlar existencias de un producto</h2></div><button className="inventory-icon-btn" onClick={() => !saving && setShowCatalogProductForm(false)} aria-label="Cerrar"><X size={18}/></button></div><form onSubmit={saveCatalogProductLink}><label>Producto existente<select value={catalogProductForm.productId} onChange={event => setCatalogProductForm(current => ({ ...current, productId: event.target.value }))} required><option value="">Seleccionar del catálogo…</option>{availableCatalogProducts.map(product => <option key={product.id} value={product.id}>{product.name} · {product.category}</option>)}</select></label><label>Unidades que hay actualmente<input type="number" min="0" step="1" value={catalogProductForm.initialQuantity} onChange={event => setCatalogProductForm(current => ({ ...current, initialQuantity: event.target.value }))} required/></label><label>Notificar cuando queden (opcional)<input type="number" min="0" step="1" value={catalogProductForm.lowStockQuantity} onChange={event => setCatalogProductForm(current => ({ ...current, lowStockQuantity: event.target.value }))} placeholder="Sin alerta"/></label>{pageError && <p className="form-error">{pageError}</p>}<div className="modal-actions"><button type="button" className="secondary" onClick={() => setShowCatalogProductForm(false)} disabled={saving}>Cancelar</button><button type="submit" className="primary" disabled={saving || !navigator.onLine}>{saving ? 'Guardando…' : 'Agregar al inventario'}</button></div></form></div></div>}
+    {showCatalogProductForm && <div className="modal-backdrop inventory-modal-backdrop" onClick={event => { if (event.target === event.currentTarget && !saving) setShowCatalogProductForm(false); setLockedCatalogProductId(null) }}><div className="modal inventory-modal inventory-catalog-link-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-catalog-link-title"><div className="modal-header"><div><p className="eyebrow">PRODUCTO DE CATÁLOGO</p><h2 id="inventory-catalog-link-title">Controlar existencias de un producto</h2></div><button className="inventory-icon-btn" onClick={() => { if (!saving) { setShowCatalogProductForm(false); setLockedCatalogProductId(null) } }} aria-label="Cerrar"><X size={18}/></button></div><form onSubmit={saveCatalogProductLink}><label>Producto existente<select value={catalogProductForm.productId} onChange={event => setCatalogProductForm(current => ({ ...current, productId: event.target.value }))} disabled={Boolean(lockedCatalogProductId)} required><option value="">Seleccionar del catálogo…</option>{availableCatalogProducts.map(product => <option key={product.id} value={product.id}>{product.name} · {product.category}</option>)}</select>{lockedCatalogProductId && <small>Seleccionado desde el pedido que estás preparando.</small>}</label><label>Unidades que hay actualmente<input type="number" min="0" step="1" value={catalogProductForm.initialQuantity} onChange={event => setCatalogProductForm(current => ({ ...current, initialQuantity: event.target.value }))} required/></label><label>Notificar cuando queden (opcional)<input type="number" min="0" step="1" value={catalogProductForm.lowStockQuantity} onChange={event => setCatalogProductForm(current => ({ ...current, lowStockQuantity: event.target.value }))} placeholder="Sin alerta"/></label>{pageError && <p className="form-error">{pageError}</p>}<div className="modal-actions"><button type="button" className="secondary" onClick={() => { setShowCatalogProductForm(false); setLockedCatalogProductId(null) }} disabled={saving}>Cancelar</button><button type="submit" className="primary" disabled={saving || !navigator.onLine}>{saving ? 'Guardando…' : 'Agregar al inventario'}</button></div></form></div></div>}
 
     {showItemForm && <div className="modal-backdrop inventory-modal-backdrop" onClick={event => { if (event.target === event.currentTarget && !saving) setShowItemForm(false) }}><div className="modal inventory-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-item-modal-title"><div className="modal-header"><div><p className="eyebrow">INVENTARIO CONFIGURABLE</p><h2 id="inventory-item-modal-title">{editingItem?.recordKind === 'catalog_product' ? 'Editar alerta del producto' : editingItem ? 'Editar ingrediente' : 'Agregar ingrediente o insumo'}</h2><p className="muted">{editingItem?.recordKind === 'catalog_product' ? editingItem.name : 'Registra solo los insumos que quieras controlar.'}</p></div><button className="inventory-icon-btn" onClick={() => !saving && setShowItemForm(false)} aria-label="Cerrar"><X size={18}/></button></div><form onSubmit={saveItem}>
       {editingItem?.recordKind !== 'catalog_product' && <label>Nombre del ingrediente o insumo<input value={itemForm.name} onChange={event => setItemForm({ ...itemForm, name: event.target.value })} placeholder="Ej. Carne artesanal" required autoFocus/></label>}

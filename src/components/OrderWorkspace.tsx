@@ -1,10 +1,11 @@
-import { AlertTriangle, ArrowRight, Banknote, Calculator, Check, CreditCard, FileText, Minus, PackageX, Plus, Printer, Search, ShoppingCart, SlidersHorizontal, Tag, Trash2, UserRound, X } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Banknote, Calculator, Check, CreditCard, ExternalLink, FileText, Minus, PackagePlus, PackageX, Plus, Printer, Search, ShoppingCart, SlidersHorizontal, Tag, Trash2, UserRound, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent } from 'react'
+import { hasPermission } from '../lib/auth'
 import { completeOrder, createOrder, getGeneralSettings, getOrderFields, getPaymentMethods, getProductCategories, getProducts, updateOrderComandaStatus, updateOrderItems } from '../lib/store'
 import { money, time, date } from '../lib/format'
 import type { Customer, Order, PaymentMethod, PaymentMethodConfig, Product, Sale, SaleItem, User } from '../lib/types'
 import { printOrderComanda, printSaleReceipt } from '../lib/print'
-import { checkInventorySaleShortages, type InventoryShortage } from '../lib/inventory'
+import { checkInventorySaleShortages, getInventoryManagedProductIds, subscribeInventoryChanges, type InventoryShortage } from '../lib/inventory'
 
 const modificationChips = ['Sin salsas', 'Sin tomate', 'Sin lechuga', 'Sin cebolla', 'Sin queso']
 const fallbackPaymentLabel = (payment: PaymentMethod) => payment === 'cash' ? 'Efectivo' : payment === 'transfer' ? 'Transferencia' : payment === 'card' ? 'Tarjeta' : payment
@@ -78,6 +79,14 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
   const [completedSale, setCompletedSale] = useState<Sale | null>(null)
   const [paymentCountdown, setPaymentCountdown] = useState(0)
   const [inventoryWarning, setInventoryWarning] = useState<{ shortages: InventoryShortage[]; checkFailed?: string } | null>(null)
+  const [inventoryManagedProductIds, setInventoryManagedProductIds] = useState<Set<string> | null>(null)
+  const [inventoryBypassedProductIds, setInventoryBypassedProductIds] = useState<Set<string>>(new Set())
+  const [inventoryPromptProduct, setInventoryPromptProduct] = useState<Product | null>(null)
+  const [inventoryPromptError, setInventoryPromptError] = useState('')
+  const [inventoryPromptCheckFailed, setInventoryPromptCheckFailed] = useState(false)
+  const [inventorySetupOpened, setInventorySetupOpened] = useState(false)
+  const inventorySetupProductRef = useRef<string | null>(null)
+  const inventoryChecksInFlightRef = useRef<Set<string>>(new Set())
 
   const isLocked = order?.status === 'paid' || order?.status === 'cancelled'
   const initialItems = order?.items || []
@@ -146,8 +155,14 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
         })
     }
     loadSharedConfiguration()
+    const loadInventoryStatus = () => { void getInventoryManagedProductIds().then(setInventoryManagedProductIds).catch(() => setInventoryManagedProductIds(null)) }
+    loadInventoryStatus()
+    const unsubscribeInventory = subscribeInventoryChanges(loadInventoryStatus)
     window.addEventListener('smaky-settings-change', loadSharedConfiguration)
-    return () => window.removeEventListener('smaky-settings-change', loadSharedConfiguration)
+    return () => {
+      unsubscribeInventory()
+      window.removeEventListener('smaky-settings-change', loadSharedConfiguration)
+    }
   }, [])
 
   useEffect(() => {
@@ -202,6 +217,97 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
     setTimeout(() => setMessage(''), 1400)
   }
 
+  const handleProductSelection = async (product: Product) => {
+    if (isLocked || saving || inventoryChecksInFlightRef.current.size > 0) return
+    inventoryChecksInFlightRef.current.add(product.id)
+    try {
+      let managed = inventoryManagedProductIds
+      if (!managed) {
+        try {
+          managed = await getInventoryManagedProductIds()
+          setInventoryManagedProductIds(managed)
+          setInventoryPromptError('')
+        } catch (caught) {
+          inventorySetupProductRef.current = product.id
+          setInventoryPromptCheckFailed(true)
+          setInventoryPromptError(caught instanceof Error ? caught.message : 'No fue posible consultar el inventario ahora.')
+          setInventoryPromptProduct(product)
+          setInventorySetupOpened(false)
+          return
+        }
+      }
+      if (managed.has(product.id) || inventoryBypassedProductIds.has(product.id)) {
+        addProduct(product)
+        return
+      }
+      inventorySetupProductRef.current = product.id
+      setInventoryPromptCheckFailed(false)
+      setInventorySetupOpened(false)
+      setInventoryPromptError('')
+      setInventoryPromptProduct(product)
+    } finally {
+      inventoryChecksInFlightRef.current.delete(product.id)
+    }
+  }
+
+  const continueWithUntrackedProduct = () => {
+    if (!inventoryPromptProduct) return
+    const product = inventoryPromptProduct
+    inventorySetupProductRef.current = null
+    setInventoryBypassedProductIds(current => new Set([...current, product.id]))
+    setInventoryPromptProduct(null)
+    setInventoryPromptError('')
+    setInventoryPromptCheckFailed(false)
+    setInventorySetupOpened(false)
+    addProduct(product)
+  }
+
+  const openInventoryForProduct = () => {
+    if (!inventoryPromptProduct) return
+    const product = inventoryPromptProduct
+    if (!hasPermission(user, 'inventory.manage')) {
+      setInventoryPromptError('Tu usuario no tiene permiso para administrar Inventario. Puedes continuar con la venta o solicitar acceso al gerente.')
+      return
+    }
+    const target = new URL('/inventario', window.location.origin)
+    target.searchParams.set('linkProductId', product.id)
+    const opened = window.open(target.toString(), '_blank')
+    if (!opened) {
+      setInventoryPromptError('El navegador bloqueó la nueva pestaña. Permite ventanas emergentes para Smaky POS e inténtalo otra vez.')
+      return
+    }
+    try { opened.opener = null } catch { /* optional browser hardening */ }
+    setInventorySetupOpened(true)
+    setInventoryPromptError('Inventario se abrió en otra pestaña con este producto seleccionado. Al guardar, este producto se agregará automáticamente al pedido que estás preparando.')
+  }
+
+
+  useEffect(() => {
+    // When Inventory is opened in a second tab, successful product linking notifies this order draft.
+    const acceptLinkedProduct = (productId: unknown) => {
+      if (typeof productId !== 'string' || !productId || inventorySetupProductRef.current !== productId) return
+      const product = products.find(row => row.id === productId)
+      if (!product) return
+      inventorySetupProductRef.current = null
+      setInventoryManagedProductIds(current => new Set([...(current || []), productId]))
+      setInventoryBypassedProductIds(current => { const next = new Set(current); next.delete(productId); return next })
+      setInventoryPromptProduct(null)
+      setInventoryPromptError('')
+      setInventoryPromptCheckFailed(false)
+      setInventorySetupOpened(false)
+      addProduct(product)
+      setMessage(`${product.name} agregado al pedido e inventario vinculado`)
+      window.setTimeout(() => setMessage(''), 2200)
+    }
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== 'smaky-inventory-catalog-linked' || !event.newValue) return
+      try { const payload = JSON.parse(event.newValue) as { productId?: unknown }; acceptLinkedProduct(payload.productId) } catch { /* ignore malformed cross-tab signal */ }
+    }
+    const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('smaky-inventory-catalog-link') : null
+    if (channel) channel.onmessage = event => acceptLinkedProduct((event.data as { productId?: unknown })?.productId)
+    window.addEventListener('storage', onStorage)
+    return () => { window.removeEventListener('storage', onStorage); channel?.close() }
+  }, [products, isLocked, inventoryBypassedProductIds])
   const changeQty = (lineId: string | undefined, delta: number) => {
     if (isLocked) return
     setItems(current => current.flatMap(item => {
@@ -429,7 +535,7 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
           <div className="workspace-section-head"><div><b>Productos</b><span>Selecciona para agregar</span></div><label className="workspace-search"><Search size={15}/><input value={search} onChange={(event: ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)} placeholder="Buscar producto…"/></label></div>
           <div className="category-tabs workspace-tabs">{categoryTabs.map(item => <button className={category === item ? 'selected' : ''} onClick={() => setCategory(item)} key={item}>{item}</button>)}</div>
           <div className="workspace-product-grid">
-            {filtered.map(product => <button className="workspace-product" key={product.id} disabled={isLocked} onClick={() => addProduct(product)}>
+            {filtered.map(product => <button className="workspace-product" key={product.id} disabled={isLocked} onClick={() => { void handleProductSelection(product) }}>
               <div className="workspace-product-icon">{product.category === 'Hamburguesas' ? '🍔' : product.category === 'Combos' ? '🍔🍟' : product.category === 'Bebidas' ? '🥤' : '🍟'}</div>
               <div><b>{product.name}</b><small>{product.category}</small><span>{money(product.price)}</span></div>
               <Plus size={16}/>
@@ -588,6 +694,21 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
             <button className="secondary" disabled={saving} onClick={() => { setCheckoutOpen(false); setCashReceived(''); paymentProgressRef.current = 0; setPaymentProgress(0) }}>Cancelar</button>
             <div className="checkout-footer-total"><span>Total</span><strong>{money(total)}</strong></div>
           </footer>
+        </section>
+      </div>}
+
+      {inventoryPromptProduct && <div className="item-editor-backdrop inventory-untracked-product-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !saving) { inventorySetupProductRef.current = null; setInventoryPromptProduct(null); setInventoryPromptError(''); setInventoryPromptCheckFailed(false); setInventorySetupOpened(false) } }}>
+        <section className="item-editor-modal inventory-untracked-product-modal" role="alertdialog" aria-modal="true" aria-labelledby="inventory-untracked-product-title">
+          <header className="item-editor-head">
+            <div className="inventory-untracked-product-icon"><PackagePlus size={23}/></div>
+            <div><span className="item-editor-kicker">CONTROL DE INVENTARIO</span><h3 id="inventory-untracked-product-title">{inventoryPromptCheckFailed ? 'No pudimos verificar el inventario' : 'Producto sin inventario'}</h3><p>{inventoryPromptCheckFailed ? <>No pudimos confirmar si <b>{inventoryPromptProduct.name}</b> tiene control de stock. Puedes abrir Inventario para revisarlo o continuar con el pedido.</> : <><b>{inventoryPromptProduct.name}</b> todavía no está asociado a existencias ni a una receta de consumo. Puedes registrarlo ahora o continuar sin control de stock.</>}</p></div>
+            <button className="item-editor-close" disabled={saving} onClick={() => { inventorySetupProductRef.current = null; setInventoryPromptProduct(null); setInventoryPromptError(''); setInventoryPromptCheckFailed(false); setInventorySetupOpened(false) }} aria-label="Cerrar"><X size={18}/></button>
+          </header>
+          <div className="item-editor-body inventory-untracked-product-body">
+            {inventoryPromptError && <div className="inventory-shortage-check-error"><PackageX size={18}/><span>{inventoryPromptError}</span></div>}
+            <div className="inventory-untracked-product-choice"><span className="inventory-untracked-choice-symbol"><PackagePlus size={20}/></span><div><b>Agregar al inventario</b><small>Abre Inventario en otra pestaña, con {inventoryPromptProduct.name} ya seleccionado. Solo tendrás que completar las existencias iniciales y la alerta opcional.</small></div><ExternalLink size={16}/></div>
+          </div>
+          <footer className="item-editor-footer inventory-untracked-product-actions"><button className="secondary" disabled={saving} onClick={continueWithUntrackedProduct}>Continuar sin inventario</button>{hasPermission(user, 'inventory.manage') && <button className="primary" disabled={saving} onClick={openInventoryForProduct}>{inventorySetupOpened ? 'Volver a abrir Inventario' : 'Agregar al inventario'} <ExternalLink size={15}/></button>}</footer>
         </section>
       </div>}
 

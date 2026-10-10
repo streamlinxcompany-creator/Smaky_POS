@@ -267,6 +267,23 @@ export async function saveProductRecipe(productId: string, productName: string, 
 }
 
 
+/** Product IDs already controlled by inventory: direct catalog stock, ingredient recipe, or combo definition. */
+export async function getInventoryManagedProductIds(): Promise<Set<string>> {
+  const client = requiredClient()
+  const [stockResult, recipeResult, componentResult] = await Promise.all([
+    client.from('inventory_items').select('catalog_product_id').eq('record_kind', 'catalog_product').eq('active', true),
+    client.from('inventory_recipes').select('product_id'),
+    client.from('inventory_recipe_products').select('product_id'),
+  ])
+  const failed = [stockResult.error, recipeResult.error, componentResult.error].find(Boolean)
+  if (failed) throw new Error(errorMessage(failed, 'No fue posible comprobar qué productos están controlados por el inventario.'))
+  const ids = new Set<string>()
+  for (const row of stockResult.data || []) if (row.catalog_product_id) ids.add(String(row.catalog_product_id))
+  for (const row of recipeResult.data || []) if (row.product_id) ids.add(String(row.product_id))
+  for (const row of componentResult.data || []) if (row.product_id) ids.add(String(row.product_id))
+  return ids
+}
+
 export async function checkInventorySaleShortages(items: Array<{ productId: string; name: string; quantity: number }>): Promise<InventoryShortage[]> {
   const client = requiredClient()
   const { data, error } = await client.rpc('inventory_check_sale_shortages', {
