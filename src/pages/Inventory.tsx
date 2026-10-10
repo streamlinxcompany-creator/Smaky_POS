@@ -10,7 +10,7 @@ import { DEFAULT_INVENTORY_UNITS, getAllProducts, getInventoryUnits } from '../l
 import { date, money, time } from '../lib/format'
 import { printSaleReceipt } from '../lib/print'
 import {
-  adjustInventoryStock, createInventoryItem, formatQuantity, getInventoryMovementPage, getInventorySnapshot,
+  adjustInventoryStock, createInventoryItem, deleteInventoryItem, formatQuantity, getInventoryMovementPage, getInventorySnapshot,
   linkCatalogProductToInventory, recipeUnits, saveProductRecipe, setInventoryItemActive, subscribeInventoryChanges,
   toDisplayQuantity, updateInventoryItem, unitMetadata,
   type InventorySnapshot, type InventoryRecipeProductInput,
@@ -167,7 +167,7 @@ export function Inventory() {
     if (!requestedCatalogProductId || loading) return
     const productId = requestedCatalogProductId
     const product = products.find(row => row.id === productId)
-    const existing = snapshot.items.find(item => item.recordKind === 'catalog_product' && item.catalogProductId === productId && item.active)
+    const existing = snapshot.items.find(item => !item.removedAt && item.recordKind === 'catalog_product' && item.catalogProductId === productId && item.active)
     const url = new URL(window.location.href)
     url.searchParams.delete('linkProductId')
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
@@ -189,8 +189,8 @@ export function Inventory() {
     setShowCatalogProductForm(true)
   }, [requestedCatalogProductId, loading, products, snapshot.items])
 
-  const ingredientItems = useMemo(() => snapshot.items.filter(item => item.recordKind !== 'catalog_product'), [snapshot.items])
-  const catalogStockItems = useMemo(() => snapshot.items.filter(item => item.recordKind === 'catalog_product'), [snapshot.items])
+  const ingredientItems = useMemo(() => snapshot.items.filter(item => !item.removedAt && item.recordKind !== 'catalog_product'), [snapshot.items])
+  const catalogStockItems = useMemo(() => snapshot.items.filter(item => !item.removedAt && item.recordKind === 'catalog_product'), [snapshot.items])
   const activeItems = useMemo(() => ingredientItems.filter(item => item.active), [ingredientItems])
   const activeCatalogItems = useMemo(() => catalogStockItems.filter(item => item.active), [catalogStockItems])
   const catalogDisplayName = (item: InventoryItem) => products.find(product => product.id === item.catalogProductId)?.name || item.name
@@ -221,11 +221,11 @@ export function Inventory() {
     for (const component of snapshot.productComponents) map.set(component.productId, (map.get(component.productId) || 0) + 1)
     return map
   }, [snapshot.recipes, snapshot.productComponents])
-  const allActiveStockItems = useMemo(() => snapshot.items.filter(item => item.active), [snapshot.items])
+  const allActiveStockItems = useMemo(() => snapshot.items.filter(item => !item.removedAt && item.active), [snapshot.items])
   const lowCount = allActiveStockItems.filter(item => item.stockBase < 0 || (item.lowStockBase !== null && item.stockBase <= item.lowStockBase)).length
   const negativeCount = allActiveStockItems.filter(item => item.stockBase < 0).length
   const inventoryNotifications = useMemo<InventoryNotification[]>(() => snapshot.items
-    .filter(item => item.active && item.lowStockBase !== null && item.stockBase <= item.lowStockBase)
+    .filter(item => !item.removedAt && item.active && item.lowStockBase !== null && item.stockBase <= item.lowStockBase)
     .map(item => ({ id: `low-stock:${item.id}`, type: 'low_stock', title: item.recordKind === 'catalog_product' ? (products.find(product => product.id === item.catalogProductId)?.name || item.name) : item.name, description: `${formatQuantity(itemDisplayStock(item))} ${item.unit} disponibles · alerta en ${formatQuantity(itemDisplayMinimum(item) ?? 0)} ${item.unit}`, itemId: item.id, recordKind: item.recordKind })), [snapshot.items, products])
   const allMovements = useMemo(() => {
     const byId = new Map<string, InventoryMovement>()
@@ -313,6 +313,34 @@ export function Inventory() {
       await refresh(true)
     } catch (error) {
       setPageError(error instanceof Error ? error.message : 'No fue posible guardar el ingrediente.')
+    } finally { setSaving(false) }
+  }
+
+  const removeInventoryEntry = async () => {
+    if (!editingItem || saving) return
+    if (!navigator.onLine) {
+      setPageError('Conéctate a internet para eliminarlo de todos los dispositivos.')
+      return
+    }
+    const item = editingItem
+    const recipeCount = snapshot.recipes.filter(recipe => recipe.inventoryItemId === item.id).length
+    const message = item.recordKind === 'catalog_product'
+      ? `¿Quitar “${item.name}” del inventario?\n\nEl producto seguirá existiendo y vendiéndose en el catálogo, pero dejará de tener control de existencias. Podrás volver a vincularlo después.\n\nSe conservarán los movimientos históricos y las facturas relacionadas. Esta acción no se puede deshacer desde aquí.`
+      : `¿Eliminar “${item.name}” del inventario?\n\nSe retirará de ${recipeCount} receta(s) y dejará de descontarse en nuevas ventas. Se conservarán los movimientos históricos y las facturas relacionadas.\n\nEsta acción no se puede deshacer desde aquí.`
+    if (!window.confirm(message)) return
+    setSaving(true)
+    setPageError('')
+    setFeedback('')
+    try {
+      const result = await deleteInventoryItem(item.id)
+      setShowItemForm(false)
+      setEditingItem(null)
+      setFeedback(item.recordKind === 'catalog_product'
+        ? 'Se quitó el control de inventario. El producto del catálogo sigue disponible y el historial se conservó.'
+        : `Ingrediente eliminado del inventario. Se retiró de ${result.recipesRemoved} receta(s); se conservaron ${result.movementsPreserved} movimiento(s) históricos.`)
+      await refresh(true)
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'No fue posible eliminar el elemento del inventario.')
     } finally { setSaving(false) }
   }
 
@@ -578,7 +606,7 @@ export function Inventory() {
     </>}
 
     {activeTab === 'history' && <>
-      <div className="inventory-toolbar panel"><div className="inventory-history-description"><History size={18}/><div><b>Historial de movimientos</b><span>Consulta entradas, salidas y consumos de venta, con acceso a su factura.</span></div></div><select value={historyItemId} onChange={event => setHistoryItemId(event.target.value)} aria-label="Filtrar movimientos por existencia"><option value="all">Todos los registros</option>{snapshot.items.map(item => <option key={item.id} value={item.id}>{item.name}{item.active ? '' : ' (archivado)'}</option>)}</select></div>
+      <div className="inventory-toolbar panel"><div className="inventory-history-description"><History size={18}/><div><b>Historial de movimientos</b><span>Consulta entradas, salidas y consumos de venta, con acceso a su factura.</span></div></div><select value={historyItemId} onChange={event => setHistoryItemId(event.target.value)} aria-label="Filtrar movimientos por existencia"><option value="all">Todos los registros</option>{snapshot.items.map(item => <option key={item.id} value={item.id}>{item.name}{item.removedAt ? ' (eliminado del inventario)' : item.active ? '' : ' (archivado)'}</option>)}</select></div>
       {filteredMovements.length === 0 ? <div className="inventory-empty panel"><History size={25}/><h2>Aún no hay movimientos</h2><p>Cuando registres entradas, salidas o vendas un producto con receta, la trazabilidad aparecerá aquí.</p></div>
         : <div className="panel inventory-movement-panel"><div className="inventory-table-wrap"><table className="inventory-table"><thead><tr><th>Fecha</th><th>Ingrediente</th><th>Movimiento</th><th>Cantidad</th><th>Saldo después</th><th>Motivo / origen</th><th>Usuario / factura</th></tr></thead><tbody>{filteredMovements.map(movement => {
           const item = snapshot.items.find(row => row.id === movement.inventoryItemId)
@@ -606,7 +634,7 @@ export function Inventory() {
       {editingItem?.recordKind !== 'catalog_product' && <div className="form-row"><label>Unidad de medida<select value={itemForm.unit} onChange={event => setItemForm({ ...itemForm, unit: event.target.value })} disabled={Boolean(editingItem)} required>{itemUnitOptions.map(unit => <option key={unit} value={unit}>{unit}</option>)}</select>{editingItem && <small>Se conserva para proteger las cantidades históricas.</small>}</label><label>Alertar cuando llegue a (opcional)<input type="number" min="0" step={unitMetadata(itemForm.unit).unitKind === 'custom' ? 1 : 0.001} value={itemForm.lowStockQuantity} onChange={event => setItemForm({ ...itemForm, lowStockQuantity: event.target.value })} placeholder="Sin alerta"/></label></div>}
       {editingItem?.recordKind === 'catalog_product' && <label>Alertar cuando queden (opcional)<input type="number" min="0" step="1" value={itemForm.lowStockQuantity} onChange={event => setItemForm({ ...itemForm, lowStockQuantity: event.target.value })} placeholder="Sin alerta"/></label>}
       {!editingItem && <label>Existencia inicial<input type="number" step={unitMetadata(itemForm.unit).unitKind === 'custom' ? 1 : 0.001} value={itemForm.initialQuantity} onChange={event => setItemForm({ ...itemForm, initialQuantity: event.target.value })} placeholder="0"/><small>Puedes iniciar en cero o en negativo si el conteo real ya tiene faltantes.</small></label>}
-      {pageError && <p className="form-error">{pageError}</p>}<div className="modal-actions"><button type="button" className="secondary" onClick={() => setShowItemForm(false)} disabled={saving}>Cancelar</button><button type="submit" className="primary" disabled={saving}>{saving ? 'Guardando…' : <><Check size={15}/> {editingItem?.recordKind === 'catalog_product' ? 'Guardar alerta' : 'Guardar ingrediente'}</>}</button></div>
+      {pageError && <p className="form-error">{pageError}</p>}<div className="modal-actions inventory-edit-actions">{editingItem && <button type="button" className="danger-inline-btn inventory-delete-entry-btn" onClick={() => void removeInventoryEntry()} disabled={saving || !navigator.onLine}><Trash2 size={15}/> {editingItem.recordKind === 'catalog_product' ? 'Quitar del inventario' : 'Eliminar del inventario'}</button>}<button type="button" className="secondary" onClick={() => setShowItemForm(false)} disabled={saving}>Cancelar</button><button type="submit" className="primary" disabled={saving}>{saving ? 'Guardando…' : <><Check size={15}/> {editingItem?.recordKind === 'catalog_product' ? 'Guardar alerta' : 'Guardar ingrediente'}</>}</button></div>
     </form></div></div>}
 
     {movementItem && <div className="modal-backdrop inventory-modal-backdrop" onClick={event => { if (event.target === event.currentTarget && !saving) setMovementItem(null) }}><div className="modal inventory-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-movement-modal-title"><div className="modal-header"><div><p className="eyebrow">MOVIMIENTO DE EXISTENCIAS</p><h2 id="inventory-movement-modal-title">{movementForm.movementType === 'entry' ? 'Registrar entrada' : 'Registrar salida'}</h2><p className="muted">{movementItem.name} · saldo actual: {formatQuantity(itemDisplayStock(movementItem))} {movementItem.unit}</p></div><button className="inventory-icon-btn" onClick={() => !saving && setMovementItem(null)} aria-label="Cerrar"><X size={18}/></button></div><form onSubmit={saveMovement}>

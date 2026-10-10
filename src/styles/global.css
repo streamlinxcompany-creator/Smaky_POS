@@ -2142,3 +2142,7 @@ html[data-theme='light'] .inventory-untracked-choice-symbol{border-color:#e5c6b1
 html[data-theme='light'] .inventory-untracked-product-choice>div b{color:#3c2b21}
 html[data-theme='light'] .inventory-untracked-product-choice>div small{color:#87766a}
 @media(max-width:560px){.inventory-untracked-product-backdrop{padding:0}.inventory-untracked-product-modal{width:100%;max-height:100dvh;height:auto;border-radius:0;border-left:0;border-right:0}.inventory-untracked-product-modal .item-editor-head{padding:16px 14px;grid-template-columns:36px minmax(0,1fr) 30px;gap:9px}.inventory-untracked-product-icon{width:36px;height:36px}.inventory-untracked-product-modal .item-editor-head h3{font-size:17px}.inventory-untracked-product-body{padding:14px}.inventory-untracked-product-actions{padding:12px 14px;grid-template-columns:1fr 1fr}}
+
+/* Inventory edit modal: destructive action remains distinct and touch-friendly. */
+.inventory-edit-actions{align-items:center;flex-wrap:wrap}.inventory-edit-actions .inventory-delete-entry-btn{margin-right:auto;min-height:38px}.inventory-delete-entry-btn svg{flex:none}.inventory-delete-entry-btn:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:760px){.inventory-edit-actions .inventory-delete-entry-btn{grid-column:1/-1;width:100%;margin:0}.inventory-edit-actions .secondary,.inventory-edit-actions .primary{min-height:42px}}

@@ -93,6 +93,7 @@ function mapItem(row: RemoteRow): InventoryItem {
     stockBase: Number(row.stock_base) || 0,
     lowStockBase: row.low_stock_base === null || row.low_stock_base === undefined ? null : Number(row.low_stock_base),
     active: Boolean(row.active),
+    removedAt: row.removed_at ? String(row.removed_at) : undefined,
     note: String(row.note || ''),
     createdAt: String(row.created_at || ''),
     updatedAt: String(row.updated_at || ''),
@@ -246,6 +247,21 @@ export async function adjustInventoryStock(input: { movementId: string; itemId: 
   })
   if (error) throw new Error(errorMessage(error, 'No fue posible registrar el movimiento de inventario.'))
   return mapMovement(data as RemoteRow)
+}
+
+/** Remove an entry from active inventory while preserving immutable movement and invoice history. */
+export async function deleteInventoryItem(itemId: string): Promise<{ itemId: string; recordKind: 'ingredient' | 'catalog_product'; recipesRemoved: number; movementsPreserved: number }> {
+  const client = requiredClient()
+  const { data, error } = await client.rpc('inventory_delete_item', { p_item_id: itemId })
+  if (error) throw new Error(errorMessage(error, 'No fue posible eliminar el elemento del inventario.'))
+  const row = (data || {}) as RemoteRow
+  if (row.ok !== true) throw new Error('Supabase no confirmó la eliminación del elemento.')
+  return {
+    itemId: String(row.item_id || itemId),
+    recordKind: row.record_kind === 'catalog_product' ? 'catalog_product' : 'ingredient',
+    recipesRemoved: Number(row.recipes_removed) || 0,
+    movementsPreserved: Number(row.movements_preserved) || 0,
+  }
 }
 
 export async function setInventoryItemActive(itemId: string, active: boolean): Promise<InventoryItem> {

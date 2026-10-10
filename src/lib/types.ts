@@ -92,6 +92,8 @@ export type InventoryItem = {
   stockBase: number
   lowStockBase: number | null
   active: boolean
+  /** Timestamp of removal from active inventory; historical movements keep the row for audit. */
+  removedAt?: string
   note: string
   createdAt: string
   updatedAt: string
