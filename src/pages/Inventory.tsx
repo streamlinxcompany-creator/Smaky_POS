@@ -1,6 +1,6 @@
 import {
   Archive, ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Boxes, CalendarClock,
-  Check, ChevronDown, ClipboardList, Clock3, FileText, History, PackagePlus,
+  Check, CheckCircle2, ChevronDown, CircleDashed, ClipboardList, Clock3, FileText, History, PackagePlus,
   Pencil, Plus, Printer, RefreshCw, Search, ShieldAlert, SlidersHorizontal,
   Tag, Trash2, Utensils, WalletCards, X,
 } from 'lucide-react'
@@ -75,6 +75,8 @@ export function Inventory() {
   const [pageError, setPageError] = useState('')
   const [feedback, setFeedback] = useState('')
   const [activeTab, setActiveTab] = useState<'stock' | 'recipes' | 'history'>('stock')
+  const [recipeSearch, setRecipeSearch] = useState('')
+  const [recipeFilter, setRecipeFilter] = useState<'all' | 'configured' | 'pending'>('all')
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [showArchived, setShowArchived] = useState(false)
@@ -397,12 +399,48 @@ export function Inventory() {
     </>}
 
     {activeTab === 'recipes' && <>
-      <div className="inventory-section-intro"><div><h2>¿Qué consume cada producto?</h2><p>Elige una hamburguesa o combo y selecciona ingredientes del inventario. Si no configuras una receta, ese producto se vende sin descontar ingredientes.</p></div><span><Utensils size={16}/> Recetas opcionales</span></div>
-      {products.length === 0 ? <div className="inventory-empty panel"><Boxes size={25}/><h2>Aún no hay productos en el catálogo</h2><p>Agrega productos en Configuraciones → Productos. Aparecerán aquí para que puedas configurar sus recetas.</p></div>
-        : <div className="inventory-product-grid">{products.map(product => {
-          const count = recipeCountByProduct.get(product.id) || 0
-          return <button className="inventory-recipe-product" key={product.id} onClick={() => openRecipe(product)}><div className="inventory-product-icon"><Utensils size={22}/></div><div className="inventory-recipe-product-content"><b>{product.name}</b><span>{product.category || 'Sin categoría'}</span></div><div className="inventory-recipe-product-right"><span className={count ? 'configured' : 'unconfigured'}>{count ? `${count} elemento(s) configurado(s)` : 'Sin consumo configurado'}</span><ChevronDown size={16}/></div></button>
-        })}</div>}
+      <section className="inventory-recipes-shell" aria-label="Recetas y consumo por producto">
+        <div className="inventory-recipes-hero">
+          <div className="inventory-recipes-hero-copy">
+            <div className="inventory-recipes-hero-icon"><Utensils size={21}/></div>
+            <div><span className="inventory-recipes-eyebrow">INVENTARIO · RECETAS</span><h2>Consumo por producto</h2><p>Define qué descuenta cada venta. Tú decides qué productos llevan receta.</p></div>
+          </div>
+          <div className="inventory-recipes-kpis" aria-label="Estado de las recetas">
+            <div className="inventory-recipes-kpi is-ready"><CheckCircle2 size={16}/><strong>{products.filter(product => (recipeCountByProduct.get(product.id) || 0) > 0).length}</strong><span>Configurados</span></div>
+            <div className="inventory-recipes-kpi is-pending"><CircleDashed size={16}/><strong>{products.filter(product => (recipeCountByProduct.get(product.id) || 0) === 0).length}</strong><span>Pendientes</span></div>
+          </div>
+        </div>
+
+        {products.length > 0 && <div className="inventory-recipes-toolbar">
+          <label className="inventory-recipe-search"><Search size={17}/><input value={recipeSearch} onChange={event => setRecipeSearch(event.target.value)} placeholder="Buscar producto, combo o bebida…" aria-label="Buscar productos para configurar recetas"/><kbd>⌕</kbd></label>
+          <div className="inventory-recipe-filters" role="group" aria-label="Filtrar productos por estado de receta">
+            <button type="button" className={recipeFilter === 'all' ? 'active' : ''} onClick={() => setRecipeFilter('all')}>Todos <span>{products.length}</span></button>
+            <button type="button" className={recipeFilter === 'configured' ? 'active' : ''} onClick={() => setRecipeFilter('configured')}><CheckCircle2 size={13}/> Listos</button>
+            <button type="button" className={recipeFilter === 'pending' ? 'active' : ''} onClick={() => setRecipeFilter('pending')}><CircleDashed size={13}/> Pendientes</button>
+          </div>
+        </div>}
+
+        {products.length === 0 ? <div className="inventory-empty panel"><Boxes size={25}/><h2>Aún no hay productos en el catálogo</h2><p>Agrega productos en Configuraciones → Productos. Aparecerán aquí para que puedas configurar sus recetas.</p></div> : (() => {
+          const term = recipeSearch.trim().toLocaleLowerCase('es')
+          const filteredProducts = products.filter(product => {
+            const count = recipeCountByProduct.get(product.id) || 0
+            if (recipeFilter === 'configured' && count === 0) return false
+            if (recipeFilter === 'pending' && count > 0) return false
+            return !term || product.name.toLocaleLowerCase('es').includes(term) || (product.category || '').toLocaleLowerCase('es').includes(term)
+          })
+          return filteredProducts.length === 0
+            ? <div className="inventory-recipes-no-results"><Search size={22}/><b>No encontramos productos</b><span>Prueba otra búsqueda o cambia el filtro.</span><button type="button" onClick={() => { setRecipeSearch(''); setRecipeFilter('all') }}>Limpiar filtros</button></div>
+            : <div className="inventory-recipe-cards-grid">{filteredProducts.map(product => {
+              const count = recipeCountByProduct.get(product.id) || 0
+              const configured = count > 0
+              return <button type="button" className={`inventory-recipe-card ${configured ? 'is-configured' : 'is-pending'}`} key={product.id} onClick={() => openRecipe(product)} aria-label={`${configured ? 'Editar receta de' : 'Configurar receta de'} ${product.name}`}>
+                <div className="inventory-recipe-card-top"><div className="inventory-recipe-card-icon"><Utensils size={20}/></div><span className={`inventory-recipe-card-status ${configured ? 'configured' : 'pending'}`}>{configured ? <><CheckCircle2 size={13}/> Configurado</> : <><CircleDashed size={13}/> Por configurar</>}</span></div>
+                <div className="inventory-recipe-card-main"><span className="inventory-recipe-card-category">{product.category || 'Sin categoría'}</span><h3>{product.name}</h3></div>
+                <div className="inventory-recipe-card-bottom"><span>{configured ? `${count} ${count === 1 ? 'elemento vinculado' : 'elementos vinculados'}` : 'Aún no descuenta inventario'}</span><span className="inventory-recipe-card-cta">{configured ? 'Editar receta' : 'Crear receta'} <ArrowUpRight size={15}/></span></div>
+              </button>
+            })}</div>
+        })()}
+      </section>
       {activeItems.length === 0 && <div className="inventory-inline-note"><PackagePlus size={17}/><span>Primero agrega ingredientes en Existencias. Después podrás seleccionarlos en cada receta.</span><button onClick={() => { setActiveTab('stock'); openCreateItem() }}>Agregar ingrediente</button></div>}
     </>}
 
