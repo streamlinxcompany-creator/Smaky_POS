@@ -1,7 +1,9 @@
-import { Archive, ArchiveRestore, Pencil, Plus, Search, X } from 'lucide-react'
+import { Archive, ArchiveRestore, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { getAllProducts, getProductCategories, saveProduct } from '../lib/store'
+import { deleteProduct, getAllProducts, getProductCategories, saveProduct } from '../lib/store'
+import { getSessionUser } from '../lib/auth'
+import { deleteCatalogProductWithInventory } from '../lib/inventory'
 import { money } from '../lib/format'
 import type { Product } from '../lib/types'
 
@@ -29,6 +31,7 @@ export function Products({ embedded = false }: { embedded?: boolean }) {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null)
 
   const load = async () => {
     const [productsData, categoryData] = await Promise.all([getAllProducts(), getProductCategories()])
@@ -120,6 +123,30 @@ export function Products({ embedded = false }: { embedded?: boolean }) {
     await load()
   }
 
+  const removeProduct = async (product: Product) => {
+    const actor = getSessionUser()
+    if (!actor || deletingProductId || saving) return
+    const accepted = window.confirm(
+      `Vas a eliminar “${product.name}” del catálogo. Si está vinculado a Inventario, también se eliminarán su existencia, entradas, salidas, historial de inventario y asociaciones a recetas. Las ventas y facturas históricas del POS se conservarán. Esta acción de inventario no se puede deshacer. ¿Deseas continuar?`
+    )
+    if (!accepted) return
+    setDeletingProductId(product.id)
+    setError('')
+    try {
+      // Remove the remote inventory link first. The database cleans the linked
+      // ledger and recipe references in the same transaction as product deletion.
+      await deleteCatalogProductWithInventory(product.id)
+      const deleted = await deleteProduct(product.id, actor.id)
+      if (!deleted) throw new Error('No se pudo registrar la eliminación local del producto. Vuelve a iniciar sesión e inténtalo otra vez.')
+      await load()
+      window.dispatchEvent(new CustomEvent('smaky-settings-change', { detail: { key: 'products' } }))
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'No fue posible eliminar el producto.')
+    } finally {
+      setDeletingProductId(null)
+    }
+  }
+
   return <div className={embedded ? 'products-page embedded' : 'products-page'}>
     {!embedded && <div className="page-heading compact">
       <div>
@@ -138,6 +165,8 @@ export function Products({ embedded = false }: { embedded?: boolean }) {
       <button className="primary product-new-btn" onClick={openNew}><Plus size={16}/> Nuevo producto</button>
     </div>}
 
+    {error && !modalOpen && <div className="form-error product-delete-error" role="alert">{error}</div>}
+
     <div className="panel products-toolbar">
       <div className="search-box"><Search size={16}/><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar producto..." /></div>
       <div className="product-filters"><span className="settings-inline-hint">Administra categorías en Configuraciones</span>
@@ -154,7 +183,7 @@ export function Products({ embedded = false }: { embedded?: boolean }) {
           <td>{product.category}</td>
           <td><b>{money(product.price)}</b></td>
           <td><span className={product.active ? 'badge' : 'badge inactive'}>{product.active ? 'Activo' : 'Inactivo'}</span></td>
-          <td><div className="table-actions"><button className="icon-action" title="Editar" onClick={() => openEdit(product)}><Pencil size={15}/></button><button className="icon-action" title={product.active ? 'Desactivar' : 'Activar'} onClick={() => toggleActive(product)}>{product.active ? <Archive size={15}/> : <ArchiveRestore size={15}/>}</button></div></td>
+          <td><div className="table-actions"><button className="icon-action" title="Editar" onClick={() => openEdit(product)}><Pencil size={15}/></button><button className="icon-action" title={product.active ? 'Desactivar' : 'Activar'} onClick={() => toggleActive(product)}>{product.active ? <Archive size={15}/> : <ArchiveRestore size={15}/>}</button>{embedded && <button className="icon-action danger" title="Eliminar producto y su inventario vinculado" disabled={deletingProductId === product.id || Boolean(deletingProductId)} onClick={() => void removeProduct(product)}>{deletingProductId === product.id ? <span className="mini-spinner"/> : <Trash2 size={15}/>}</button>}</div></td>
         </tr>)}</tbody>
       </table>}
     </div>

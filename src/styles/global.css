@@ -1825,7 +1825,6 @@ html[data-theme='light'] .checkout-editor-modal .checkout-discount-total>small{c
 .settings-inventory-unit-row .settings-row-copy b{display:block;overflow:hidden;color:#e8e0da;font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 .settings-inventory-unit-row .settings-row-copy span{display:block;margin-top:3px;color:#77716c;font-size:10px}
 .settings-inventory-unit-badge{padding:4px 6px;border:1px solid #303536;background:#171a1b;border-radius:6px;color:#8e8882;font-size:9px;font-weight:900;text-transform:uppercase}
-.settings-inventory-unit-note{margin:0;padding:10px 12px;border-left:2px solid #6f3825;background:#151211;color:#837970;font-size:11px;line-height:1.5}
 .inventory-recipe-editor-head{padding:10px 12px}
 .inventory-recipe-editor-head span{font-size:10px;margin-top:3px}
 .inventory-recipe-editor-head b small{font-size:10px;font-weight:600;color:#88817b}
@@ -1902,3 +1901,216 @@ html[data-theme='light'] .checkout-editor-modal .checkout-discount-total>small{c
 @media(max-width:1120px){.inventory-recipe-cards-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.inventory-recipes-hero{align-items:stretch;flex-direction:column;padding:15px;gap:13px}.inventory-recipes-hero h2{font-size:18px}.inventory-recipes-kpis{display:grid;grid-template-columns:1fr 1fr}.inventory-recipes-kpi{min-width:0}.inventory-recipes-toolbar{align-items:stretch;flex-direction:column}.inventory-recipe-search{min-height:40px}.inventory-recipe-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.inventory-recipe-filters button{padding:7px 5px}.inventory-recipe-cards-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.inventory-recipe-card{min-height:158px;padding:11px}.inventory-recipe-card-icon{width:35px;height:35px}.inventory-recipe-card-status{max-width:70%;font-size:8px;padding:4px 5px}.inventory-recipe-card h3{font-size:13px}.inventory-recipe-card-bottom{flex-direction:column;align-items:flex-start;gap:8px;padding-top:11px}}
 @media(max-width:430px){.inventory-recipe-cards-grid{grid-template-columns:1fr}.inventory-recipe-card{min-height:145px}.inventory-recipe-card-bottom{flex-direction:row;align-items:flex-end}}
+
+/* Inventario v13.1 — densidad, selector de altas y tema claro */
+.inventory-item-grid{
+  grid-template-columns:repeat(auto-fill,minmax(205px,1fr));
+  gap:11px;
+}
+@media(min-width:1450px){
+  .inventory-item-grid{grid-template-columns:repeat(5,minmax(0,1fr));}
+  .inventory-recipe-cards-grid{grid-template-columns:repeat(4,minmax(0,1fr));}
+}
+@media(min-width:1121px) and (max-width:1449px){
+  .inventory-item-grid{grid-template-columns:repeat(4,minmax(0,1fr));}
+  .inventory-recipe-cards-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
+}
+@media(max-width:1120px){
+  .inventory-item-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
+  .inventory-recipe-cards-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
+}
+@media(max-width:900px){
+  .inventory-item-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .inventory-recipe-cards-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media(max-width:430px){
+  .inventory-item-grid,.inventory-recipe-cards-grid{grid-template-columns:1fr;}
+}
+
+.inventory-heading-actions{position:relative}
+.inventory-notification-wrap{position:relative;z-index:35}
+.inventory-notification-trigger{position:relative;width:43px;height:43px;display:grid;place-items:center;border:1px solid #2c2f30;border-radius:12px;background:#141617;color:#c8beb7;transition:background .16s,border-color .16s,color .16s}
+.inventory-notification-trigger:hover,.inventory-notification-trigger.open{border-color:#71402d;background:#211712;color:#f2b18d}
+.inventory-notification-count{position:absolute;right:-5px;top:-5px;min-width:19px;height:19px;padding:0 5px;display:grid;place-items:center;border:2px solid #0d0f10;border-radius:999px;background:#d84930;color:white;font-size:10px;font-weight:900;line-height:1}
+.inventory-notification-panel{position:absolute;right:0;top:calc(100% + 10px);width:min(360px,calc(100vw - 32px));max-height:min(470px,calc(100vh - 120px));overflow:auto;border:1px solid #343637;border-radius:16px;background:linear-gradient(180deg,#191b1c,#111314);color:#f1e9e4;box-shadow:0 22px 55px rgba(0,0,0,.48);z-index:100;animation:inventoryNoticeIn .16s ease-out}
+.inventory-notification-head{position:sticky;top:0;z-index:1;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 15px;border-bottom:1px solid #2a2d2e;background:#17191a}
+.inventory-notification-head b,.inventory-notification-head span{display:block}.inventory-notification-head b{font:800 14px 'Plus Jakarta Sans'}.inventory-notification-head span{margin-top:3px;color:#8a827c;font-size:11px}
+.inventory-notification-empty{display:grid;justify-items:center;gap:7px;padding:26px 20px;color:#78c98f;text-align:center}.inventory-notification-empty b{color:#e9e3de;font-size:13px}.inventory-notification-empty span{max-width:260px;color:#8a827c;font-size:11px;line-height:1.45}
+.inventory-notification-list{display:grid;padding:5px}
+.inventory-notification-item{display:grid;grid-template-columns:9px minmax(0,1fr) 14px;align-items:center;gap:10px;width:100%;padding:12px 10px;border:1px solid transparent;border-radius:10px;background:transparent;text-align:left;color:inherit}
+.inventory-notification-item:hover{background:#211815;border-color:#533122}
+.inventory-notification-dot{width:8px;height:8px;border-radius:50%;background:#e7a64d;box-shadow:0 0 0 4px rgba(231,166,77,.10)}
+.inventory-notification-copy{min-width:0}.inventory-notification-copy b,.inventory-notification-copy small{display:block}.inventory-notification-copy b{overflow:hidden;color:#f1e6df;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.inventory-notification-copy small{margin-top:4px;color:#9a8f86;font-size:10px;line-height:1.4}.inventory-notification-item>svg{color:#776d65;transform:rotate(-90deg)}
+.inventory-entry-choice-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}
+.inventory-entry-choice-grid>button{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:0;padding:18px;border:1px solid #303334;border-radius:14px;background:linear-gradient(145deg,#181a1b,#111314);text-align:left;transition:transform .16s,border-color .16s,box-shadow .16s}
+.inventory-entry-choice-grid>button:hover:not(:disabled){transform:translateY(-2px);border-color:#75412c;box-shadow:0 10px 24px rgba(0,0,0,.20)}
+.inventory-entry-choice-grid>button:disabled{opacity:.48;cursor:not-allowed}
+.inventory-entry-choice-icon{display:grid;place-items:center;width:44px;height:44px;border:1px solid #4a2b20;border-radius:13px;background:#281812;color:#e38b63}
+.inventory-entry-choice-icon.product{border-color:#2d4e3a;background:#142017;color:#80c994}
+.inventory-entry-choice-grid>button>b{color:#f1e9e3;font:800 14px 'Plus Jakarta Sans'}
+.inventory-entry-choice-grid>button>small{min-height:34px;color:#8c837c;font-size:11px;line-height:1.5}
+.inventory-entry-choice-action{display:flex;align-items:center;gap:6px;margin-top:5px;color:#ed956d;font-size:11px;font-weight:900}
+.inventory-entry-choice-grid em{color:#b5a096;font-size:10px;font-style:normal;line-height:1.4}
+.inventory-catalog-pill{display:inline-flex;padding:5px 7px;border:1px solid #2d4436;border-radius:999px;background:#121a14;color:#85c995;font-size:9px;font-weight:900;white-space:nowrap}
+.inventory-catalog-product-card{border-color:#31513c;background:radial-gradient(circle at 100% 0%,rgba(50,151,88,.09),transparent 45%),linear-gradient(170deg,#151918,#101211)}
+.inventory-catalog-controls button{grid-column:1/-1}
+@keyframes inventoryNoticeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+
+/* Inventory uses the same cream/espresso palette as the rest of the light theme. */
+html[data-theme='light'] .inventory-page{color:#2c211b}
+html[data-theme='light'] .inventory-stat{background:linear-gradient(160deg,#fffdf9,#f7f0e8);border-color:#e3d7cb;box-shadow:0 6px 18px rgba(75,44,24,.045)}
+html[data-theme='light'] .inventory-stat>span{color:#7b6d63}
+html[data-theme='light'] .inventory-stat>strong{color:#2b1d17}
+html[data-theme='light'] .inventory-stat>small{color:#8c7d72}
+html[data-theme='light'] .inventory-stat>div{background:#fae8dc;color:#bd4b22}
+html[data-theme='light'] .inventory-tabs{border-color:#e3d8ce}
+html[data-theme='light'] .inventory-tabs>button{color:#766960}
+html[data-theme='light'] .inventory-tabs>button.active{color:#60301e;background:#fae8dd;border-color:#e7c6b5}
+html[data-theme='light'] .inventory-tabs>button>span{background:#efe3d9;color:#755d4e}
+html[data-theme='light'] .inventory-tabs .inventory-refresh{border-color:#e0d4c9;background:#fffaf4;color:#665a50}
+html[data-theme='light'] .inventory-search{border-color:#e0d4c9;background:#fffdf9;color:#88786c}
+html[data-theme='light'] .inventory-search input{color:#32231b}
+html[data-theme='light'] .inventory-search input::placeholder{color:#a39386}
+html[data-theme='light'] .inventory-toolbar select,
+html[data-theme='light'] .inventory-modal select,
+html[data-theme='light'] .inventory-modal input{border-color:#dfd3c8;background:#fffdf9;color:#32231b}
+html[data-theme='light'] .inventory-archived-toggle{color:#766960}
+html[data-theme='light'] .inventory-item-card{border-color:#dfd4c9;background:radial-gradient(circle at 100% 0%,rgba(185,82,35,.055),transparent 44%),linear-gradient(170deg,#fffdf9,#f7f0e8);box-shadow:0 7px 22px rgba(69,41,24,.045)}
+html[data-theme='light'] .inventory-item-card:hover{border-color:#c77a54;box-shadow:0 10px 26px rgba(69,41,24,.09)}
+html[data-theme='light'] .inventory-item-card.negative{border-color:#d58c84;background:radial-gradient(circle at 100% 0%,rgba(220,72,63,.06),transparent 46%),linear-gradient(170deg,#fff9f7,#f8efec)}
+html[data-theme='light'] .inventory-item-card.low{border-color:#ddc18c}
+html[data-theme='light'] .inventory-item-name{color:#30221b}
+html[data-theme='light'] .inventory-item-subtitle,
+html[data-theme='light'] .inventory-item-note,
+html[data-theme='light'] .inventory-minimum{color:#8a7b70}
+html[data-theme='light'] .inventory-stock-line span{color:#8a786c}
+html[data-theme='light'] .inventory-item-symbol,
+html[data-theme='light'] .inventory-product-icon{border-color:#e5c8b6;background:#f9e9dd;color:#b54b23}
+html[data-theme='light'] .inventory-icon-btn{border-color:#e1d5ca;background:#fffaf4;color:#74655b}
+html[data-theme='light'] .inventory-icon-btn:hover{border-color:#c67a55;color:#7f351a}
+html[data-theme='light'] .inventory-item-footer{border-color:#e7ddd3;color:#8e8177}
+html[data-theme='light'] .inventory-item-footer button{color:#a74b26}
+html[data-theme='light'] .inventory-item-controls button{border-color:#e4cbbd;background:#fff3e9;color:#94502e}
+html[data-theme='light'] .inventory-item-controls button:first-child{border-color:#b9d8c2;background:#edf7f0;color:#2f7749}
+html[data-theme='light'] .inventory-stock-status{border-color:#c8e2cf;background:#eef8f0;color:#347a49}
+html[data-theme='light'] .inventory-stock-status.low{border-color:#e7d2a8;background:#fff5df;color:#95601f}
+html[data-theme='light'] .inventory-stock-status.negative{border-color:#e8bbb5;background:#fff0ed;color:#ad3e30}
+html[data-theme='light'] .inventory-empty{border-color:#e2d7cc;background:#fffdf9;color:#87786d}
+html[data-theme='light'] .inventory-empty h2{color:#30221b}
+html[data-theme='light'] .inventory-empty b{color:#514137}
+html[data-theme='light'] .inventory-empty p,
+html[data-theme='light'] .inventory-empty>span{color:#897b70}
+html[data-theme='light'] .inventory-empty-icon{border-color:#e5c7b4;background:#fae9dd;color:#b64d25}
+html[data-theme='light'] .inventory-alert.error{border-color:#e5b6ae;background:#fff0ed;color:#a43d32}
+html[data-theme='light'] .inventory-alert.success{border-color:#b9d9c0;background:#edf8f0;color:#2f7747}
+html[data-theme='light'] .inventory-notification-trigger{border-color:#dfd3c8;background:#fffdf9;color:#755f52}
+html[data-theme='light'] .inventory-notification-trigger:hover,
+html[data-theme='light'] .inventory-notification-trigger.open{border-color:#d9a88f;background:#fae9dd;color:#a64520}
+html[data-theme='light'] .inventory-notification-count{border-color:#fffdf9}
+html[data-theme='light'] .inventory-notification-panel{border-color:#e0d4c9;background:linear-gradient(180deg,#fffdf9,#f7f0e8);color:#34251d;box-shadow:0 22px 55px rgba(72,43,25,.18)}
+html[data-theme='light'] .inventory-notification-head{border-color:#e6dbd0;background:#fffaf4}
+html[data-theme='light'] .inventory-notification-head span,
+html[data-theme='light'] .inventory-notification-copy small,
+html[data-theme='light'] .inventory-notification-empty span{color:#8e7f73}
+html[data-theme='light'] .inventory-notification-copy b,
+html[data-theme='light'] .inventory-notification-empty b{color:#39281f}
+html[data-theme='light'] .inventory-notification-item:hover{border-color:#e2c9bb;background:#faeee4}
+html[data-theme='light'] .inventory-notification-item>svg{color:#8a7668}
+html[data-theme='light'] .inventory-entry-choice-grid>button{border-color:#e3d6ca;background:linear-gradient(145deg,#fffdf9,#f7f0e8)}
+html[data-theme='light'] .inventory-entry-choice-grid>button:hover:not(:disabled){border-color:#d3a389;box-shadow:0 10px 24px rgba(72,43,25,.09)}
+html[data-theme='light'] .inventory-entry-choice-grid>button>b{color:#34251d}
+html[data-theme='light'] .inventory-entry-choice-grid>button>small{color:#8b7b70}
+html[data-theme='light'] .inventory-entry-choice-icon{border-color:#e5c9b7;background:#fae9dd;color:#b74d24}
+html[data-theme='light'] .inventory-entry-choice-icon.product{border-color:#c7dfce;background:#edf7ef;color:#347b4b}
+html[data-theme='light'] .inventory-entry-choice-action{color:#a74925}
+html[data-theme='light'] .inventory-catalog-product-card{border-color:#bcdac5;background:radial-gradient(circle at 100% 0%,rgba(50,151,88,.05),transparent 45%),linear-gradient(170deg,#fffdf9,#f4f8f3)}
+html[data-theme='light'] .inventory-recipes-hero,
+html[data-theme='light'] .inventory-recipes-toolbar,
+html[data-theme='light'] .inventory-recipes-no-results{border-color:#e0d5ca;background:linear-gradient(170deg,#fffdf9,#f7f0e8);color:#4f4036}
+html[data-theme='light'] .inventory-recipes-hero h2,
+html[data-theme='light'] .inventory-recipe-card h3{color:#33241c}
+html[data-theme='light'] .inventory-recipes-hero p,
+html[data-theme='light'] .inventory-recipes-kpi span,
+html[data-theme='light'] .inventory-recipe-card-bottom>span:first-child{color:#8a7b70}
+html[data-theme='light'] .inventory-recipes-kpi{border-color:#e4d7ca;background:#fffaf4}
+html[data-theme='light'] .inventory-recipe-search{border-color:#dfd3c8;background:#fffdf9;color:#8b7a6d}
+html[data-theme='light'] .inventory-recipe-search input{color:#32231b}
+html[data-theme='light'] .inventory-recipe-search input::placeholder{color:#a39386}
+html[data-theme='light'] .inventory-recipe-search kbd{border-color:#e3d7cb;color:#89796c}
+html[data-theme='light'] .inventory-recipe-filters{border-color:#e1d5ca;background:#f7f0e8}
+html[data-theme='light'] .inventory-recipe-filters button{color:#807065}
+html[data-theme='light'] .inventory-recipe-filters button.active{border-color:#e2c1ae;background:#fae7dc;color:#873b1f}
+html[data-theme='light'] .inventory-recipe-filters button span{background:#f0ded1;color:#815b47}
+html[data-theme='light'] .inventory-recipe-card{border-color:#ded2c7;background:linear-gradient(145deg,#fffdf9,#f7f0e8)}
+html[data-theme='light'] .inventory-recipe-card:hover{border-color:#c67a54;background:linear-gradient(145deg,#fffdf9,#fbf0e7);box-shadow:0 12px 24px rgba(72,43,25,.09)}
+html[data-theme='light'] .inventory-recipe-card-icon{border-color:#e5c9b7;background:#fae9dd;color:#b64d24}
+html[data-theme='light'] .inventory-recipe-card-status{border-color:#e2d7cb;background:#fffaf4;color:#7a6d63}
+html[data-theme='light'] .inventory-recipe-card-status.configured{border-color:#bfdfc8;background:#edf8f0;color:#34794a}
+html[data-theme='light'] .inventory-recipe-card-status.pending{border-color:#ead4b7;background:#fff5e8;color:#94612e}
+html[data-theme='light'] .inventory-recipe-card-category{color:#947f70}
+html[data-theme='light'] .inventory-recipe-card-cta{color:#a64a24}
+html[data-theme='light'] .inventory-recipe-card.is-configured .inventory-recipe-card-cta{color:#34794a}
+html[data-theme='light'] .inventory-recipes-no-results b{color:#4c3b30}
+html[data-theme='light'] .inventory-recipes-no-results span{color:#8a7b70}
+html[data-theme='light'] .inventory-recipes-no-results button{border-color:#e1c0ad;background:#fae8dd;color:#913f22}
+html[data-theme='light'] .inventory-movement-panel{border-color:#e1d5ca;background:#fffdf9}
+html[data-theme='light'] .inventory-table th{border-color:#e5dbd1;background:#f2e9df;color:#817267}
+html[data-theme='light'] .inventory-table td{border-color:#eee5dc;color:#65584e}
+html[data-theme='light'] .inventory-table td b{color:#39291f}
+html[data-theme='light'] .inventory-table td small{color:#8b7b70}
+html[data-theme='light'] .inventory-movement-badge{border-color:#e1d6cb;background:#f8f1e9;color:#746459}
+html[data-theme='light'] .inventory-movement-badge.entry,
+html[data-theme='light'] .inventory-movement-badge.initial_stock,
+html[data-theme='light'] .inventory-movement-badge.sale_reversal{border-color:#c7dfce;background:#eef7ef;color:#327749}
+html[data-theme='light'] .inventory-movement-badge.exit,
+html[data-theme='light'] .inventory-movement-badge.sale_consumption{border-color:#e9c8b8;background:#faece3;color:#a44925}
+html[data-theme='light'] .inventory-table-footer{border-color:#e5dbd1;color:#8b7b70}
+html[data-theme='light'] .inventory-history-description{color:#a84a26}
+html[data-theme='light'] .inventory-history-description b{color:#3a2a20}
+html[data-theme='light'] .inventory-history-description span{color:#8b7b70}
+html[data-theme='light'] .inventory-modal{border-color:#e2d6ca;background:#fffdf9;color:#35261e;box-shadow:0 25px 70px rgba(72,43,25,.23)}
+html[data-theme='light'] .inventory-modal .modal-header h2{color:#33241c}
+html[data-theme='light'] .inventory-modal .modal-header p.muted{color:#88786c}
+html[data-theme='light'] .inventory-modal label{color:#6f5f53}
+html[data-theme='light'] .inventory-modal label small{color:#8a7b70}
+html[data-theme='light'] .inventory-modal .inventory-icon-btn{border-color:#e0d4c9;background:#fffaf4;color:#74655b}
+html[data-theme='light'] .inventory-modal form .modal-actions{border-color:#e5dacf}
+html[data-theme='light'] .inventory-movement-type-selector button{border-color:#e0d4c9;background:#f8f1e9;color:#776960}
+html[data-theme='light'] .inventory-movement-type-selector button.selected.entry{border-color:#bfdfc8;background:#edf8f0;color:#34794a}
+html[data-theme='light'] .inventory-movement-type-selector button.selected.exit{border-color:#e7beb5;background:#fff0ed;color:#ad3e30}
+html[data-theme='light'] .inventory-movement-preview{border-color:#e0d4c9;background:#f8f1e9}
+html[data-theme='light'] .inventory-movement-preview span{color:#817267}
+html[data-theme='light'] .inventory-recipe-editor-head{border-color:#e1d5ca;background:#f8f1e9}
+html[data-theme='light'] .inventory-recipe-editor-head b{color:#44342a}
+html[data-theme='light'] .inventory-recipe-editor-head span{color:#8a7b70}
+html[data-theme='light'] .inventory-recipe-line{border-color:#e1d5ca;background:#fffaf4}
+html[data-theme='light'] .inventory-recipe-line label span{color:#8a7b70}
+html[data-theme='light'] .inventory-recipe-empty{border-color:#e1d5ca;color:#8a7b70}
+html[data-theme='light'] .inventory-recipe-empty button{border-color:#e1c0ad;background:#fae8dd;color:#913f22}
+html[data-theme='light'] .inventory-recipe-note{border-color:#e7d2c2;background:#fff7ee;color:#805c48}
+html[data-theme='light'] .inventory-recipe-note svg{color:#a74925}
+html[data-theme='light'] .inventory-empty.inset{border-color:#e1d5ca;background:#fffaf4}
+html[data-theme='light'] .inventory-item-card.recipe-linked{border-color:#31a663;box-shadow:0 0 0 1px rgba(49,166,99,.42),0 0 20px rgba(34,139,79,.09)}
+html[data-theme='light'] .inventory-item-card.recipe-unlinked{border-color:#d64b4b;box-shadow:0 0 0 1px rgba(214,75,75,.42),0 0 20px rgba(196,53,53,.08)}
+@media(max-width:760px){.inventory-entry-choice-grid{grid-template-columns:1fr}.inventory-notification-panel{right:-62px}.inventory-notification-trigger{width:41px;height:41px}}
+
+/* Settings → Inventario also follows the selected app theme. */
+html[data-theme='light'] .settings-inventory-units-card{background:#fffdf9;border-color:#e1d5ca;color:#35261e}
+html[data-theme='light'] .settings-inventory-unit-add input{border-color:#dfd3c8;background:#fffdf9;color:#32231b}
+html[data-theme='light'] .settings-inventory-unit-add input::placeholder{color:#aa9a8d}
+html[data-theme='light'] .settings-inventory-unit-section-label b{color:#49382d}
+html[data-theme='light'] .settings-inventory-unit-section-label span{border-color:#dfd3c8;background:#f5ece3;color:#776458}
+html[data-theme='light'] .settings-inventory-unit-row{border-color:#e1d5ca;background:#fffaf4}
+html[data-theme='light'] .settings-inventory-unit-mark{border-color:#e4c9b8;background:#fae9dd;color:#b64b23}
+html[data-theme='light'] .settings-inventory-unit-row .settings-row-copy b{color:#3c2b21}
+html[data-theme='light'] .settings-inventory-unit-row .settings-row-copy span{color:#8b7c70}
+html[data-theme='light'] .settings-inventory-unit-badge{border-color:#e2d7cb;background:#f8f1e9;color:#76675b}
+html[data-theme='light'] .inventory-modal .modal-actions .secondary{border-color:#dfd3c8;background:#f7f0e8;color:#66574c}
+html[data-theme='light'] .inventory-modal .modal-actions .secondary:hover{background:#f1e3d7}
+html[data-theme='light'] .inventory-recipes-eyebrow{color:#b84c22}
+html[data-theme='light'] .inventory-recipes-hero-icon{border-color:#e4c8b6;background:#fae9dd;color:#b64b23}
+html[data-theme='light'] .inventory-recipes-kpi.is-ready svg,
+html[data-theme='light'] .inventory-recipes-kpi.is-ready strong{color:#34794a}
+html[data-theme='light'] .inventory-recipes-kpi.is-pending svg,
+html[data-theme='light'] .inventory-recipes-kpi.is-pending strong{color:#98622d}
+html[data-theme='light'] .inventory-catalog-pill{border-color:#c8dfcf;background:#edf7f0;color:#34794a}

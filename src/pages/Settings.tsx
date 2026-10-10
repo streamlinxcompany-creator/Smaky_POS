@@ -324,7 +324,6 @@ export function Settings() {
               </div>
             })}
           </div>
-          <p className="settings-inventory-unit-note">Smaky solo incluye “unidad” inicialmente. Añade aquí las demás unidades que utilice tu restaurante; aparecerán al crear ingredientes y configurar recetas. Solo kg/g y L/ml convierten automáticamente; las demás unidades son independientes. “Unidad” no se puede eliminar y una unidad usada no se puede quitar.</p>
         </section>
       </div>}
 

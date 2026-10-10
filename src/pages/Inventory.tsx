@@ -1,6 +1,6 @@
 import {
-  Archive, ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Boxes, CalendarClock,
-  Check, CheckCircle2, ChevronDown, CircleDashed, ClipboardList, Clock3, FileText, History, PackagePlus,
+  Archive, ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Bell, Boxes, CalendarClock,
+  Check, CheckCircle2, ChevronDown, CircleDashed, ClipboardList, Clock3, FileText, History, Package, PackagePlus,
   Pencil, Plus, Printer, RefreshCw, Search, ShieldAlert, SlidersHorizontal,
   Tag, Trash2, Utensils, WalletCards, X,
 } from 'lucide-react'
@@ -11,7 +11,7 @@ import { date, money, time } from '../lib/format'
 import { printSaleReceipt } from '../lib/print'
 import {
   adjustInventoryStock, createInventoryItem, formatQuantity, getInventoryMovementPage, getInventorySnapshot,
-  recipeUnits, saveProductRecipe, setInventoryItemActive, subscribeInventoryChanges,
+  linkCatalogProductToInventory, recipeUnits, saveProductRecipe, setInventoryItemActive, subscribeInventoryChanges,
   toDisplayQuantity, updateInventoryItem,
   type InventorySnapshot, type InventoryRecipeProductInput,
 } from '../lib/inventory'
@@ -27,6 +27,8 @@ type ItemForm = { name: string; category: string; unit: string; initialQuantity:
 type MovementForm = { movementType: 'entry' | 'exit'; quantity: string; occurredAt: string; reason: string }
 type RecipeDraftRow = { inventoryItemId: string; quantity: string; unit: string }
 type RecipeComponentDraftRow = { componentProductId: string; quantity: string }
+type CatalogProductForm = { productId: string; initialQuantity: string; lowStockQuantity: string }
+type InventoryNotification = { id: string; type: 'low_stock'; title: string; description: string; itemId: string; recordKind: 'ingredient' | 'catalog_product' }
 
 function localDateTimeValue() {
   const now = new Date()
@@ -74,13 +76,16 @@ export function Inventory() {
   const [saving, setSaving] = useState(false)
   const [pageError, setPageError] = useState('')
   const [feedback, setFeedback] = useState('')
-  const [activeTab, setActiveTab] = useState<'stock' | 'recipes' | 'history'>('stock')
+  const [activeTab, setActiveTab] = useState<'stock' | 'products' | 'recipes' | 'history'>('stock')
   const [recipeSearch, setRecipeSearch] = useState('')
   const [recipeFilter, setRecipeFilter] = useState<'all' | 'configured' | 'pending'>('all')
   const [search, setSearch] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('all')
   const [showArchived, setShowArchived] = useState(false)
+  const [showEntryChoice, setShowEntryChoice] = useState(false)
   const [showItemForm, setShowItemForm] = useState(false)
+  const [showCatalogProductForm, setShowCatalogProductForm] = useState(false)
+  const [catalogProductForm, setCatalogProductForm] = useState<CatalogProductForm>({ productId: '', initialQuantity: '0', lowStockQuantity: '' })
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
   const [itemForm, setItemForm] = useState<ItemForm>({ name: '', category: '', unit: 'unidad', initialQuantity: '0', lowStockQuantity: '', note: '' })
   const [movementItem, setMovementItem] = useState<InventoryItem | null>(null)
@@ -110,7 +115,7 @@ export function Inventory() {
         movementHistoryInitialized.current = true
         setHasMoreMovements(next.movements.length === 600)
       }
-      setProducts(productRows.filter(product => product.active && !product.deletedAt))
+      setProducts(productRows.filter(product => !product.deletedAt))
       setPageError('')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No fue posible cargar el inventario desde Supabase.'
@@ -143,8 +148,18 @@ export function Inventory() {
     }
   }, [refresh])
 
-  const categories = useMemo(() => Array.from(new Set(snapshot.items.map(item => item.category.trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b,'es')), [snapshot.items])
-  const activeItems = useMemo(() => snapshot.items.filter(item => item.active), [snapshot.items])
+  const ingredientItems = useMemo(() => snapshot.items.filter(item => item.recordKind !== 'catalog_product'), [snapshot.items])
+  const catalogStockItems = useMemo(() => snapshot.items.filter(item => item.recordKind === 'catalog_product'), [snapshot.items])
+  const activeItems = useMemo(() => ingredientItems.filter(item => item.active), [ingredientItems])
+  const activeCatalogItems = useMemo(() => catalogStockItems.filter(item => item.active), [catalogStockItems])
+  const catalogDisplayName = (item: InventoryItem) => products.find(product => product.id === item.catalogProductId)?.name || item.name
+  const filteredCatalogItems = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase('es')
+    return activeCatalogItems.filter(item => !term || catalogDisplayName(item).toLocaleLowerCase('es').includes(term))
+      .sort((a, b) => catalogDisplayName(a).localeCompare(catalogDisplayName(b), 'es'))
+  }, [activeCatalogItems, products, search])
+  const linkedCatalogProductIds = useMemo(() => new Set(catalogStockItems.map(item => item.catalogProductId).filter((id): id is string => Boolean(id))), [catalogStockItems])
+  const availableCatalogProducts = useMemo(() => products.filter(product => product.active && !product.deletedAt && !linkedCatalogProductIds.has(product.id)), [products, linkedCatalogProductIds])
   const itemUnitOptions = useMemo(() => {
     const options = [...measurementUnits]
     if (editingItem?.unit && !options.some(unit => unit.toLocaleLowerCase('es') === editingItem.unit.toLocaleLowerCase('es'))) options.push(editingItem.unit)
@@ -152,21 +167,25 @@ export function Inventory() {
   }, [measurementUnits, editingItem])
   const filteredItems = useMemo(() => {
     const term = search.trim().toLocaleLowerCase('es')
-    return snapshot.items.filter(item => {
+    return ingredientItems.filter(item => {
       if (!showArchived && !item.active) return false
       if (showArchived && item.active) return false
-      if (categoryFilter !== 'all' && item.category !== categoryFilter) return false
       return !term || item.name.toLocaleLowerCase('es').includes(term) || item.category.toLocaleLowerCase('es').includes(term)
     }).sort((a,b) => a.name.localeCompare(b.name,'es'))
-  }, [snapshot.items, search, categoryFilter, showArchived])
+  }, [ingredientItems, search, showArchived])
+  const recipeProducts = useMemo(() => products.filter(product => product.active && !product.deletedAt), [products])
   const recipeCountByProduct = useMemo(() => {
     const map = new Map<string, number>()
     for (const recipe of snapshot.recipes) map.set(recipe.productId, (map.get(recipe.productId) || 0) + 1)
     for (const component of snapshot.productComponents) map.set(component.productId, (map.get(component.productId) || 0) + 1)
     return map
   }, [snapshot.recipes, snapshot.productComponents])
-  const lowCount = activeItems.filter(item => item.stockBase < 0 || (item.lowStockBase !== null && item.stockBase <= item.lowStockBase)).length
-  const negativeCount = activeItems.filter(item => item.stockBase < 0).length
+  const allActiveStockItems = useMemo(() => snapshot.items.filter(item => item.active), [snapshot.items])
+  const lowCount = allActiveStockItems.filter(item => item.stockBase < 0 || (item.lowStockBase !== null && item.stockBase <= item.lowStockBase)).length
+  const negativeCount = allActiveStockItems.filter(item => item.stockBase < 0).length
+  const inventoryNotifications = useMemo<InventoryNotification[]>(() => snapshot.items
+    .filter(item => item.active && item.lowStockBase !== null && item.stockBase <= item.lowStockBase)
+    .map(item => ({ id: `low-stock:${item.id}`, type: 'low_stock', title: item.recordKind === 'catalog_product' ? (products.find(product => product.id === item.catalogProductId)?.name || item.name) : item.name, description: `${formatQuantity(itemDisplayStock(item))} ${item.unit} disponibles · alerta en ${formatQuantity(itemDisplayMinimum(item) ?? 0)} ${item.unit}`, itemId: item.id, recordKind: item.recordKind })), [snapshot.items, products])
   const allMovements = useMemo(() => {
     const byId = new Map<string, InventoryMovement>()
     for (const movement of olderMovements) byId.set(movement.id, movement)
@@ -180,9 +199,41 @@ export function Inventory() {
   const filteredMovements = useMemo(() => allMovements.filter(movement => historyItemId === 'all' || movement.inventoryItemId === historyItemId), [allMovements, historyItemId])
 
   const openCreateItem = () => {
+    setPageError(''); setFeedback(''); setShowEntryChoice(true)
+  }
+
+  const openCreateIngredient = () => {
+    setShowEntryChoice(false)
     setEditingItem(null)
     setItemForm({ name: '', category: '', unit: 'unidad', initialQuantity: '0', lowStockQuantity: '', note: '' })
     setPageError(''); setFeedback(''); setShowItemForm(true)
+  }
+
+  const openLinkCatalogProduct = () => {
+    setShowEntryChoice(false)
+    setCatalogProductForm({ productId: '', initialQuantity: '0', lowStockQuantity: '' })
+    setPageError(''); setFeedback(''); setShowCatalogProductForm(true)
+  }
+
+  const saveCatalogProductLink = async (event: FormEvent) => {
+    event.preventDefault()
+    if (saving) return
+    const productId = catalogProductForm.productId
+    const initialQuantity = Number(catalogProductForm.initialQuantity || 0)
+    const low = catalogProductForm.lowStockQuantity.trim() === '' ? null : Number(catalogProductForm.lowStockQuantity)
+    if (!productId) { setPageError('Selecciona un producto del catálogo.'); return }
+    if (!Number.isFinite(initialQuantity)) { setPageError('La cantidad inicial debe ser un número válido.'); return }
+    if (low !== null && (!Number.isFinite(low) || low < 0)) { setPageError('La cantidad para alertar debe ser cero o mayor.'); return }
+    setSaving(true); setPageError(''); setFeedback('')
+    try {
+      await linkCatalogProductToInventory({ productId, initialQuantity, lowStockQuantity: low })
+      setShowCatalogProductForm(false)
+      setActiveTab('products')
+      setFeedback('Producto vinculado al inventario. Las ventas descontarán su existencia automáticamente.')
+      await refresh(true)
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'No fue posible agregar el producto al inventario.')
+    } finally { setSaving(false) }
   }
 
   const openEditItem = (item: InventoryItem) => {
@@ -205,11 +256,11 @@ export function Inventory() {
     setSaving(true); setPageError(''); setFeedback('')
     try {
       if (editingItem) {
-        await updateInventoryItem(editingItem, { name, category: itemForm.category, lowStockQuantity: low, note: itemForm.note })
-        setFeedback('Ingrediente actualizado y guardado en Supabase.')
+        await updateInventoryItem(editingItem, { name, category: editingItem.category, lowStockQuantity: low, note: editingItem.note })
+        setFeedback(editingItem.recordKind === 'catalog_product' ? 'Alerta de existencias actualizada.' : 'Ingrediente actualizado.')
       } else {
-        await createInventoryItem({ id: crypto.randomUUID(), name, category: itemForm.category, unit, initialQuantity, lowStockQuantity: low, note: itemForm.note })
-        setFeedback('Ingrediente creado y guardado en Supabase.')
+        await createInventoryItem({ id: crypto.randomUUID(), name, category: '', unit, initialQuantity, lowStockQuantity: low, note: '' })
+        setFeedback('Ingrediente agregado al inventario.')
       }
       setShowItemForm(false)
       await refresh(true)
@@ -235,7 +286,7 @@ export function Inventory() {
     try {
       await adjustInventoryStock({ movementId: crypto.randomUUID(), itemId: movementItem.id, quantity, movementType: movementForm.movementType, reason: movementForm.reason, occurredAt })
       setMovementItem(null)
-      setFeedback(`${movementForm.movementType === 'entry' ? 'Entrada' : 'Salida'} registrada. Existencias actualizadas en Supabase.`)
+      setFeedback(`${movementForm.movementType === 'entry' ? 'Entrada' : 'Salida'} registrada. Existencias actualizadas.`)
       await refresh(true)
     } catch (error) {
       setPageError(error instanceof Error ? error.message : 'No fue posible registrar el movimiento.')
@@ -299,7 +350,7 @@ export function Inventory() {
         components.map(row => ({ componentProductId: row.componentProductId, quantity: Number(row.quantity) }))
       )
       setRecipeProduct(null)
-      setFeedback(rows.length || components.length ? `Receta de “${recipeProduct.name}” guardada en Supabase.` : `“${recipeProduct.name}” quedó sin consumo de inventario.`)
+      setFeedback(rows.length || components.length ? `Receta de “${recipeProduct.name}” guardada.` : `“${recipeProduct.name}” quedó sin consumo de inventario.`)
       await refresh(true)
     } catch (error) {
       setPageError(error instanceof Error ? error.message : 'No fue posible guardar la receta.')
@@ -342,11 +393,19 @@ export function Inventory() {
       <div>
         <p className="eyebrow">OPERACIÓN · CONTROL REAL</p>
         <h1>Inventario</h1>
-        <p className="muted">Existencias, recetas y trazabilidad, sincronizadas con Supabase.</p>
+        <p className="muted">Ingredientes, productos y recetas del restaurante.</p>
       </div>
       <div className="inventory-heading-actions">
-        <span className={`inventory-online-pill ${navigator.onLine ? 'online' : 'offline'}`}><span/>{navigator.onLine ? 'Conectado a la base de datos' : 'Sin conexión'}</span>
-        <button className="primary" onClick={openCreateItem} disabled={loading || !navigator.onLine}><Plus size={17}/> Agregar ingrediente</button>
+        <div className="inventory-notification-wrap">
+          <button className={`inventory-notification-trigger ${notificationsOpen ? 'open' : ''}`} type="button" aria-label="Notificaciones de inventario" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(open => !open)}>
+            <Bell size={18}/>{inventoryNotifications.length > 0 && <span className="inventory-notification-count">{inventoryNotifications.length > 99 ? '99+' : inventoryNotifications.length}</span>}
+          </button>
+          {notificationsOpen && <div className="inventory-notification-panel" role="dialog" aria-label="Notificaciones">
+            <div className="inventory-notification-head"><div><b>Notificaciones</b><span>{inventoryNotifications.length ? `${inventoryNotifications.length} alerta(s) activa(s)` : 'Todo al día'}</span></div><button type="button" className="inventory-icon-btn" aria-label="Cerrar notificaciones" onClick={() => setNotificationsOpen(false)}><X size={15}/></button></div>
+            {inventoryNotifications.length === 0 ? <div className="inventory-notification-empty"><CheckCircle2 size={20}/><b>Sin alertas de stock</b><span>Cuando una existencia llegue al mínimo que configuraste, aparecerá aquí.</span></div> : <div className="inventory-notification-list">{inventoryNotifications.map(notification => <button type="button" className="inventory-notification-item" key={notification.id} onClick={() => { setSearch(notification.title); setShowArchived(false); setActiveTab(notification.recordKind === 'catalog_product' ? 'products' : 'stock'); setNotificationsOpen(false) }}><span className="inventory-notification-dot"/><span className="inventory-notification-copy"><b>{notification.title}</b><small>{notification.description}</small></span><ChevronDown size={14}/></button>)}</div>}
+          </div>}
+        </div>
+        <button className="primary" onClick={openCreateItem} disabled={loading || !navigator.onLine}><Plus size={17}/> Agregar al inventario</button>
       </div>
     </div>
 
@@ -362,19 +421,19 @@ export function Inventory() {
 
     <div className="inventory-tabs" role="tablist" aria-label="Secciones de inventario">
       <button className={activeTab === 'stock' ? 'active' : ''} onClick={() => setActiveTab('stock')}><Boxes size={16}/> Existencias <span>{activeItems.length}</span></button>
+      <button className={activeTab === 'products' ? 'active' : ''} onClick={() => setActiveTab('products')}><Package size={16}/> Productos <span>{activeCatalogItems.length}</span></button>
       <button className={activeTab === 'recipes' ? 'active' : ''} onClick={() => setActiveTab('recipes')}><Utensils size={16}/> Consumo por producto <span>{recipeCountByProduct.size}</span></button>
       <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}><History size={16}/> Movimientos <span>{snapshot.movements.length}</span></button>
-      <button className="inventory-refresh" onClick={() => void refresh()} disabled={loading} title="Actualizar desde Supabase"><RefreshCw size={15} className={loading ? 'spin' : ''}/><span>Actualizar</span></button>
+      <button className="inventory-refresh" onClick={() => void refresh()} disabled={loading} title="Actualizar inventario"><RefreshCw size={15} className={loading ? 'spin' : ''}/><span>Actualizar</span></button>
     </div>
 
     {activeTab === 'stock' && <>
       <div className="inventory-toolbar panel">
-        <label className="inventory-search"><Search size={16}/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar ingrediente o categoría…" /></label>
-        <select value={categoryFilter} onChange={event => setCategoryFilter(event.target.value)} aria-label="Filtrar por categoría"><option value="all">Todas las categorías</option>{categories.map(category => <option key={category} value={category}>{category}</option>)}</select>
+        <label className="inventory-search"><Search size={16}/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar ingrediente…" /></label>
         <label className="inventory-archived-toggle"><input type="checkbox" checked={showArchived} onChange={event => setShowArchived(event.target.checked)}/><span>Ver archivados</span></label>
       </div>
-      {loading ? <div className="inventory-empty panel"><RefreshCw className="spin" size={24}/><b>Cargando existencias</b><span>Consultando la base de datos compartida…</span></div>
-        : filteredItems.length === 0 ? <div className="inventory-empty panel"><div className="inventory-empty-icon"><PackagePlus size={28}/></div><h2>{showArchived ? 'No hay ingredientes archivados' : snapshot.items.length ? 'No encontramos ingredientes' : 'Tu inventario está virgen'}</h2><p>{showArchived ? 'Los ingredientes archivados aparecerán aquí.' : 'Empieza con lo que realmente utilizas. No hay ingredientes fijos ni obligatorios: tú decides qué controlar.'}</p>{!showArchived && <button className="primary" onClick={openCreateItem}><Plus size={16}/> Crear el primer ingrediente</button>}</div>
+      {loading ? <div className="inventory-empty panel"><RefreshCw className="spin" size={24}/><b>Cargando existencias</b><span>Un momento, estamos preparando las existencias.</span></div>
+        : filteredItems.length === 0 ? <div className="inventory-empty panel"><div className="inventory-empty-icon"><PackagePlus size={28}/></div><h2>{showArchived ? 'No hay ingredientes archivados' : ingredientItems.length ? 'No encontramos ingredientes' : 'Tu inventario está virgen'}</h2><p>{showArchived ? 'Los ingredientes archivados aparecerán aquí.' : 'Empieza con lo que realmente utilizas. No hay ingredientes fijos ni obligatorios: tú decides qué controlar.'}</p>{!showArchived && <button className="primary" onClick={openCreateItem}><Plus size={16}/> Agregar ingrediente</button>}</div>
         : <div className="inventory-item-grid">{filteredItems.map(item => {
           const tone = itemTone(item)
           const amount = itemDisplayStock(item)
@@ -387,7 +446,7 @@ export function Inventory() {
             title={hasRecipeAssociation ? 'Ingrediente asociado a una o más recetas' : 'Ingrediente sin asociación a recetas'}
           >
             <div className="inventory-item-card-top"><div className="inventory-item-symbol"><Boxes size={20}/></div><div className="inventory-item-card-actions"><button className="inventory-icon-btn" title="Editar ingrediente" onClick={() => openEditItem(item)}><Pencil size={15}/></button><button className="inventory-icon-btn" title={item.active ? 'Archivar ingrediente' : 'Reactivar ingrediente'} onClick={() => void archiveItem(item)}><Archive size={15}/></button></div></div>
-            <div className="inventory-item-name">{item.name}</div><div className="inventory-item-subtitle">{item.category || 'Sin categoría'} · {item.unit}</div>
+            <div className="inventory-item-name">{item.name}</div><div className="inventory-item-subtitle">{item.unit}</div>
             <div className="inventory-stock-line"><strong>{formatQuantity(amount)}</strong><span>{item.unit}</span></div>
             <div className={`inventory-stock-status ${tone}`}>{tone === 'negative' ? 'Existencia negativa' : tone === 'low' ? 'Existencias bajas' : item.active ? 'Stock registrado' : 'Archivado'}</div>
             {minimum !== null && <div className="inventory-minimum">Mínimo configurado: {formatQuantity(minimum)} {item.unit}</div>}
@@ -398,6 +457,30 @@ export function Inventory() {
         })}</div>}
     </>}
 
+    {activeTab === 'products' && <>
+      <div className="inventory-toolbar panel">
+        <label className="inventory-search"><Search size={16}/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar producto del catálogo…" /></label>
+      </div>
+      {loading ? <div className="inventory-empty panel"><RefreshCw className="spin" size={24}/><b>Cargando productos</b></div>
+        : filteredCatalogItems.length === 0
+          ? <div className="inventory-empty panel"><div className="inventory-empty-icon"><Package size={27}/></div><h2>{activeCatalogItems.length ? 'No encontramos productos' : 'Sin productos controlados'}</h2><p>Vincula un producto que ya exista en el catálogo para contar cuántas unidades llegaron y descontarlas al vender.</p><button className="primary" onClick={openCreateItem} disabled={!navigator.onLine}><Plus size={16}/> Agregar producto del catálogo</button></div>
+          : <div className="inventory-item-grid inventory-catalog-stock-grid">{filteredCatalogItems.map(item => {
+            const tone = itemTone(item)
+            const amount = itemDisplayStock(item)
+            const minimum = itemDisplayMinimum(item)
+            const catalogProduct = products.find(product => product.id === item.catalogProductId)
+            return <article className={`inventory-item-card inventory-catalog-product-card ${tone}`} key={item.id}>
+              <div className="inventory-item-card-top"><div className="inventory-item-symbol"><Package size={20}/></div><div className="inventory-item-card-actions"><button className="inventory-icon-btn" title="Configurar alerta de stock" onClick={() => openEditItem(item)}><Pencil size={15}/></button><span className="inventory-catalog-pill">Producto de venta</span></div></div>
+              <div className="inventory-item-name">{catalogProduct?.name || item.name}</div><div className="inventory-item-subtitle">{catalogProduct?.category || 'Catálogo'} · unidad</div>
+              <div className="inventory-stock-line"><strong>{formatQuantity(amount)}</strong><span>unidad(es)</span></div>
+              <div className={`inventory-stock-status ${tone}`}>{tone === 'negative' ? 'Existencia negativa' : tone === 'low' ? 'Existencias bajas' : 'Control de unidades activo'}</div>
+              {minimum !== null && <div className="inventory-minimum">Alertar cuando llegue a {formatQuantity(minimum)} unidad(es)</div>}
+              <div className="inventory-item-footer"><span>Se descuenta al vender</span><button type="button" onClick={() => { setHistoryItemId(item.id); setActiveTab('history') }}><History size={14}/> Historial</button></div>
+              <div className="inventory-item-controls inventory-catalog-controls"><button onClick={() => openMovement(item,'entry')} disabled={!navigator.onLine || saving}><Plus size={15}/> Registrar llegada</button></div>
+            </article>
+          })}</div>}
+    </>}
+
     {activeTab === 'recipes' && <>
       <section className="inventory-recipes-shell" aria-label="Recetas y consumo por producto">
         <div className="inventory-recipes-hero">
@@ -406,23 +489,23 @@ export function Inventory() {
             <div><span className="inventory-recipes-eyebrow">INVENTARIO · RECETAS</span><h2>Consumo por producto</h2><p>Define qué descuenta cada venta. Tú decides qué productos llevan receta.</p></div>
           </div>
           <div className="inventory-recipes-kpis" aria-label="Estado de las recetas">
-            <div className="inventory-recipes-kpi is-ready"><CheckCircle2 size={16}/><strong>{products.filter(product => (recipeCountByProduct.get(product.id) || 0) > 0).length}</strong><span>Configurados</span></div>
-            <div className="inventory-recipes-kpi is-pending"><CircleDashed size={16}/><strong>{products.filter(product => (recipeCountByProduct.get(product.id) || 0) === 0).length}</strong><span>Pendientes</span></div>
+            <div className="inventory-recipes-kpi is-ready"><CheckCircle2 size={16}/><strong>{recipeProducts.filter(product => (recipeCountByProduct.get(product.id) || 0) > 0).length}</strong><span>Configurados</span></div>
+            <div className="inventory-recipes-kpi is-pending"><CircleDashed size={16}/><strong>{recipeProducts.filter(product => (recipeCountByProduct.get(product.id) || 0) === 0).length}</strong><span>Pendientes</span></div>
           </div>
         </div>
 
-        {products.length > 0 && <div className="inventory-recipes-toolbar">
+        {recipeProducts.length > 0 && <div className="inventory-recipes-toolbar">
           <label className="inventory-recipe-search"><Search size={17}/><input value={recipeSearch} onChange={event => setRecipeSearch(event.target.value)} placeholder="Buscar producto, combo o bebida…" aria-label="Buscar productos para configurar recetas"/><kbd>⌕</kbd></label>
           <div className="inventory-recipe-filters" role="group" aria-label="Filtrar productos por estado de receta">
-            <button type="button" className={recipeFilter === 'all' ? 'active' : ''} onClick={() => setRecipeFilter('all')}>Todos <span>{products.length}</span></button>
+            <button type="button" className={recipeFilter === 'all' ? 'active' : ''} onClick={() => setRecipeFilter('all')}>Todos <span>{recipeProducts.length}</span></button>
             <button type="button" className={recipeFilter === 'configured' ? 'active' : ''} onClick={() => setRecipeFilter('configured')}><CheckCircle2 size={13}/> Listos</button>
             <button type="button" className={recipeFilter === 'pending' ? 'active' : ''} onClick={() => setRecipeFilter('pending')}><CircleDashed size={13}/> Pendientes</button>
           </div>
         </div>}
 
-        {products.length === 0 ? <div className="inventory-empty panel"><Boxes size={25}/><h2>Aún no hay productos en el catálogo</h2><p>Agrega productos en Configuraciones → Productos. Aparecerán aquí para que puedas configurar sus recetas.</p></div> : (() => {
+        {recipeProducts.length === 0 ? <div className="inventory-empty panel"><Boxes size={25}/><h2>Aún no hay productos en el catálogo</h2><p>Agrega productos en Configuraciones → Productos. Aparecerán aquí para que puedas configurar sus recetas.</p></div> : (() => {
           const term = recipeSearch.trim().toLocaleLowerCase('es')
-          const filteredProducts = products.filter(product => {
+          const filteredProducts = recipeProducts.filter(product => {
             const count = recipeCountByProduct.get(product.id) || 0
             if (recipeFilter === 'configured' && count === 0) return false
             if (recipeFilter === 'pending' && count > 0) return false
@@ -445,7 +528,7 @@ export function Inventory() {
     </>}
 
     {activeTab === 'history' && <>
-      <div className="inventory-toolbar panel"><div className="inventory-history-description"><History size={18}/><div><b>Historial de movimientos</b><span>Cada cambio de existencia conserva fecha, usuario, motivo y saldo antes/después.</span></div></div><select value={historyItemId} onChange={event => setHistoryItemId(event.target.value)} aria-label="Filtrar movimientos por ingrediente"><option value="all">Todos los ingredientes</option>{snapshot.items.map(item => <option key={item.id} value={item.id}>{item.name}{item.active ? '' : ' (archivado)'}</option>)}</select></div>
+      <div className="inventory-toolbar panel"><div className="inventory-history-description"><History size={18}/><div><b>Historial de movimientos</b><span>Consulta entradas, salidas y consumos de venta, con acceso a su factura.</span></div></div><select value={historyItemId} onChange={event => setHistoryItemId(event.target.value)} aria-label="Filtrar movimientos por existencia"><option value="all">Todos los registros</option>{snapshot.items.map(item => <option key={item.id} value={item.id}>{item.name}{item.active ? '' : ' (archivado)'}</option>)}</select></div>
       {filteredMovements.length === 0 ? <div className="inventory-empty panel"><History size={25}/><h2>Aún no hay movimientos</h2><p>Cuando registres entradas, salidas o vendas un producto con receta, la trazabilidad aparecerá aquí.</p></div>
         : <div className="panel inventory-movement-panel"><div className="inventory-table-wrap"><table className="inventory-table"><thead><tr><th>Fecha</th><th>Ingrediente</th><th>Movimiento</th><th>Cantidad</th><th>Saldo después</th><th>Motivo / origen</th><th>Usuario / factura</th></tr></thead><tbody>{filteredMovements.map(movement => {
           const item = snapshot.items.find(row => row.id === movement.inventoryItemId)
@@ -461,19 +544,23 @@ export function Inventory() {
             <td>{movement.reason || '—'}</td>
             <td>{isSale ? <><b>{movement.actorName || 'Sistema'}</b><button className="inventory-invoice-link" onClick={() => startInvoice(movement)} disabled={!normalizeSaleSnapshot(movement)}><FileText size={14}/> Factura {movement.saleOrderNumber ? `#${movement.saleOrderNumber}` : `#${(movement.saleId || '').slice(-6).toUpperCase()}`}</button></> : <><b>{movement.actorName || 'Sistema'}</b><small>{movement.reason}</small></>}</td>
           </tr>
-        })}</tbody></table></div><div className="inventory-table-footer">Mostrando {filteredMovements.length} movimientos cargados desde Supabase.</div></div>}{hasMoreMovements && <div className="inventory-load-more"><button className="secondary" onClick={() => void loadOlderMovements()} disabled={loadingOlderMovements}>{loadingOlderMovements ? <><RefreshCw size={15} className="spin"/> Cargando movimientos…</> : <><History size={15}/> Cargar movimientos anteriores</>}</button><span>Consulta el historial completo, incluidos consumos y facturas anteriores.</span></div>}
+        })}</tbody></table></div><div className="inventory-table-footer">Mostrando {filteredMovements.length} movimientos.</div></div>}{hasMoreMovements && <div className="inventory-load-more"><button className="secondary" onClick={() => void loadOlderMovements()} disabled={loadingOlderMovements}>{loadingOlderMovements ? <><RefreshCw size={15} className="spin"/> Cargando movimientos…</> : <><History size={15}/> Cargar movimientos anteriores</>}</button><span>Consulta el historial completo, incluidos consumos y facturas anteriores.</span></div>}
     </>}
 
-    {showItemForm && <div className="modal-backdrop inventory-modal-backdrop" onClick={event => { if (event.target === event.currentTarget && !saving) setShowItemForm(false) }}><div className="modal inventory-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-item-modal-title"><div className="modal-header"><div><p className="eyebrow">INVENTARIO CONFIGURABLE</p><h2 id="inventory-item-modal-title">{editingItem ? 'Editar ingrediente' : 'Agregar ingrediente'}</h2><p className="muted">No hay ingredientes obligatorios. Registra solo lo que quieras controlar.</p></div><button className="inventory-icon-btn" onClick={() => !saving && setShowItemForm(false)} aria-label="Cerrar"><X size={18}/></button></div><form onSubmit={saveItem}>
-      <label>Nombre del ingrediente o insumo<input value={itemForm.name} onChange={event => setItemForm({ ...itemForm, name: event.target.value })} placeholder="Ej. Carne artesanal" required autoFocus/></label>
-      <div className="form-row"><label>Categoría (opcional)<input value={itemForm.category} onChange={event => setItemForm({ ...itemForm, category: event.target.value })} placeholder="Ej. Carnes"/></label><label>Unidad de medida<select value={itemForm.unit} onChange={event => setItemForm({ ...itemForm, unit: event.target.value })} disabled={Boolean(editingItem)} required>{itemUnitOptions.map(unit => <option key={unit} value={unit}>{unit}</option>)}</select>{editingItem ? <small>La unidad se mantiene para proteger el historial de cantidades.</small> : <small>¿Necesitas otra? Agrégala en Configuraciones → Inventario.</small>}</label></div>
+    {showEntryChoice && <div className="modal-backdrop inventory-modal-backdrop" onClick={event => { if (event.target === event.currentTarget) setShowEntryChoice(false) }}><div className="modal inventory-modal inventory-entry-choice-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-entry-choice-title"><div className="modal-header"><div><p className="eyebrow">NUEVO REGISTRO</p><h2 id="inventory-entry-choice-title">¿Qué quieres agregar?</h2><p className="muted">Elige cómo se controla en tu restaurante.</p></div><button className="inventory-icon-btn" onClick={() => setShowEntryChoice(false)} aria-label="Cerrar"><X size={18}/></button></div><div className="inventory-entry-choice-grid"><button type="button" onClick={openCreateIngredient}><span className="inventory-entry-choice-icon ingredient"><Boxes size={22}/></span><b>Ingrediente o insumo</b><small>Carne, pan, salsas y materiales que usan las recetas.</small><span className="inventory-entry-choice-action">Crear ingrediente <Plus size={15}/></span></button><button type="button" onClick={openLinkCatalogProduct} disabled={!availableCatalogProducts.length}><span className="inventory-entry-choice-icon product"><Package size={22}/></span><b>Producto del catálogo</b><small>Producto ya creado en Smaky; registra cuántas unidades llegaron.</small><span className="inventory-entry-choice-action">Vincular producto <Plus size={15}/></span>{!availableCatalogProducts.length && <em>Todos los productos activos ya están vinculados.</em>}</button></div></div></div>}
+
+    {showCatalogProductForm && <div className="modal-backdrop inventory-modal-backdrop" onClick={event => { if (event.target === event.currentTarget && !saving) setShowCatalogProductForm(false) }}><div className="modal inventory-modal inventory-catalog-link-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-catalog-link-title"><div className="modal-header"><div><p className="eyebrow">PRODUCTO DE CATÁLOGO</p><h2 id="inventory-catalog-link-title">Controlar existencias de un producto</h2></div><button className="inventory-icon-btn" onClick={() => !saving && setShowCatalogProductForm(false)} aria-label="Cerrar"><X size={18}/></button></div><form onSubmit={saveCatalogProductLink}><label>Producto existente<select value={catalogProductForm.productId} onChange={event => setCatalogProductForm(current => ({ ...current, productId: event.target.value }))} required><option value="">Seleccionar del catálogo…</option>{availableCatalogProducts.map(product => <option key={product.id} value={product.id}>{product.name} · {product.category}</option>)}</select></label><label>Unidades que hay actualmente<input type="number" step="any" value={catalogProductForm.initialQuantity} onChange={event => setCatalogProductForm(current => ({ ...current, initialQuantity: event.target.value }))} required/></label><label>Notificar cuando queden (opcional)<input type="number" min="0" step="any" value={catalogProductForm.lowStockQuantity} onChange={event => setCatalogProductForm(current => ({ ...current, lowStockQuantity: event.target.value }))} placeholder="Sin alerta"/></label>{pageError && <p className="form-error">{pageError}</p>}<div className="modal-actions"><button type="button" className="secondary" onClick={() => setShowCatalogProductForm(false)} disabled={saving}>Cancelar</button><button type="submit" className="primary" disabled={saving || !navigator.onLine}>{saving ? 'Guardando…' : 'Agregar al inventario'}</button></div></form></div></div>}
+
+    {showItemForm && <div className="modal-backdrop inventory-modal-backdrop" onClick={event => { if (event.target === event.currentTarget && !saving) setShowItemForm(false) }}><div className="modal inventory-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-item-modal-title"><div className="modal-header"><div><p className="eyebrow">INVENTARIO CONFIGURABLE</p><h2 id="inventory-item-modal-title">{editingItem?.recordKind === 'catalog_product' ? 'Editar alerta del producto' : editingItem ? 'Editar ingrediente' : 'Agregar ingrediente o insumo'}</h2><p className="muted">{editingItem?.recordKind === 'catalog_product' ? editingItem.name : 'Registra solo los insumos que quieras controlar.'}</p></div><button className="inventory-icon-btn" onClick={() => !saving && setShowItemForm(false)} aria-label="Cerrar"><X size={18}/></button></div><form onSubmit={saveItem}>
+      {editingItem?.recordKind !== 'catalog_product' && <label>Nombre del ingrediente o insumo<input value={itemForm.name} onChange={event => setItemForm({ ...itemForm, name: event.target.value })} placeholder="Ej. Carne artesanal" required autoFocus/></label>}
+      {editingItem?.recordKind !== 'catalog_product' && <div className="form-row"><label>Unidad de medida<select value={itemForm.unit} onChange={event => setItemForm({ ...itemForm, unit: event.target.value })} disabled={Boolean(editingItem)} required>{itemUnitOptions.map(unit => <option key={unit} value={unit}>{unit}</option>)}</select>{editingItem && <small>Se conserva para proteger las cantidades históricas.</small>}</label><label>Alertar cuando llegue a (opcional)<input type="number" min="0" step="any" value={itemForm.lowStockQuantity} onChange={event => setItemForm({ ...itemForm, lowStockQuantity: event.target.value })} placeholder="Sin alerta"/></label></div>}
+      {editingItem?.recordKind === 'catalog_product' && <label>Alertar cuando queden (opcional)<input type="number" min="0" step="any" value={itemForm.lowStockQuantity} onChange={event => setItemForm({ ...itemForm, lowStockQuantity: event.target.value })} placeholder="Sin alerta"/></label>}
       {!editingItem && <label>Existencia inicial<input type="number" step="any" value={itemForm.initialQuantity} onChange={event => setItemForm({ ...itemForm, initialQuantity: event.target.value })} placeholder="0"/><small>Puedes iniciar en cero o en negativo si el conteo real ya tiene faltantes.</small></label>}
-      <div className="form-row"><label>Alertar cuando llegue a (opcional)<input type="number" min="0" step="any" value={itemForm.lowStockQuantity} onChange={event => setItemForm({ ...itemForm, lowStockQuantity: event.target.value })} placeholder="Sin alerta"/></label><label>Nota (opcional)<input value={itemForm.note} onChange={event => setItemForm({ ...itemForm, note: event.target.value })} placeholder="Marca, tamaño, ubicación…"/></label></div>
-      {pageError && <p className="form-error">{pageError}</p>}<div className="modal-actions"><button type="button" className="secondary" onClick={() => setShowItemForm(false)} disabled={saving}>Cancelar</button><button type="submit" className="primary" disabled={saving}>{saving ? 'Guardando…' : <><Check size={15}/> Guardar en Supabase</>}</button></div>
+      {pageError && <p className="form-error">{pageError}</p>}<div className="modal-actions"><button type="button" className="secondary" onClick={() => setShowItemForm(false)} disabled={saving}>Cancelar</button><button type="submit" className="primary" disabled={saving}>{saving ? 'Guardando…' : <><Check size={15}/> {editingItem?.recordKind === 'catalog_product' ? 'Guardar alerta' : 'Guardar ingrediente'}</>}</button></div>
     </form></div></div>}
 
     {movementItem && <div className="modal-backdrop inventory-modal-backdrop" onClick={event => { if (event.target === event.currentTarget && !saving) setMovementItem(null) }}><div className="modal inventory-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-movement-modal-title"><div className="modal-header"><div><p className="eyebrow">MOVIMIENTO DE EXISTENCIAS</p><h2 id="inventory-movement-modal-title">{movementForm.movementType === 'entry' ? 'Registrar entrada' : 'Registrar salida'}</h2><p className="muted">{movementItem.name} · saldo actual: {formatQuantity(itemDisplayStock(movementItem))} {movementItem.unit}</p></div><button className="inventory-icon-btn" onClick={() => !saving && setMovementItem(null)} aria-label="Cerrar"><X size={18}/></button></div><form onSubmit={saveMovement}>
-      <div className="inventory-movement-type-selector"><button type="button" className={movementForm.movementType === 'entry' ? 'selected entry' : ''} onClick={() => setMovementForm({ ...movementForm, movementType: 'entry', reason: 'Compra / reposición' })}><ArrowUpRight size={17}/> Entrada (+)</button><button type="button" className={movementForm.movementType === 'exit' ? 'selected exit' : ''} onClick={() => setMovementForm({ ...movementForm, movementType: 'exit', reason: 'Merma / desperdicio' })}><ArrowDownLeft size={17}/> Salida (−)</button></div>
+      <div className="inventory-movement-type-selector"><button type="button" className={movementForm.movementType === 'entry' ? 'selected entry' : ''} onClick={() => setMovementForm({ ...movementForm, movementType: 'entry', reason: 'Compra / reposición' })}><ArrowUpRight size={17}/> Entrada (+)</button>{movementItem.recordKind !== 'catalog_product' && <button type="button" className={movementForm.movementType === 'exit' ? 'selected exit' : ''} onClick={() => setMovementForm({ ...movementForm, movementType: 'exit', reason: 'Merma / desperdicio' })}><ArrowDownLeft size={17}/> Salida (−)</button>}</div>
       <label>Cantidad ({movementItem.unit})<input type="number" min="0.000001" step="any" value={movementForm.quantity} onChange={event => setMovementForm({ ...movementForm, quantity: event.target.value })} placeholder="Ej. 10" required autoFocus/></label>
       <label>Fecha y hora<input type="datetime-local" value={movementForm.occurredAt} onChange={event => setMovementForm({ ...movementForm, occurredAt: event.target.value })} required/></label>
       <label>Motivo<input list="inventory-movement-reasons" value={movementForm.reason} onChange={event => setMovementForm({ ...movementForm, reason: event.target.value })} placeholder="Ej. Compra, desperdicio, ajuste…" required/><datalist id="inventory-movement-reasons">{reasonsByType[movementForm.movementType].map(reason => <option key={reason} value={reason}/>)}</datalist></label>
@@ -485,14 +572,14 @@ export function Inventory() {
       <div className="inventory-recipe-editor-head"><div><b>Ingredientes</b></div><button className="secondary" disabled={!activeItems.length} onClick={() => setRecipeDraft(current => [...current, { inventoryItemId: '', quantity: '1', unit: '' }])}><Plus size={15}/> Añadir ingrediente</button></div>
       <div className="inventory-recipe-lines">{recipeDraft.length === 0 ? <div className="inventory-recipe-empty"><Utensils size={21}/><span>Sin ingredientes directos.</span>{activeItems.length > 0 && <button type="button" onClick={() => setRecipeDraft([{ inventoryItemId: '', quantity: '1', unit: '' }])}>Añadir ingrediente</button>}{!activeItems.length && <button type="button" onClick={() => { setRecipeProduct(null); setActiveTab('stock'); openCreateItem() }}>Crear ingrediente</button>}</div> : recipeDraft.map((row,index) => {
           const chosen = activeItems.find(item => item.id === row.inventoryItemId)
-          const units = chosen ? recipeUnits(chosen) : []
+          const units = chosen ? recipeUnits(chosen).filter(unit => measurementUnits.some(configured => configured.toLocaleLowerCase('es') === unit.toLocaleLowerCase('es')) || unit.toLocaleLowerCase('es') === chosen.unit.toLocaleLowerCase('es')) : []
           return <div className="inventory-recipe-line" key={`${recipeProduct.id}-${index}`}><label className="inventory-recipe-ingredient"><span>Ingrediente</span><select value={row.inventoryItemId} onChange={event => { const nextItem = activeItems.find(item => item.id === event.target.value); updateRecipeRow(index,{ inventoryItemId: event.target.value, unit: nextItem?.unit || '' }) }}><option value="">Seleccionar ingrediente…</option>{activeItems.map(item => <option key={item.id} value={item.id}>{item.name} · {item.unit} · stock {formatQuantity(itemDisplayStock(item))}</option>)}</select></label><label className="inventory-recipe-quantity"><span>Cantidad</span><input type="number" min="0.000001" step="any" value={row.quantity} onChange={event => updateRecipeRow(index,{quantity:event.target.value})}/></label><label className="inventory-recipe-unit"><span>Unidad de consumo</span><select value={row.unit} onChange={event => updateRecipeRow(index,{unit:event.target.value})} disabled={!chosen}><option value="">Unidad…</option>{units.map(unit => <option key={unit} value={unit}>{unit}</option>)}</select></label><button type="button" className="inventory-remove-line" onClick={() => setRecipeDraft(current => current.filter((_,rowIndex) => rowIndex !== index))} title="Quitar ingrediente" aria-label="Quitar ingrediente"><Trash2 size={16}/></button></div>
         })}</div>
 
-      <div className="inventory-recipe-editor-head inventory-recipe-components-head"><div><b>Productos incluidos <small>(opcional)</small></b></div><button className="secondary" disabled={products.filter(product => product.id !== recipeProduct.id).length === 0} onClick={() => setRecipeComponentDraft(current => [...current, { componentProductId: '', quantity: '1' }])}><Plus size={15}/> Añadir producto</button></div>
-      <div className="inventory-recipe-lines">{recipeComponentDraft.length === 0 ? <div className="inventory-recipe-empty"><Boxes size={21}/><span>Sin productos adicionales.</span>{products.some(product => product.id !== recipeProduct.id) && <button type="button" onClick={() => setRecipeComponentDraft([{ componentProductId: '', quantity: '1' }])}>Añadir producto incluido</button>}</div> : recipeComponentDraft.map((row,index) => <div className="inventory-recipe-component-line" key={`${recipeProduct.id}-component-${index}`}><label><span>Producto incluido</span><select value={row.componentProductId} onChange={event => setRecipeComponentDraft(current => current.map((item,rowIndex) => rowIndex === index ? { ...item, componentProductId: event.target.value } : item))}><option value="">Seleccionar producto…</option>{products.filter(product => product.id !== recipeProduct.id).map(product => <option key={product.id} value={product.id}>{product.name} · {product.category || 'Sin categoría'}</option>)}</select></label><label className="inventory-component-quantity"><span>Cantidad</span><input type="number" min="0.000001" step="any" value={row.quantity} onChange={event => setRecipeComponentDraft(current => current.map((item,rowIndex) => rowIndex === index ? { ...item, quantity: event.target.value } : item))}/></label><button type="button" className="inventory-remove-line" onClick={() => setRecipeComponentDraft(current => current.filter((_,rowIndex) => rowIndex !== index))} title="Quitar producto incluido" aria-label="Quitar producto incluido"><Trash2 size={16}/></button></div>)}</div>
+      <div className="inventory-recipe-editor-head inventory-recipe-components-head"><div><b>Productos incluidos <small>(opcional)</small></b></div><button className="secondary" disabled={recipeProducts.filter(product => product.id !== recipeProduct.id).length === 0} onClick={() => setRecipeComponentDraft(current => [...current, { componentProductId: '', quantity: '1' }])}><Plus size={15}/> Añadir producto</button></div>
+      <div className="inventory-recipe-lines">{recipeComponentDraft.length === 0 ? <div className="inventory-recipe-empty"><Boxes size={21}/><span>Sin productos adicionales.</span>{recipeProducts.some(product => product.id !== recipeProduct.id) && <button type="button" onClick={() => setRecipeComponentDraft([{ componentProductId: '', quantity: '1' }])}>Añadir producto incluido</button>}</div> : recipeComponentDraft.map((row,index) => <div className="inventory-recipe-component-line" key={`${recipeProduct.id}-component-${index}`}><label><span>Producto incluido</span><select value={row.componentProductId} onChange={event => setRecipeComponentDraft(current => current.map((item,rowIndex) => rowIndex === index ? { ...item, componentProductId: event.target.value } : item))}><option value="">Seleccionar producto…</option>{recipeProducts.filter(product => product.id !== recipeProduct.id).map(product => <option key={product.id} value={product.id}>{product.name} · {product.category || 'Sin categoría'}</option>)}</select></label><label className="inventory-component-quantity"><span>Cantidad</span><input type="number" min="0.000001" step="any" value={row.quantity} onChange={event => setRecipeComponentDraft(current => current.map((item,rowIndex) => rowIndex === index ? { ...item, quantity: event.target.value } : item))}/></label><button type="button" className="inventory-remove-line" onClick={() => setRecipeComponentDraft(current => current.filter((_,rowIndex) => rowIndex !== index))} title="Quitar producto incluido" aria-label="Quitar producto incluido"><Trash2 size={16}/></button></div>)}</div>
       <div className="inventory-recipe-note inventory-recipe-note-compact"><ArrowLeftRight size={15}/><span>Se descuenta al vender. Si falta stock, el saldo puede quedar negativo.</span></div>
-      {pageError && <p className="form-error">{pageError}</p>}<div className="modal-actions"><button className="secondary" onClick={() => setRecipeProduct(null)} disabled={saving}>Cancelar</button><button className="primary" onClick={() => void saveRecipe()} disabled={saving}>{saving ? 'Guardando…' : <><Check size={15}/> Guardar receta en Supabase</>}</button></div>
+      {pageError && <p className="form-error">{pageError}</p>}<div className="modal-actions"><button className="secondary" onClick={() => setRecipeProduct(null)} disabled={saving}>Cancelar</button><button className="primary" onClick={() => void saveRecipe()} disabled={saving}>{saving ? 'Guardando…' : <><Check size={15}/> Guardar receta</>}</button></div>
     </div></div>}
 
     {invoiceMovement && saleForInvoice && <div className="modal-backdrop inventory-modal-backdrop" onClick={event => { if (event.target === event.currentTarget) setInvoiceMovement(null) }}><div className="modal inventory-invoice-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-invoice-title"><div className="modal-header"><div><p className="eyebrow">TRAZABILIDAD DE INVENTARIO</p><h2 id="inventory-invoice-title">Factura de venta</h2><p className="muted">Este comprobante se conserva con el movimiento para poder rastrear el consumo.</p></div><button className="inventory-icon-btn" onClick={() => setInvoiceMovement(null)} aria-label="Cerrar"><X size={18}/></button></div>
@@ -500,6 +587,5 @@ export function Inventory() {
       <div className="inventory-invoice-items">{(saleForInvoice.items || []).map((saleItem,index) => <div key={saleItem.lineId || `${saleItem.productId}-${index}`}><span>{formatQuantity(saleItem.quantity)} × {saleItem.name}</span><b>{money(saleItem.total)}</b></div>)}</div>
       <div className="modal-actions"><button className="secondary" onClick={() => setInvoiceMovement(null)}>Cerrar</button><button className="primary" onClick={() => printSaleReceipt(saleForInvoice, 10)}><Printer size={15}/> Imprimir factura</button></div>
     </div></div>}
-    <div className="inventory-footnote"><Clock3 size={14}/> Los cambios se guardan directamente en Supabase. Los movimientos de venta se generan dentro de la misma transacción que registra el cobro.</div>
   </div>
 }

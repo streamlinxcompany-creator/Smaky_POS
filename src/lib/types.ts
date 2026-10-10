@@ -75,6 +75,7 @@ export type Product = {
 
 
 export type InventoryUnitKind = 'mass' | 'volume' | 'custom'
+export type InventoryRecordKind = 'ingredient' | 'catalog_product'
 export type InventoryMovementKind = 'initial_stock' | 'entry' | 'exit' | 'sale_consumption' | 'sale_reversal'
 
 /** Stock quantities are stored in base units (g/ml/or the chosen custom unit). */
@@ -82,6 +83,8 @@ export type InventoryItem = {
   id: string
   name: string
   category: string
+  recordKind: InventoryRecordKind
+  catalogProductId?: string
   unit: string
   unitKind: InventoryUnitKind
   baseUnit: string

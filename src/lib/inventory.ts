@@ -84,6 +84,8 @@ function mapItem(row: RemoteRow): InventoryItem {
     id: String(row.id),
     name: String(row.name || ''),
     category: String(row.category || ''),
+    recordKind: row.record_kind === 'catalog_product' ? 'catalog_product' : 'ingredient',
+    catalogProductId: row.catalog_product_id ? String(row.catalog_product_id) : undefined,
     unit: String(row.unit || ''),
     unitKind: (row.unit_kind || 'custom') as InventoryUnitKind,
     baseUnit: String(row.base_unit || row.unit || ''),
@@ -201,6 +203,24 @@ export async function createInventoryItem(input: CreateInventoryItemInput): Prom
   return mapItem(data as RemoteRow)
 }
 
+
+export async function linkCatalogProductToInventory(input: { productId: string; initialQuantity: number; lowStockQuantity: number | null }): Promise<InventoryItem> {
+  const client = requiredClient()
+  const { data, error } = await client.rpc('inventory_link_catalog_product', {
+    p_product_id: input.productId,
+    p_initial_quantity: input.initialQuantity,
+    p_low_stock_quantity: input.lowStockQuantity,
+  })
+  if (error) throw new Error(errorMessage(error, 'No fue posible agregar el producto al inventario.'))
+  return mapItem(data as RemoteRow)
+}
+
+export async function deleteCatalogProductWithInventory(productId: string): Promise<void> {
+  const client = requiredClient()
+  const { error } = await client.rpc('inventory_delete_catalog_product', { p_product_id: productId })
+  if (error) throw new Error(errorMessage(error, 'No fue posible eliminar el producto y sus datos de inventario.'))
+}
+
 export async function updateInventoryItem(item: InventoryItem, changes: { name: string; category: string; lowStockQuantity: number | null; note: string }): Promise<InventoryItem> {
   const client = requiredClient()
   const { data, error } = await client.rpc('inventory_update_item', {
@@ -270,6 +290,7 @@ export function subscribeInventoryChanges(onChange: () => void): () => void {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory_recipes' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory_recipe_products' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory_movements' }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, onChange)
     .subscribe()
   return () => { void supabase?.removeChannel(channel) }
 }
