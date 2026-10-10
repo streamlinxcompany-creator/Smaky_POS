@@ -378,7 +378,12 @@ export function Inventory() {
           const amount = itemDisplayStock(item)
           const minimum = itemDisplayMinimum(item)
           const itemRecipeCount = snapshot.recipes.filter(recipe => recipe.inventoryItemId === item.id).length
-          return <article className={`inventory-item-card ${tone} ${!item.active ? 'archived' : ''}`} key={item.id}>
+          const hasRecipeAssociation = itemRecipeCount > 0
+          return <article
+            className={`inventory-item-card ${tone} ${hasRecipeAssociation ? 'recipe-linked' : 'recipe-unlinked'} ${!item.active ? 'archived' : ''}`}
+            key={item.id}
+            title={hasRecipeAssociation ? 'Ingrediente asociado a una o más recetas' : 'Ingrediente sin asociación a recetas'}
+          >
             <div className="inventory-item-card-top"><div className="inventory-item-symbol"><Boxes size={20}/></div><div className="inventory-item-card-actions"><button className="inventory-icon-btn" title="Editar ingrediente" onClick={() => openEditItem(item)}><Pencil size={15}/></button><button className="inventory-icon-btn" title={item.active ? 'Archivar ingrediente' : 'Reactivar ingrediente'} onClick={() => void archiveItem(item)}><Archive size={15}/></button></div></div>
             <div className="inventory-item-name">{item.name}</div><div className="inventory-item-subtitle">{item.category || 'Sin categoría'} · {item.unit}</div>
             <div className="inventory-stock-line"><strong>{formatQuantity(amount)}</strong><span>{item.unit}</span></div>

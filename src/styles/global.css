@@ -1831,3 +1831,21 @@ html[data-theme='light'] .checkout-editor-modal .checkout-discount-total>small{c
 .inventory-recipe-editor-head b small{font-size:10px;font-weight:600;color:#88817b}
 .inventory-recipe-note-compact{align-items:center;padding:8px 10px;font-size:10px;line-height:1.35}
 @media(max-width:640px){.settings-inventory-unit-add{grid-template-columns:1fr}.settings-inventory-unit-add .primary{width:100%}.settings-inventory-unit-list{grid-template-columns:1fr}}
+
+/* Inventory recipe association: green when used in a product recipe, red when unused. */
+.inventory-item-card.recipe-linked {
+  border-color: #31a663;
+  box-shadow: 0 0 0 1px rgba(49, 166, 99, .42), 0 0 20px rgba(34, 139, 79, .09);
+}
+.inventory-item-card.recipe-unlinked {
+  border-color: #d64b4b;
+  box-shadow: 0 0 0 1px rgba(214, 75, 75, .42), 0 0 20px rgba(196, 53, 53, .08);
+}
+.inventory-item-card.recipe-linked:hover {
+  border-color: #49c77c;
+  box-shadow: 0 0 0 1px rgba(73, 199, 124, .55), 0 0 24px rgba(34, 139, 79, .15);
+}
+.inventory-item-card.recipe-unlinked:hover {
+  border-color: #f06464;
+  box-shadow: 0 0 0 1px rgba(240, 100, 100, .55), 0 0 24px rgba(196, 53, 53, .13);
+}
