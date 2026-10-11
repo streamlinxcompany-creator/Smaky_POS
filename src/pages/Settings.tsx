@@ -7,6 +7,7 @@ import type { LucideIcon } from 'lucide-react'
 import { Users } from './Users'
 import { Products } from './Products'
 import { getInventorySnapshot } from '../lib/inventory'
+import { money } from '../lib/format'
 import type { InventoryItem, InventoryRecipe } from '../lib/types'
 
 type SettingsSection = 'general' | 'orders' | 'payments' | 'categories' | 'products' | 'inventory' | 'invoice' | 'users'
@@ -18,7 +19,7 @@ const paymentIcon = (id: string) => id === 'cash' ? Banknote : id === 'transfer'
 const sectionMeta: Array<{ id: SettingsSection; label: string; description: string }> = [
   { id: 'general', label: 'General', description: 'Resumen' },
   { id: 'orders', label: 'Pedidos', description: 'Información' },
-  { id: 'payments', label: 'Medios de pago', description: 'Cobros' },
+  { id: 'payments', label: 'Cobrar', description: 'Pagos y efectivo' },
   { id: 'categories', label: 'Categorías', description: 'Productos' },
   { id: 'products', label: 'Productos', description: 'Catálogo' },
   { id: 'inventory', label: 'Inventario', description: 'Unidades de medida' },
@@ -38,6 +39,7 @@ export function Settings() {
   const [editingCategory, setEditingCategory] = useState<string | null>(null)
   const [editingCategoryName, setEditingCategoryName] = useState('')
   const [paymentName, setPaymentName] = useState('')
+  const [newCashQuickAmount, setNewCashQuickAmount] = useState('')
   const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null)
   const [editingPaymentName, setEditingPaymentName] = useState('')
   const [orderFields, setOrderFields] = useState<OrderFieldConfig[]>(DEFAULT_ORDER_FIELDS)
@@ -190,12 +192,48 @@ export function Settings() {
     catch (caught) { flashError(caught) } finally { setSaving(false) }
   }
 
-  const saveGeneral = async (changes: Partial<GeneralSettings>) => {
+  const saveGeneral = async (changes: Partial<GeneralSettings>): Promise<boolean> => {
     const isPrintSetting = ['receiptFontSize', 'comandaFontSize', 'closureFontSize', 'receiptPaperWidth'].some(key => Object.hasOwn(changes, key))
-    if (!user || !(isPrintSetting ? (canManage || canManageInvoice) : (canManage || canManageGeneral)) || saving) return
+    const isCheckoutSetting = Object.hasOwn(changes, 'cashQuickAmounts')
+    const permitted = isPrintSetting
+      ? (canManage || canManageInvoice)
+      : isCheckoutSetting
+        ? (canManage || canManagePayments)
+        : (canManage || canManageGeneral)
+    if (!user || !permitted || saving) return false
     setSaving(true); clearFeedback()
-    try { setGeneralSettings(await updateGeneralSettings(changes, user)); setMessage('Preferencias generales actualizadas.') }
-    catch (caught) { flashError(caught) } finally { setSaving(false) }
+    try {
+      setGeneralSettings(await updateGeneralSettings(changes, user))
+      setMessage(isCheckoutSetting ? 'Configuración de cobro actualizada.' : 'Preferencias generales actualizadas.')
+      return true
+    } catch (caught) {
+      flashError(caught)
+      return false
+    } finally { setSaving(false) }
+  }
+
+  const addCashQuickAmount = async () => {
+    if (!user || !(canManage || canManagePayments) || saving) return
+    const amount = Number(newCashQuickAmount)
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 100_000_000) {
+      flashError(new Error('Escribe un valor entero mayor que cero.'))
+      return
+    }
+    if (generalSettings.cashQuickAmounts.includes(amount)) {
+      flashError(new Error('Ese valor ya está configurado.'))
+      return
+    }
+    if (generalSettings.cashQuickAmounts.length >= 20) {
+      flashError(new Error('Puedes configurar hasta 20 valores rápidos.'))
+      return
+    }
+    const saved = await saveGeneral({ cashQuickAmounts: [...generalSettings.cashQuickAmounts, amount].sort((a, b) => a - b) })
+    if (saved) setNewCashQuickAmount('')
+  }
+
+  const removeCashQuickAmount = async (amount: number) => {
+    if (!user || !(canManage || canManagePayments) || saving) return
+    await saveGeneral({ cashQuickAmounts: generalSettings.cashQuickAmounts.filter(value => value !== amount) })
   }
 
   const toggleOrderField = async (field: OrderFieldConfig, changes: Partial<OrderFieldConfig>) => {
@@ -271,7 +309,7 @@ export function Settings() {
     ...(isManager ? ['users' as const] : []),
   ]
   const activeSection = allowedSections.includes(section) ? section : allowedSections[0]
-  const contentTitle = activeSection === 'general' ? 'General' : activeSection === 'orders' ? 'Pedidos' : activeSection === 'payments' ? 'Medios de pago' : activeSection === 'categories' ? 'Categorías' : activeSection === 'products' ? 'Productos' : activeSection === 'inventory' ? 'Inventario' : activeSection === 'invoice' ? 'Factura' : 'Usuarios'
+  const contentTitle = activeSection === 'general' ? 'General' : activeSection === 'orders' ? 'Pedidos' : activeSection === 'payments' ? 'Cobrar' : activeSection === 'categories' ? 'Categorías' : activeSection === 'products' ? 'Productos' : activeSection === 'inventory' ? 'Inventario' : activeSection === 'invoice' ? 'Factura' : 'Usuarios'
 
   return <div className="settings-page">
     <aside className="settings-sidebar">
@@ -288,7 +326,7 @@ export function Settings() {
     </aside>
 
     <main className="settings-content">
-      <header className="settings-content-head"><div><span className="settings-overline">CONFIGURACIÓN</span><h2>{contentTitle}</h2></div><div className="settings-head-count">{activeSection === 'orders' ? `${orderFields.filter(field => field.enabled).length} campos activos` : activeSection === 'payments' ? `${paymentMethods.length} medios` : activeSection === 'categories' ? `${categories.length} categorías` : activeSection === 'products' ? `${products.length} productos` : activeSection === 'inventory' ? `${customInventoryUnits.length} personalizadas` : activeSection === 'invoice' ? `${generalSettings.receiptFontSize}px` : activeSection === 'users' ? 'Accesos' : 'Preferencias'}</div></header>
+      <header className="settings-content-head"><div><span className="settings-overline">CONFIGURACIÓN</span><h2>{contentTitle}</h2></div><div className="settings-head-count">{activeSection === 'orders' ? `${orderFields.filter(field => field.enabled).length} campos activos` : activeSection === 'payments' ? `${paymentMethods.length} medios · ${generalSettings.cashQuickAmounts.length} valores`  : activeSection === 'categories' ? `${categories.length} categorías` : activeSection === 'products' ? `${products.length} productos` : activeSection === 'inventory' ? `${customInventoryUnits.length} personalizadas` : activeSection === 'invoice' ? `${generalSettings.receiptFontSize}px` : activeSection === 'users' ? 'Accesos' : 'Preferencias'}</div></header>
 
       {(error || message) && <div className={`settings-feedback ${error ? 'error' : 'success'}`}>{error || message}</div>}
 
@@ -308,7 +346,7 @@ export function Settings() {
         </section>
         <section className="settings-list-card">
         <div className="settings-list-row settings-list-row-click" onClick={() => setSection('orders')}><div className="settings-row-icon"><ClipboardList size={16}/></div><div className="settings-row-copy"><b>Pedidos</b><span>{orderFields.filter(field => field.enabled).length} campos activos de información</span></div><ChevronRight size={15}/></div>
-        <div className="settings-list-row settings-list-row-click" onClick={() => setSection('payments')}><div className="settings-row-icon"><CreditCard size={16}/></div><div className="settings-row-copy"><b>Medios de pago</b><span>{paymentMethods.length} disponibles en el cobro</span></div><ChevronRight size={15}/></div>
+        <div className="settings-list-row settings-list-row-click" onClick={() => setSection('payments')}><div className="settings-row-icon"><CreditCard size={16}/></div><div className="settings-row-copy"><b>Cobrar</b><span>{paymentMethods.length} medios de pago · {generalSettings.cashQuickAmounts.length} valores rápidos de efectivo</span></div><ChevronRight size={15}/></div>
         <div className="settings-list-row settings-list-row-click" onClick={() => setSection('categories')}><div className="settings-row-icon"><Tag size={16}/></div><div className="settings-row-copy"><b>Categorías</b><span>{categories.length} categorías · {products.length} productos</span></div><ChevronRight size={15}/></div>
         {canManageProducts && <div className="settings-list-row settings-list-row-click" onClick={() => setSection('products')}><div className="settings-row-icon"><Package size={16}/></div><div className="settings-row-copy"><b>Productos</b><span>{products.length} en el catálogo</span></div><ChevronRight size={15}/></div>}
         {canManageInventory && <div className="settings-list-row settings-list-row-click" onClick={() => setSection('inventory')}><div className="settings-row-icon"><Ruler size={16}/></div><div className="settings-row-copy"><b>Inventario</b><span>{inventoryUnits.length} unidades disponibles</span></div><ChevronRight size={15}/></div>}
@@ -392,14 +430,32 @@ export function Settings() {
         </section>
       </div>}
 
-      {activeSection === 'payments' && <div className="settings-list-card">
-        <div className="settings-section-toolbar"><div><b>Medios disponibles</b><span>Agrega, edita o retira los que aparecen al cobrar.</span></div><div className="settings-counter-inline">{paymentMethods.length}</div></div>
-        <div className="settings-rows">{paymentMethods.map(method => { const Icon = paymentIcon(method.id); return <div className="settings-list-row" key={method.id}>
-          <div className="settings-row-icon"><Icon size={16}/></div>
-          {editingPaymentId === method.id ? <input className="settings-row-edit" autoFocus value={editingPaymentName} onChange={event => setEditingPaymentName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void savePayment(method); if (event.key === 'Escape') { setEditingPaymentId(null); setEditingPaymentName('') } }}/> : <div className="settings-row-copy"><b>{method.name}</b><span>{method.id.startsWith('custom-') ? 'Personalizado' : 'Base'}</span></div>}
-          <div className="settings-row-actions">{editingPaymentId === method.id ? <><button className="settings-action-btn" disabled={saving} onClick={() => void savePayment(method)} title="Guardar"><Check size={14}/></button><button className="settings-action-btn" disabled={saving} onClick={() => { setEditingPaymentId(null); setEditingPaymentName('') }} title="Cancelar">×</button></> : <><button className="settings-action-btn" disabled={saving} onClick={() => { setEditingPaymentId(method.id); setEditingPaymentName(method.name) }} title="Editar"><Pencil size={14}/></button><button className="settings-action-btn danger" disabled={saving} onClick={() => void removePayment(method)} title="Quitar"><Trash2 size={14}/></button></>}</div>
-        </div> })}</div>
-        <div className="settings-add-row"><input value={paymentName} onChange={event => setPaymentName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void addPayment() }} placeholder="Nuevo medio de pago" maxLength={35}/><button className="primary" disabled={saving || !paymentName.trim()} onClick={() => void addPayment()}><Plus size={14}/> Agregar</button></div>
+      {activeSection === 'payments' && <div className="settings-stack">
+        <div className="settings-list-card">
+          <div className="settings-section-toolbar"><div><b>Medios de pago</b><span>Elige qué opciones estarán disponibles al cobrar.</span></div><div className="settings-counter-inline">{paymentMethods.length}</div></div>
+          <div className="settings-rows">{paymentMethods.map(method => { const Icon = paymentIcon(method.id); return <div className="settings-list-row" key={method.id}>
+            <div className="settings-row-icon"><Icon size={16}/></div>
+            {editingPaymentId === method.id ? <input className="settings-row-edit" autoFocus value={editingPaymentName} onChange={event => setEditingPaymentName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void savePayment(method); if (event.key === 'Escape') { setEditingPaymentId(null); setEditingPaymentName('') } }}/> : <div className="settings-row-copy"><b>{method.name}</b><span>{method.id.startsWith('custom-') ? 'Personalizado' : 'Base'}</span></div>}
+            <div className="settings-row-actions">{editingPaymentId === method.id ? <><button className="settings-action-btn" disabled={saving} onClick={() => void savePayment(method)} title="Guardar"><Check size={14}/></button><button className="settings-action-btn" disabled={saving} onClick={() => { setEditingPaymentId(null); setEditingPaymentName('') }} title="Cancelar">×</button></> : <><button className="settings-action-btn" disabled={saving} onClick={() => { setEditingPaymentId(method.id); setEditingPaymentName(method.name) }} title="Editar"><Pencil size={14}/></button><button className="settings-action-btn danger" disabled={saving} onClick={() => void removePayment(method)} title="Quitar"><Trash2 size={14}/></button></>}</div>
+          </div> })}</div>
+          <div className="settings-add-row"><input value={paymentName} onChange={event => setPaymentName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void addPayment() }} placeholder="Nuevo medio de pago" maxLength={35}/><button className="primary" disabled={saving || !paymentName.trim()} onClick={() => void addPayment()}><Plus size={14}/> Agregar</button></div>
+        </div>
+
+        <section className="settings-list-card settings-cash-quick-settings">
+          <div className="settings-section-toolbar"><div><b>Billetes y valores rápidos</b><span>Además de “Exacto”, estos importes aparecerán en el arqueo cuando alcancen para cubrir el total.</span></div><div className="settings-counter-inline">{generalSettings.cashQuickAmounts.length}</div></div>
+          <div className="settings-rows">
+            <div className="settings-list-row settings-cash-exact-row"><div className="settings-row-icon"><Check size={16}/></div><div className="settings-row-copy"><b>Exacto</b><span>Siempre disponible · completa el total pendiente</span></div><span className="settings-inventory-unit-badge">Fijo</span></div>
+            {generalSettings.cashQuickAmounts.map(amount => <div className="settings-list-row" key={amount}>
+              <div className="settings-row-icon"><Banknote size={16}/></div><div className="settings-row-copy"><b>{money(amount)}</b><span>Valor rápido de efectivo</span></div>
+              <div className="settings-row-actions"><button className="settings-action-btn danger" type="button" disabled={saving} onClick={() => void removeCashQuickAmount(amount)} title={`Eliminar ${money(amount)}`} aria-label={`Eliminar valor ${money(amount)}`}><Trash2 size={14}/></button></div>
+            </div>)}
+            {generalSettings.cashQuickAmounts.length === 0 && <div className="settings-list-row"><div className="settings-row-icon"><Banknote size={16}/></div><div className="settings-row-copy"><b>Sin valores rápidos configurados</b><span>“Exacto” seguirá disponible al cobrar.</span></div></div>}
+          </div>
+          <form className="settings-add-row settings-cash-quick-add" onSubmit={event => { event.preventDefault(); void addCashQuickAmount() }}>
+            <label><span>Nuevo valor en pesos</span><input type="number" inputMode="numeric" min="1" max="100000000" step="1" value={newCashQuickAmount} onChange={event => setNewCashQuickAmount(event.target.value)} placeholder="Ej. 2000 o 20000" disabled={saving}/></label>
+            <button className="primary" type="submit" disabled={saving || !newCashQuickAmount.trim() || generalSettings.cashQuickAmounts.length >= 20}><Plus size={14}/> Agregar valor</button>
+          </form>
+        </section>
       </div>}
 
       {activeSection === 'categories' && <div className="settings-list-card">

@@ -56,6 +56,7 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
   const [receiptFontSize, setReceiptFontSize] = useState(11)
   const [comandaFontSize, setComandaFontSize] = useState(11)
   const [receiptPaperWidth, setReceiptPaperWidth] = useState<58 | 80 | 88>(58)
+  const [cashQuickAmounts, setCashQuickAmounts] = useState<number[]>([10000, 20000, 50000, 100000])
   const [orderFields, setOrderFields] = useState<import('../lib/types').OrderFieldConfig[]>([])
   const [items, setItems] = useState<SaleItem[]>(initialOrder?.items.map(item => ({ ...item, lineId: item.lineId || newLineId() })) || [])
   const [order, setOrder] = useState<Order | null>(initialOrder || null)
@@ -107,14 +108,9 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
   const cashMissing = payment === 'cash' && Number.isFinite(cashReceivedNumber) ? Math.max(0, total - cashReceivedNumber) : 0
   const cashPresets = useMemo(() => {
     if (payment !== 'cash' || total <= 0) return []
-    const values = [
-      total,
-      Math.ceil(total / 5000) * 5000,
-      Math.ceil(total / 10000) * 10000,
-      Math.ceil(total / 20000) * 20000,
-    ]
-    return Array.from(new Set(values.filter(value => value >= total))).slice(0, 4)
-  }, [payment, total])
+    // Exacto has its own button. Offer only configured values that can cover this total.
+    return cashQuickAmounts.filter(value => Number.isSafeInteger(value) && value > total).sort((a, b) => a - b)
+  }, [payment, total, cashQuickAmounts])
   const editingItem = editingLineId ? items.find(item => (item.lineId || item.productId) === editingLineId) || null : null
   const units = useMemo(() => items.reduce((sum, item) => sum + item.quantity, 0), [items])
   const categoryTabs = useMemo(() => ['Todos', ...categories], [categories])
@@ -155,6 +151,7 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
           setReceiptFontSize(settings.receiptFontSize)
           setComandaFontSize(settings.comandaFontSize || 11)
           setReceiptPaperWidth(settings.receiptPaperWidth || 58)
+          setCashQuickAmounts(Array.isArray(settings.cashQuickAmounts) ? settings.cashQuickAmounts : [10000, 20000, 50000, 100000])
           if (paymentMethodData.length) setPayment(current => paymentMethodData.some(method => method.id === current) ? current : paymentMethodData[0].id)
         })
     }
@@ -652,7 +649,10 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
                       <span>EFECTIVO RECIBIDO</span>
                       <div className="checkout-cash-input-wrap"><span>$</span><input autoComplete="off" inputMode="decimal" type="number" min="0" step="100" value={cashReceived} onChange={event => setCashReceived(event.target.value)} placeholder={String(total)} disabled={saving}/></div>
                     </label>
-                    <div className="checkout-cash-presets">{cashPresets.map(value => <button key={value} type="button" disabled={saving} onClick={() => setCashReceived(String(value))}>{value === total ? 'Exacto' : money(value)}</button>)}</div>
+                    <div className="checkout-cash-presets">
+                      <button key="exact" type="button" disabled={saving} onClick={() => setCashReceived(String(total))}>Exacto</button>
+                      {cashPresets.map(value => <button key={value} type="button" disabled={saving} onClick={() => setCashReceived(String(value))}>{money(value)}</button>)}
+                    </div>
                     <div className={`checkout-change-box ${cashIsSufficient ? 'ready' : 'insufficient'}`}>
                       <div><span>Total a pagar</span><strong>{money(total)}</strong></div>
                       <Calculator size={18}/>

@@ -43,6 +43,8 @@ export type GeneralSettings = {
   closureFontSize: number
   /** Ancho nominal del rollo térmico; el área imprimible se ajusta por modelo. */
   receiptPaperWidth: 58 | 80 | 88
+  /** Valores rápidos de efectivo recibido compartidos por todos los dispositivos. Exacto siempre existe aparte. */
+  cashQuickAmounts: number[]
 }
 
 export type Customer = {

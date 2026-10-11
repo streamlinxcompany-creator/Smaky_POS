@@ -297,6 +297,7 @@ export const DEFAULT_GENERAL_SETTINGS: import('./types').GeneralSettings = {
   comandaFontSize: 11,
   closureFontSize: 11,
   receiptPaperWidth: 58,
+  cashQuickAmounts: [10000, 20000, 50000, 100000],
 }
 
 export const DEFAULT_PAYMENT_METHODS: PaymentMethodConfig[] = [
@@ -469,17 +470,32 @@ export async function updateOrderFields(fields: import('./types').OrderFieldConf
   return normalized
 }
 
+function normalizeCashQuickAmounts(value: unknown): number[] {
+  if (!Array.isArray(value)) return [...DEFAULT_GENERAL_SETTINGS.cashQuickAmounts]
+  const seen = new Set<number>()
+  const normalized: number[] = []
+  for (const raw of value) {
+    const amount = Number(raw)
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 100_000_000 || seen.has(amount)) continue
+    seen.add(amount)
+    normalized.push(amount)
+  }
+  return normalized.sort((a, b) => a - b).slice(0, 20)
+}
+
 export async function getGeneralSettings(): Promise<import('./types').GeneralSettings> {
   const setting = await db.settings.get(GENERAL_SETTINGS_KEY)
   const value = setting?.value
   if (value && typeof value === 'object') {
+    const stored = value as Partial<import('./types').GeneralSettings>
     return {
       ...DEFAULT_GENERAL_SETTINGS,
-      ...(value as Partial<import('./types').GeneralSettings>)
+      ...stored,
+      cashQuickAmounts: normalizeCashQuickAmounts(stored.cashQuickAmounts ?? DEFAULT_GENERAL_SETTINGS.cashQuickAmounts),
     }
   }
 
-  return { ...DEFAULT_GENERAL_SETTINGS }
+  return { ...DEFAULT_GENERAL_SETTINGS, cashQuickAmounts: [...DEFAULT_GENERAL_SETTINGS.cashQuickAmounts] }
 }
 
 export async function updateGeneralSettings(changes: Partial<import('./types').GeneralSettings>, actor: User) {
@@ -505,6 +521,7 @@ export async function updateGeneralSettings(changes: Partial<import('./types').G
     comandaFontSize: safePrintSize(changes.comandaFontSize, before.comandaFontSize ?? before.receiptFontSize),
     closureFontSize: safePrintSize(changes.closureFontSize, before.closureFontSize ?? before.receiptFontSize),
     receiptPaperWidth: ([58, 80, 88].includes(requestedPaperWidth) ? requestedPaperWidth : before.receiptPaperWidth || 58) as 58 | 80 | 88,
+    cashQuickAmounts: normalizeCashQuickAmounts(changes.cashQuickAmounts ?? before.cashQuickAmounts),
   }
 
   const now = new Date().toISOString()
