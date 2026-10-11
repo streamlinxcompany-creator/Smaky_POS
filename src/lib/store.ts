@@ -1310,6 +1310,7 @@ export async function updateCustomer(
   id: string,
   input: Pick<Customer, 'name' | 'phone' | 'address' | 'notes'> & {
     customFields?: Record<string, string>
+    favoriteObservations?: string[]
   },
   actor: User
 ) {
@@ -1336,6 +1337,16 @@ export async function updateCustomer(
       .map(([key, value]) => [key, String(value ?? '').trim()])
       .filter(([, value]) => value)
   )
+  let favoriteObservations = current.favoriteObservations || []
+  if (input.favoriteObservations !== undefined) {
+    const uniquePreferences = new Map<string, string>()
+    for (const rawValue of input.favoriteObservations) {
+      const value = String(rawValue ?? '').trim().replace(/\s+/g, ' ')
+      const key = value.toLocaleLowerCase('es')
+      if (key && !uniquePreferences.has(key)) uniquePreferences.set(key, value)
+    }
+    favoriteObservations = Array.from(uniquePreferences.values()).slice(0, 30)
+  }
 
   const after: Customer = {
     ...current,
@@ -1344,6 +1355,7 @@ export async function updateCustomer(
     address,
     notes,
     customFields,
+    favoriteObservations,
     updatedAt: new Date().toISOString()
   }
 

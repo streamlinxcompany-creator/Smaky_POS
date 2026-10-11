@@ -55,6 +55,8 @@ export type Customer = {
   updatedAt: string
   active: boolean
   customFields?: Record<string, string>
+  /** Preferencias confirmadas por el restaurante a partir del historial del cliente. */
+  favoriteObservations?: string[]
 }
 
 export type PaymentMethodConfig = {
