@@ -2730,3 +2730,25 @@ html[data-theme='light'] .customer-invoice-total{border-color:#bba99a}
 html[data-theme='light'] .customer-profile-loyalty{border-color:#e1d6ca;background:#faf3ec;color:#74675c}html[data-theme='light'] .customer-profile-loyalty.high{background:#fff4d8;border-color:#ecd7a0;color:#835b15}html[data-theme='light'] .customer-profile-loyalty.returning{background:#edf7f0;border-color:#c8e1cf;color:#317b48}
 
 .customer-profile-loyalty.lapsed{border-color:#694c25;background:#2c2111;color:#efc77a}html[data-theme='light'] .customer-profile-loyalty.lapsed{background:#fff5dd;border-color:#ecd9a7;color:#845c17}
+
+
+/* Inventario · paginación numérica del historial (25 movimientos por página). */
+.inventory-pagination{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;padding:14px 8px 4px}
+.inventory-pagination button{min-width:34px;height:34px;border-radius:9px;border:1px solid var(--border-color,#dedede);background:var(--surface,#fff);color:var(--text-primary,#222);cursor:pointer;font-size:13px;font-weight:600;font-family:inherit;transition:background .15s,border-color .15s,color .15s}
+.inventory-pagination .inventory-page-number.active{background:var(--accent,#d97745);border-color:var(--accent,#d97745);color:#fff;box-shadow:0 3px 9px rgba(217,119,69,.22)}
+.inventory-pagination button:hover:not(:disabled):not(.active){background:var(--surface-hover,#f4f4f5);border-color:var(--accent,#d97745)}
+.inventory-pagination button:disabled{opacity:.35;cursor:not-allowed}
+.inventory-page-ellipsis{padding:0 3px;color:var(--text-muted,#777);user-select:none}
+.inventory-page-arrow{font-size:20px!important;line-height:1}
+@media(max-width:480px){.inventory-pagination{gap:4px}.inventory-pagination button{min-width:30px;height:32px}}
+
+
+/* StreamLinx · staged and explicit POS-virgin reset confirmations. */
+.slx-reset-progress{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:2px 34px 18px 0}
+.slx-reset-progress span{height:5px;border-radius:999px;background:#342f38;transition:background .18s ease}
+.slx-reset-progress span.active{background:#d97745}
+.slx-virgin-reset-modal .slx-reset-phrase-label{display:block;margin:14px 0 16px;color:#c7c0cb;font-size:12px;font-weight:600}
+.slx-virgin-reset-modal .slx-reset-phrase-label b{color:#f1a17b;letter-spacing:.04em}
+.slx-virgin-reset-modal .slx-reset-phrase-label input{display:block;width:100%;box-sizing:border-box;margin-top:8px;padding:11px 12px;border-radius:8px;border:1px solid #55424b;background:#0d0d11;color:#f7f4f7;font-size:14px;font-weight:600;font-family:inherit;outline:none}
+.slx-virgin-reset-modal .slx-reset-phrase-label input:focus{border-color:#d97745;box-shadow:0 0 0 3px rgba(217,119,69,.16)}
+@media(max-width:520px){.slx-virgin-reset-modal{padding:20px!important}.slx-virgin-reset-modal .slx-danger-actions{flex-wrap:wrap}.slx-virgin-reset-modal .slx-danger-actions button{flex:1 1 100%}}

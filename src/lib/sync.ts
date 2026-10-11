@@ -1319,9 +1319,9 @@ export async function applyRemotePosVirginResetState(resetAt?: string) {
 
   await db.transaction(
     'rw',
-    [db.sales, db.orders, db.customers, db.closures, db.auditEvents, db.historyRecords, db.backups, db.users, db.syncQueue, db.syncMeta],
+    [db.sales, db.orders, db.customers, db.closures, db.auditEvents, db.historyRecords, db.backups, db.users, db.settings, db.syncQueue, db.syncMeta],
     async () => {
-      const [sales, orders, customers, closures, auditEvents, historyRecords, backups, users, queue] = await Promise.all([
+      const [sales, orders, customers, closures, auditEvents, historyRecords, backups, users, settings, queue] = await Promise.all([
         db.sales.toArray(),
         db.orders.toArray(),
         db.customers.toArray(),
@@ -1330,6 +1330,7 @@ export async function applyRemotePosVirginResetState(resetAt?: string) {
         db.historyRecords.toArray(),
         db.backups.toArray(),
         db.users.toArray(),
+        db.settings.toArray(),
         db.syncQueue.toArray(),
       ])
 
@@ -1364,9 +1365,22 @@ export async function applyRemotePosVirginResetState(resetAt?: string) {
 
       const resetEntities = new Set(['sales','orders','customers','cash_closures','audit_events','history_records','backups','users','system'])
       const staleQueueIds = queue
-        .filter(operation => resetEntities.has(String(operation.entity)) && Date.parse(String(operation.createdAt || '')) <= remoteMs)
+        .filter(operation => {
+          const queuedAt = Date.parse(String(operation.createdAt || ''))
+          const staleInventoryUnits = String(operation.entity) === 'settings' && String(operation.recordId || '') === 'inventoryUnits'
+          return staleInventoryUnits || (resetEntities.has(String(operation.entity)) && queuedAt <= remoteMs)
+        })
         .map(operation => operation.id)
       if (staleQueueIds.length) await db.syncQueue.bulkDelete(staleQueueIds)
+
+      // The global reset clears custom inventory units on the server as well.
+      // Mirror that clean state locally so an old cached list cannot be requeued.
+      const unitSetting = settings.find(setting => setting.id === 'inventoryUnits')
+      await db.settings.put({
+        ...(unitSetting || { id: 'inventoryUnits', key: 'inventoryUnits' }),
+        value: [],
+        updatedAt: remoteResetAt,
+      })
 
       await db.syncMeta.put({
         id: POS_VIRGIN_RESET_META_KEY,
@@ -1409,6 +1423,9 @@ export async function purgePosToVirgin(): Promise<{ ok: boolean; error?: string;
     // older than the confirmed server reset and every stale queue operation.
     await db.syncQueue.where('entity').anyOf(['sales','orders','customers','cash_closures','audit_events','history_records','backups','system']).delete()
     await db.syncQueue.where('entity').equals('users').delete()
+    await db.syncQueue.where('[entity+recordId]').equals(['settings', 'inventoryUnits']).delete()
+    const unitsSetting = await db.settings.get('inventoryUnits')
+    await db.settings.put({ ...(unitsSetting || { id: 'inventoryUnits', key: 'inventoryUnits' }), value: [], updatedAt: resetAt })
 
     const manager = (await db.users.toArray()).find(user => user.role === 'manager')
     const allUsers = await db.users.toArray()

@@ -110,6 +110,7 @@ export function Inventory() {
   const [recipeDraft, setRecipeDraft] = useState<RecipeDraftRow[]>([])
   const [recipeComponentDraft, setRecipeComponentDraft] = useState<RecipeComponentDraftRow[]>([])
   const [historyItemId, setHistoryItemId] = useState('all')
+  const [movementPage, setMovementPage] = useState(1)
   const [invoiceMovement, setInvoiceMovement] = useState<InventoryMovement | null>(null)
   const [showRecipeNotice, setShowRecipeNotice] = useState(false)
   const [loadingOlderMovements, setLoadingOlderMovements] = useState(false)
@@ -121,6 +122,7 @@ export function Inventory() {
     if (!silent) {
       setLoading(true)
       setOlderMovements([])
+      setMovementPage(1)
       movementHistoryInitialized.current = false
     }
     try {
@@ -250,6 +252,19 @@ export function Inventory() {
   }, [snapshot.movements, olderMovements])
   const movementsToday = allMovements.filter(movement => movement.occurredAt.slice(0,10) === new Date().toISOString().slice(0,10)).length
   const filteredMovements = useMemo(() => allMovements.filter(movement => historyItemId === 'all' || movement.inventoryItemId === historyItemId), [allMovements, historyItemId])
+  const movementPageSize = 25
+  const movementTotalPages = Math.max(1, Math.ceil(filteredMovements.length / movementPageSize))
+  const safeMovementPage = Math.min(movementPage, movementTotalPages)
+  const visibleMovements = useMemo(
+    () => filteredMovements.slice((safeMovementPage - 1) * movementPageSize, safeMovementPage * movementPageSize),
+    [filteredMovements, safeMovementPage],
+  )
+  const movementPageButtons = useMemo<(number | 'ellipsis-left' | 'ellipsis-right')[]>(() => {
+    if (movementTotalPages <= 7) return Array.from({ length: movementTotalPages }, (_, index) => index + 1)
+    if (safeMovementPage <= 4) return [1, 2, 3, 4, 5, 'ellipsis-right', movementTotalPages]
+    if (safeMovementPage >= movementTotalPages - 3) return [1, 'ellipsis-left', movementTotalPages - 4, movementTotalPages - 3, movementTotalPages - 2, movementTotalPages - 1, movementTotalPages]
+    return [1, 'ellipsis-left', safeMovementPage - 1, safeMovementPage, safeMovementPage + 1, 'ellipsis-right', movementTotalPages]
+  }, [movementTotalPages, safeMovementPage])
 
   const openCreateItem = () => {
     setPageError(''); setFeedback(''); setShowEntryChoice(true)
@@ -516,7 +531,7 @@ export function Inventory() {
       <button className={activeTab === 'stock' ? 'active' : ''} onClick={() => setActiveTab('stock')}><Boxes size={16}/> Existencias <span>{activeItems.length}</span></button>
       <button className={activeTab === 'products' ? 'active' : ''} onClick={() => setActiveTab('products')}><Package size={16}/> Productos <span>{activeCatalogItems.length}</span></button>
       <button className={activeTab === 'recipes' ? 'active' : ''} onClick={() => setActiveTab('recipes')}><Utensils size={16}/> Consumo por producto <span>{recipeCountByProduct.size}</span></button>
-      <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}><History size={16}/> Movimientos <span>{snapshot.movements.length}</span></button>
+      <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}><History size={16}/> Movimientos <span>{allMovements.length}</span></button>
       <button className="inventory-refresh" onClick={() => void refresh()} disabled={loading} title="Actualizar inventario"><RefreshCw size={15} className={loading ? 'spin' : ''}/><span>Actualizar</span></button>
     </div>
 
@@ -621,9 +636,9 @@ export function Inventory() {
     </>}
 
     {activeTab === 'history' && <>
-      <div className="inventory-toolbar panel"><div className="inventory-history-description"><History size={18}/><div><b>Historial de movimientos</b><span>Consulta entradas, salidas y consumos de venta, con acceso a su factura.</span></div></div><select value={historyItemId} onChange={event => setHistoryItemId(event.target.value)} aria-label="Filtrar movimientos por existencia"><option value="all">Todos los registros</option>{snapshot.items.map(item => <option key={item.id} value={item.id}>{item.name}{item.removedAt ? ' (eliminado del inventario)' : item.active ? '' : ' (archivado)'}</option>)}</select></div>
+      <div className="inventory-toolbar panel"><div className="inventory-history-description"><History size={18}/><div><b>Historial de movimientos</b><span>Consulta entradas, salidas y consumos de venta, con acceso a su factura.</span></div></div><select value={historyItemId} onChange={event => { setHistoryItemId(event.target.value); setMovementPage(1) }} aria-label="Filtrar movimientos por existencia"><option value="all">Todos los registros</option>{snapshot.items.map(item => <option key={item.id} value={item.id}>{item.name}{item.removedAt ? ' (eliminado del inventario)' : item.active ? '' : ' (archivado)'}</option>)}</select></div>
       {filteredMovements.length === 0 ? <div className="inventory-empty panel"><History size={25}/><h2>Aún no hay movimientos</h2><p>Cuando registres entradas, salidas o vendas un producto con receta, la trazabilidad aparecerá aquí.</p></div>
-        : <div className="panel inventory-movement-panel"><div className="inventory-table-wrap"><table className="inventory-table"><thead><tr><th>Fecha</th><th>Ingrediente</th><th>Movimiento</th><th>Cantidad</th><th>Saldo después</th><th>Motivo / origen</th><th>Usuario / factura</th></tr></thead><tbody>{filteredMovements.map(movement => {
+        : <div className="panel inventory-movement-panel"><div className="inventory-table-wrap"><table className="inventory-table"><thead><tr><th>Fecha</th><th>Ingrediente</th><th>Movimiento</th><th>Cantidad</th><th>Saldo después</th><th>Motivo / origen</th><th>Usuario / factura</th></tr></thead><tbody>{visibleMovements.map(movement => {
           const item = snapshot.items.find(row => row.id === movement.inventoryItemId)
           const factor = item?.unitFactor || 1
           const stockAfter = toDisplayQuantity(movement.stockAfterBase, factor)
@@ -637,7 +652,7 @@ export function Inventory() {
             <td>{movement.reason || '—'}</td>
             <td>{isSale ? <><b>{movement.actorName || 'Sistema'}</b><button className="inventory-invoice-link" onClick={() => startInvoice(movement)} disabled={!normalizeSaleSnapshot(movement)}><FileText size={14}/> Factura {movement.saleOrderNumber ? `#${movement.saleOrderNumber}` : `#${(movement.saleId || '').slice(-6).toUpperCase()}`}</button></> : <><b>{movement.actorName || 'Sistema'}</b><small>{movement.reason}</small></>}</td>
           </tr>
-        })}</tbody></table></div><div className="inventory-table-footer">Mostrando {filteredMovements.length} movimientos.</div></div>}{hasMoreMovements && <div className="inventory-load-more"><button className="secondary" onClick={() => void loadOlderMovements()} disabled={loadingOlderMovements}>{loadingOlderMovements ? <><RefreshCw size={15} className="spin"/> Cargando movimientos…</> : <><History size={15}/> Cargar movimientos anteriores</>}</button><span>Consulta el historial completo, incluidos consumos y facturas anteriores.</span></div>}
+        })}</tbody></table></div><div className="inventory-table-footer">Mostrando {filteredMovements.length ? (safeMovementPage - 1) * movementPageSize + 1 : 0}–{Math.min(safeMovementPage * movementPageSize, filteredMovements.length)} de {filteredMovements.length} movimientos · {movementPageSize} por página.</div><nav className="inventory-pagination" aria-label="Páginas de movimientos"><button type="button" className="secondary inventory-page-arrow" onClick={() => setMovementPage(page => Math.max(1, page - 1))} disabled={safeMovementPage <= 1} aria-label="Página anterior">‹</button>{movementPageButtons.map((page, index) => typeof page === 'number' ? <button type="button" key={`page-${page}`} className={`inventory-page-number ${safeMovementPage === page ? 'active' : ''}`} aria-current={safeMovementPage === page ? 'page' : undefined} onClick={() => setMovementPage(page)}>{page}</button> : <span className="inventory-page-ellipsis" key={`${page}-${index}`}>…</span>)}<button type="button" className="secondary inventory-page-arrow" onClick={() => setMovementPage(page => Math.min(movementTotalPages, page + 1))} disabled={safeMovementPage >= movementTotalPages} aria-label="Página siguiente">›</button></nav></div>}{hasMoreMovements && <div className="inventory-load-more"><button className="secondary" onClick={() => void loadOlderMovements()} disabled={loadingOlderMovements}>{loadingOlderMovements ? <><RefreshCw size={15} className="spin"/> Cargando movimientos…</> : <><History size={15}/> Cargar movimientos anteriores</>}</button><span>Hay más historial en Supabase. Cada página muestra 25 movimientos.</span></div>}
     </>}
 
     {showEntryChoice && <div className="modal-backdrop inventory-modal-backdrop" onClick={event => { if (event.target === event.currentTarget) setShowEntryChoice(false) }}><div className="modal inventory-modal inventory-entry-choice-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-entry-choice-title"><div className="modal-header"><div><p className="eyebrow">NUEVO REGISTRO</p><h2 id="inventory-entry-choice-title">¿Qué quieres agregar?</h2><p className="muted">Elige cómo se controla en tu restaurante.</p></div><button className="inventory-icon-btn" onClick={() => setShowEntryChoice(false)} aria-label="Cerrar"><X size={18}/></button></div><div className="inventory-entry-choice-grid"><button type="button" onClick={openCreateIngredient}><span className="inventory-entry-choice-icon ingredient"><Boxes size={22}/></span><b>Ingrediente o insumo</b><small>Carne, pan, salsas y materiales que usan las recetas.</small><span className="inventory-entry-choice-action">Crear ingrediente <Plus size={15}/></span></button><button type="button" onClick={openLinkCatalogProduct} disabled={!availableCatalogProducts.length}><span className="inventory-entry-choice-icon product"><Package size={22}/></span><b>Producto del catálogo</b><small>Producto ya creado en Smaky; registra cuántas unidades llegaron.</small><span className="inventory-entry-choice-action">Vincular producto <Plus size={15}/></span>{!availableCatalogProducts.length && <em>Todos los productos activos ya están vinculados.</em>}</button></div></div></div>}
