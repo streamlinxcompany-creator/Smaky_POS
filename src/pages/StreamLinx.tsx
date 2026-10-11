@@ -31,7 +31,8 @@ export function StreamLinx() {
   const [virginResetOpen, setVirginResetOpen] = useState(false)
   const [virginResetBusy, setVirginResetBusy] = useState(false)
   const [current, setCurrent] = useState<User | null>(null)
-  const [receiptFontSize, setReceiptFontSize] = useState(10)
+  const [receiptFontSize, setReceiptFontSize] = useState(11)
+  const [receiptPaperWidth, setReceiptPaperWidth] = useState<58 | 80 | 88>(58)
 
   const load = async () => {
     setLoading(true)
@@ -40,7 +41,8 @@ export function StreamLinx() {
         getArchivedSales(),getArchivedOrders(),getArchivedProducts(),getArchivedUsers(),getArchivedClosures(),getAuditEvents(),getHistoryRecords(),getBackupSnapshots(),getGeneralSettings()
       ])
       setData({sales,orders,products,users,closures,audit,history,backups})
-      setReceiptFontSize(settings.receiptFontSize)
+      setReceiptFontSize(settings.receiptFontSize || 11)
+      setReceiptPaperWidth(settings.receiptPaperWidth || 58)
     } finally { setLoading(false) }
   }
 
@@ -194,7 +196,7 @@ export function StreamLinx() {
         {tab!=='command'&&<div className="slx-toolbar-command"><div><b>{tabs.find(x=>x[0]===tab)?.[1]}</b><span> / STREAMLINX CORE</span></div><div className="slx-toolbar-actions"><div className="slx-command-search"><Search size={14}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar ID, factura, usuario, acción…"/></div><button className="slx-ghost-btn" onClick={()=>void load()}><RefreshCw size={14}/>Sync</button></div></div>}
         {tab==='command'&&<Command data={data} today={today} go={setTab} onBackup={()=>void backup()} onVirginReset={()=>setVirginResetOpen(true)}/>} 
         {tab==='audit'&&<Audit events={data.audit.filter(match)}/>} 
-        {tab==='invoices'&&<Invoices sales={data.sales.filter(match)} history={data.history} fontSize={receiptFontSize} onDelete={sale=>setSaleToDelete(sale)} onDeleteAll={()=>setSalesDeleteAllOpen(true)}/>} 
+        {tab==='invoices'&&<Invoices sales={data.sales.filter(match)} history={data.history} fontSize={receiptFontSize} paperWidth={receiptPaperWidth} onDelete={sale=>setSaleToDelete(sale)} onDeleteAll={()=>setSalesDeleteAllOpen(true)}/>} 
         {tab==='orders'&&<Registry title="Pedidos" records={data.orders.filter(match)} entity="order" restore={restore}/>} 
         {tab==='products'&&<Registry title="Productos" records={data.products.filter(match)} entity="product" restore={restore}/>} 
         {tab==='users'&&<Registry title="Usuarios y roles" records={data.users.filter(match)} entity="user" restore={restore} users/>} 
@@ -218,14 +220,14 @@ function Command({data,today,go,onBackup,onVirginReset}:{data:Data;today:number;
 function Quick({title,value,icon:Icon,go}:{title:string;value:string;icon:typeof Activity;go:()=>void}) { return <button className="slx-command-card" onClick={go}><div className="slx-command-card-icon"><Icon size={17}/></div><div><span>{title}</span><b>{value}</b><small>ver detalle</small></div></button> }
 function AuditRows({events}:{events:AuditEvent[]}) { return events.length?<div className="slx-audit-list">{events.map(e=><div className="slx-audit-row" key={e.id}><span>{stamp(e.timestamp)}</span><b>{e.action}</b><em>{e.actorName} · {labelRole(e.role)}</em><small>{e.module} / {e.recordId||'sistema'}</small></div>)}</div>:<Empty text="Sin eventos registrados."/> }
 function Audit({events}:{events:AuditEvent[]}) { return <section className="slx-data-panel"><div className="slx-panel-head"><div><span className="slx-kicker">APPEND-ONLY LEDGER</span><h2>Auditoría inmutable</h2></div><span>{events.length} eventos</span></div><AuditRows events={events}/></section> }
-function Invoices({sales,history,fontSize,onDelete,onDeleteAll}:{sales:Sale[];history:HistoryRecord[];fontSize:number;onDelete:(sale:Sale)=>void;onDeleteAll:()=>void}) {
+function Invoices({sales,history,fontSize,paperWidth,onDelete,onDeleteAll}:{sales:Sale[];history:HistoryRecord[];fontSize:number;paperWidth:58|80|88;onDelete:(sale:Sale)=>void;onDeleteAll:()=>void}) {
   return <section className="slx-data-panel">
     <div className="slx-panel-head">
       <div><span className="slx-kicker">INVOICE ARCHIVE</span><h2>Facturas activas y archivadas</h2></div>
       <div className="slx-panel-head-actions"><span>{sales.length} registros</span>{sales.length>0&&<button className="slx-danger-btn small" onClick={onDeleteAll}><Trash2 size={14}/>Borrar todas las ventas</button>}</div>
     </div>
     <div className="slx-data-table-wrap"><table className="slx-data-table"><thead><tr><th>Factura</th><th>Fecha</th><th>Cliente</th><th>Usuario</th><th>Total</th><th>Estado</th><th>Versiones</th><th>Acciones</th></tr></thead><tbody>
-      {sales.map(s=><tr key={s.id}><td><b>#{s.orderNumber??s.id.slice(-6)}</b></td><td>{stamp(s.createdAt)}</td><td>{s.customerName||'Consumidor final'}</td><td>{s.userName}</td><td><b>{fmt(s.total)}</b></td><td><span className={`slx-chip ${s.deletedAt?'muted':'positive'}`}>{s.deletedAt?'HISTÓRICA / ELIMINADA':'ORIGINAL'}</span></td><td>{history.filter(h=>h.entity==='sale'&&h.recordId===s.id).length}</td><td><div className="slx-row-actions"><button className="slx-row-btn" onClick={()=>printSaleReceipt(s,fontSize,s.deletedAt?'HISTÓRICA · ELIMINADA':'COPIA')} title="Imprimir factura"><FileText size={14}/></button><button className="slx-row-btn slx-row-btn-danger" onClick={()=>onDelete(s)} title="Borrar definitivamente"><Trash2 size={14}/></button></div></td></tr>)}
+      {sales.map(s=><tr key={s.id}><td><b>#{s.orderNumber??s.id.slice(-6)}</b></td><td>{stamp(s.createdAt)}</td><td>{s.customerName||'Consumidor final'}</td><td>{s.userName}</td><td><b>{fmt(s.total)}</b></td><td><span className={`slx-chip ${s.deletedAt?'muted':'positive'}`}>{s.deletedAt?'HISTÓRICA / ELIMINADA':'ORIGINAL'}</span></td><td>{history.filter(h=>h.entity==='sale'&&h.recordId===s.id).length}</td><td><div className="slx-row-actions"><button className="slx-row-btn" onClick={()=>printSaleReceipt(s,fontSize,s.deletedAt?'HISTÓRICA · ELIMINADA':'COPIA',paperWidth)} title="Imprimir factura"><FileText size={14}/></button><button className="slx-row-btn slx-row-btn-danger" onClick={()=>onDelete(s)} title="Borrar definitivamente"><Trash2 size={14}/></button></div></td></tr>)}
     </tbody></table></div>
   </section>
 }

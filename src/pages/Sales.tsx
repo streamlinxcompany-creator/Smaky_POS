@@ -12,7 +12,8 @@ const fallbackPaymentLabel = (payment: PaymentMethod) => payment === 'cash' ? 'E
 export function Sales() {
   const [sales, setSales] = useState<Sale[]>([])
   const [paymentLabels, setPaymentLabels] = useState<Record<string,string>>({})
-  const [receiptFontSize, setReceiptFontSize] = useState(10)
+  const [receiptFontSize, setReceiptFontSize] = useState(11)
+  const [receiptPaperWidth, setReceiptPaperWidth] = useState<58 | 80 | 88>(58)
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteProgress, setDeleteProgress] = useState(0)
@@ -39,7 +40,8 @@ export function Sales() {
         if (!active) return
         setSales(Array.isArray(salesData) ? salesData : [])
         setPaymentLabels(Object.fromEntries((Array.isArray(methods) ? methods : []).map(method => [method.id, method.name])))
-        setReceiptFontSize(Number(settings?.receiptFontSize) || 10)
+        setReceiptFontSize(Number(settings?.receiptFontSize) || 11)
+        setReceiptPaperWidth(settings?.receiptPaperWidth || 58)
       } catch (error) {
         console.error('No fue posible cargar el historial de ventas:', error)
         if (active) {
@@ -120,7 +122,7 @@ export function Sales() {
           <td>{sale.userName}</td>
           <td><span className="badge">{paymentLabel(sale.payment, sale)}</span></td>
           <td><b>{money(sale.total)}</b></td>
-          <td><button className="sales-print-btn" title="Imprimir factura" onClick={(event) => { event.stopPropagation(); printSaleReceipt(sale, receiptFontSize) }}><Printer size={14}/> Factura</button></td>
+          <td><button className="sales-print-btn" title="Imprimir factura" onClick={(event) => { event.stopPropagation(); printSaleReceipt(sale, receiptFontSize, 'COPIA', receiptPaperWidth) }}><Printer size={14}/> Factura</button></td>
         </tr>)}</tbody>
       </table>}
     </div>
@@ -154,7 +156,7 @@ export function Sales() {
           <div><span>Subtotal</span><b>{money(Number(selectedSale.subtotal) || 0)}</b></div>
           <div className="grand"><span>Total</span><strong>{money(Number(selectedSale.total) || 0)}</strong></div>
         </div>
-        <button className="secondary receipt-print-btn" onClick={() => printSaleReceipt(selectedSale, receiptFontSize)}><Printer size={15}/> Imprimir factura</button>
+        <button className="secondary receipt-print-btn" onClick={() => printSaleReceipt(selectedSale, receiptFontSize, 'COPIA', receiptPaperWidth)}><Printer size={15}/> Imprimir factura</button>
         {canDelete && <div className="receipt-danger">
           <button className="delete-sale-btn" onClick={() => { setConfirmDelete(true); deleteProgressRef.current = 0; setDeleteProgress(0) }}><Trash2 size={15}/> Eliminar esta venta</button>
         </div>}

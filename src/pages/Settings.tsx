@@ -7,8 +7,11 @@ import type { LucideIcon } from 'lucide-react'
 import { Users } from './Users'
 import { Products } from './Products'
 import { getInventorySnapshot } from '../lib/inventory'
+import type { InventoryItem, InventoryRecipe } from '../lib/types'
 
 type SettingsSection = 'general' | 'orders' | 'payments' | 'categories' | 'products' | 'inventory' | 'invoice' | 'users'
+type PrintPreviewType = 'invoice' | 'comanda' | 'closure'
+type UnitUsageDialog = { unit: string; items: InventoryItem[]; recipes: Array<{ productName: string; itemName: string }> }
 
 const paymentIcon = (id: string) => id === 'cash' ? Banknote : id === 'transfer' ? WalletCards : CreditCard
 
@@ -50,6 +53,8 @@ export function Settings() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [printPreviewType, setPrintPreviewType] = useState<PrintPreviewType>('invoice')
+  const [unitUsageDialog, setUnitUsageDialog] = useState<UnitUsageDialog | null>(null)
 
   const canManage = !!user && ['manager', 'admin'].includes(user.role)
   const isManager = user?.role === 'manager'
@@ -128,14 +133,26 @@ export function Settings() {
   const removeInventoryUnit = async (unit: string) => {
     if (!user || !canManageInventory || saving) return
     if (DEFAULT_INVENTORY_UNITS.some(base => base.toLocaleLowerCase('es') === unit.toLocaleLowerCase('es'))) return
-    if (!window.confirm(`¿Eliminar la unidad “${unit}”?`)) return
-    setSaving(true); clearFeedback()
+    setSaving(true); clearFeedback(); setUnitUsageDialog(null)
     try {
       const snapshot = await getInventorySnapshot()
       const normalized = unit.toLocaleLowerCase('es')
-      const usedByItem = snapshot.items.some(item => item.unit.toLocaleLowerCase('es') === normalized)
-      const usedByRecipe = snapshot.recipes.some(recipe => recipe.quantityUnit.toLocaleLowerCase('es') === normalized)
-      if (usedByItem || usedByRecipe) throw new Error(`No se puede eliminar “${unit}” porque ya está usada por un ingrediente o una receta.`)
+      // Ignore archived/removed inventory records and recipe rows belonging to deleted products.
+      // Old historical rows were the reason a previously-unused unit could remain undeletable.
+      const activeItems = snapshot.items.filter(item => item.active && !item.removedAt)
+      const itemReferences = activeItems.filter(item => item.unit.trim().toLocaleLowerCase('es') === normalized)
+      const activeItemIds = new Set(activeItems.map(item => item.id))
+      const activeProductIds = new Set(products.filter(product => product.active && !product.deletedAt).map(product => product.id))
+      const recipeReferences = snapshot.recipes
+        .filter(recipe => activeProductIds.has(recipe.productId) && activeItemIds.has(recipe.inventoryItemId))
+        .filter(recipe => recipe.quantityUnit.trim().toLocaleLowerCase('es') === normalized || itemReferences.some(item => item.id === recipe.inventoryItemId))
+        .map(recipe => ({ productName: recipe.productName, itemName: recipe.itemName }))
+        .filter((reference, index, all) => all.findIndex(other => other.productName === reference.productName && other.itemName === reference.itemName) === index)
+
+      if (itemReferences.length || recipeReferences.length) {
+        setUnitUsageDialog({ unit, items: itemReferences, recipes: recipeReferences })
+        return
+      }
       const nextCustom = await saveCustomInventoryUnits(customInventoryUnits.filter(item => item.toLocaleLowerCase('es') !== normalized), user)
       setCustomInventoryUnits(nextCustom)
       setInventoryUnits(await getInventoryUnits())
@@ -174,7 +191,8 @@ export function Settings() {
   }
 
   const saveGeneral = async (changes: Partial<GeneralSettings>) => {
-    if (!user || !((canManage || canManageInvoice) && Object.hasOwn(changes, 'receiptFontSize') || (canManage || canManageGeneral) && !Object.hasOwn(changes, 'receiptFontSize')) || saving) return
+    const isPrintSetting = ['receiptFontSize', 'comandaFontSize', 'closureFontSize', 'receiptPaperWidth'].some(key => Object.hasOwn(changes, key))
+    if (!user || !(isPrintSetting ? (canManage || canManageInvoice) : (canManage || canManageGeneral)) || saving) return
     setSaving(true); clearFeedback()
     try { setGeneralSettings(await updateGeneralSettings(changes, user)); setMessage('Preferencias generales actualizadas.') }
     catch (caught) { flashError(caught) } finally { setSaving(false) }
@@ -300,9 +318,29 @@ export function Settings() {
       </div>}
 
       {activeSection === 'invoice' && (canManage || canManageInvoice) && <div className="settings-stack">
-        <section className="settings-list-card settings-feature-card">
-          <div className="settings-feature-head"><div className="settings-row-icon settings-feature-icon"><FileText size={17}/></div><div><b>Tamaño de letra de la factura</b><span>Se aplica a las próximas impresiones de comprobantes.</span></div></div>
-          <label className="settings-field-editor-label"><span>Tamaño</span><select value={generalSettings.receiptFontSize} disabled={saving} onChange={event => void saveGeneral({ receiptFontSize: Number(event.target.value) })}>{Array.from({ length: 17 }, (_, index) => index + 4).map(size => <option key={size} value={size}>{size}px</option>)}</select></label>
+        <section className="settings-list-card settings-feature-card settings-print-settings-card">
+          <div className="settings-feature-head"><div className="settings-row-icon settings-feature-icon"><FileText size={17}/></div><div><b>Impresión térmica</b><span>Ajusta cada comprobante y revisa una vista previa antes de probar en papel.</span></div></div>
+          <div className="settings-print-document-tabs" role="tablist" aria-label="Tipo de documento">
+            {([['invoice','Factura'],['comanda','Comanda'],['closure','Cierre de caja']] as Array<[PrintPreviewType,string]>).map(([type,label]) => <button key={type} type="button" role="tab" aria-selected={printPreviewType === type} className={printPreviewType === type ? 'active' : ''} onClick={() => setPrintPreviewType(type)}>{label}</button>)}
+          </div>
+          <div className="settings-print-layout">
+          <div className="settings-print-controls">
+            <label className="settings-field-editor-label"><span>Tamaño de letra</span><select value={printPreviewType === 'invoice' ? generalSettings.receiptFontSize : printPreviewType === 'comanda' ? generalSettings.comandaFontSize : generalSettings.closureFontSize} disabled={saving} onChange={event => { const size = Number(event.target.value); void saveGeneral(printPreviewType === 'invoice' ? { receiptFontSize: size } : printPreviewType === 'comanda' ? { comandaFontSize: size } : { closureFontSize: size }) }}>{Array.from({ length: 12 }, (_, index) => index + 7).map(size => <option key={size} value={size}>{size}px</option>)}</select></label>
+            <label className="settings-field-editor-label"><span>Ancho del rollo</span><select value={generalSettings.receiptPaperWidth} disabled={saving} onChange={event => void saveGeneral({ receiptPaperWidth: Number(event.target.value) as 58 | 80 | 88 })}><option value={58}>58 mm</option><option value={80}>80 mm</option><option value={88}>88 mm</option></select><small>Debe coincidir con el papel seleccionado en el controlador de la impresora.</small></label>
+          </div>
+          <div className="settings-print-preview-shell">
+            <div className="settings-print-preview-header"><b>Vista previa</b><span>{generalSettings.receiptPaperWidth} mm · {printPreviewType === 'invoice' ? generalSettings.receiptFontSize : printPreviewType === 'comanda' ? generalSettings.comandaFontSize : generalSettings.closureFontSize}px</span></div>
+            <div className="settings-print-preview-stage">
+              <div className={`settings-print-preview paper-${generalSettings.receiptPaperWidth}`} style={{ fontSize: `${printPreviewType === 'invoice' ? generalSettings.receiptFontSize : printPreviewType === 'comanda' ? generalSettings.comandaFontSize : generalSettings.closureFontSize}px` }}>
+                <div className="preview-center"><b className="preview-brand">{printPreviewType === 'comanda' ? 'COMANDA DE COCINA' : 'Smaky Burgers'}</b><b className="preview-title">{printPreviewType === 'invoice' ? 'FACTURA · COPIA' : printPreviewType === 'comanda' ? 'PEDIDO #1042' : 'CIERRE DE CAJA'}</b>{printPreviewType !== 'closure' && <span>Pedido #1042</span>}</div>
+                <hr/>
+                {printPreviewType === 'invoice' ? <><div>Fecha: 10/10/2026 12:30</div><div>Atendido por: Gerente</div><section className="preview-customer"><b>DATOS DEL CLIENTE</b><div>Cliente: María Pérez</div><div>Teléfono: 300 000 0000</div><div>Dirección: Calle 10 # 5-20</div></section><hr/><div className="preview-line"><span>2× Hamburguesa clásica</span><b>$24.000</b></div><div className="preview-line"><span>1× Papas</span><b>$5.000</b></div><hr/><div className="preview-line"><span>Subtotal</span><b>$29.000</b></div><div className="preview-line preview-total"><span>TOTAL</span><b>$29.000</b></div></> : printPreviewType === 'comanda' ? <><div>10/10/2026 12:30</div><div>Preparar: 3 unidades</div><hr/><div className="preview-line"><span>2× Hamburguesa clásica</span><b>2</b></div><small>Indicación: sin cebolla</small><div className="preview-line"><span>1× Papas</span><b>1</b></div></> : <><div>Período: 2026-10-10</div><div>Responsable: Gerente</div><hr/><div className="preview-line"><span>Ventas registradas</span><b>12</b></div><div className="preview-line"><span>TOTAL VENTAS</span><b>$345.000</b></div><hr/><b>MEDIOS DE PAGO</b><div className="preview-line"><span>Efectivo</span><b>$220.000</b></div><div className="preview-line"><span>Transferencia</span><b>$125.000</b></div><hr/><div className="preview-line preview-total"><span>CUADRE EXACTO</span><b>$0</b></div></>}
+                <hr/><div className="preview-center">Smaky POS</div>
+              </div>
+            </div>
+            <p className="settings-print-help">Para aprovechar el ancho real, selecciona el rollo correcto en el diálogo de impresión, usa escala 100 %, márgenes mínimos o ninguno y desactiva encabezados y pies del navegador.</p>
+          </div>
+          </div>
         </section>
       </div>}
 
@@ -378,5 +416,14 @@ export function Settings() {
 
       {activeSection === 'users' && isManager && <div className="settings-users-pane"><Users embedded /></div>}
     </main>
+    {unitUsageDialog && <div className="modal-backdrop settings-unit-usage-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setUnitUsageDialog(null) }}>
+      <section className="modal settings-unit-usage-modal" role="dialog" aria-modal="true" aria-labelledby="unit-usage-title">
+        <div className="modal-header"><div><p className="eyebrow">UNIDAD EN USO</p><h2 id="unit-usage-title">No se puede eliminar “{unitUsageDialog.unit}”</h2><p className="muted">Primero cambia o retira los elementos que todavía dependen de esta unidad.</p></div><button type="button" className="secondary" onClick={() => setUnitUsageDialog(null)} aria-label="Cerrar"><X size={17}/></button></div>
+        {unitUsageDialog.items.length > 0 && <section className="settings-unit-usage-group"><h3>Ingredientes / existencias</h3><ul>{unitUsageDialog.items.map(item => <li key={item.id}><span><b>{item.name}</b><small>{item.recordKind === 'catalog_product' ? 'Producto del catálogo en inventario' : 'Ingrediente de inventario'} · unidad {item.unit}</small></span></li>)}</ul></section>}
+        {unitUsageDialog.recipes.length > 0 && <section className="settings-unit-usage-group"><h3>Productos y recetas relacionados</h3><ul>{unitUsageDialog.recipes.map((recipe,index) => <li key={`${recipe.productName}-${recipe.itemName}-${index}`}><span><b>{recipe.productName}</b><small>Utiliza {recipe.itemName}</small></span></li>)}</ul></section>}
+        <div className="settings-unit-usage-tip">Para liberar la unidad, ve a <b>Inventario → Existencias</b> y cambia o elimina el ingrediente relacionado; después revisa <b>Consumo por producto</b> para quitar o actualizar las recetas asociadas. Los registros históricos archivados no bloquean la eliminación.</div>
+        <div className="modal-actions"><button type="button" className="primary" onClick={() => setUnitUsageDialog(null)}>Entendido</button></div>
+      </section>
+    </div>}
   </div>
 }

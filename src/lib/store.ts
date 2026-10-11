@@ -293,7 +293,10 @@ export const DEFAULT_GENERAL_SETTINGS: import('./types').GeneralSettings = {
   autoDarkFrom: '19:00',
   autoLightFrom: '07:00',
   showConsumerFinal: false,
-  receiptFontSize: 10,
+  receiptFontSize: 11,
+  comandaFontSize: 11,
+  closureFontSize: 11,
+  receiptPaperWidth: 58,
 }
 
 export const DEFAULT_PAYMENT_METHODS: PaymentMethodConfig[] = [
@@ -482,6 +485,9 @@ export async function getGeneralSettings(): Promise<import('./types').GeneralSet
 export async function updateGeneralSettings(changes: Partial<import('./types').GeneralSettings>, actor: User) {
   const before = await getGeneralSettings()
 
+  const safePrintSize = (value: number | undefined, fallback: number) =>
+    value === undefined || !Number.isFinite(Number(value)) ? fallback : Math.max(7, Math.min(18, Math.round(Number(value))))
+  const requestedPaperWidth = Number(changes.receiptPaperWidth)
   const next: import('./types').GeneralSettings = {
     ...before,
     ...changes,
@@ -495,6 +501,10 @@ export async function updateGeneralSettings(changes: Partial<import('./types').G
       ? changes.autoLightFrom!
       : before.autoLightFrom,
     showConsumerFinal: changes.showConsumerFinal ?? before.showConsumerFinal,
+    receiptFontSize: safePrintSize(changes.receiptFontSize, before.receiptFontSize),
+    comandaFontSize: safePrintSize(changes.comandaFontSize, before.comandaFontSize ?? before.receiptFontSize),
+    closureFontSize: safePrintSize(changes.closureFontSize, before.closureFontSize ?? before.receiptFontSize),
+    receiptPaperWidth: ([58, 80, 88].includes(requestedPaperWidth) ? requestedPaperWidth : before.receiptPaperWidth || 58) as 58 | 80 | 88,
   }
 
   const now = new Date().toISOString()

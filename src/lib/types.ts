@@ -37,8 +37,12 @@ export type GeneralSettings = {
   autoDarkFrom: string
   autoLightFrom: string
   showConsumerFinal: boolean
-  /** Tamaño base de letra para los comprobantes térmicos, en píxeles. */
+  /** Tamaño de letra independiente por tipo de impresión, en píxeles CSS. */
   receiptFontSize: number
+  comandaFontSize: number
+  closureFontSize: number
+  /** Ancho nominal del rollo térmico; el área imprimible se ajusta por modelo. */
+  receiptPaperWidth: 58 | 80 | 88
 }
 
 export type Customer = {

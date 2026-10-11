@@ -17,19 +17,21 @@ export function CashClosing() {
   const [modal, setModal] = useState(false)
   const [detail, setDetail] = useState<CashClosure | null>(null)
   const [toast, setToast] = useState('')
-  const [receiptFontSize, setReceiptFontSize] = useState(10)
+  const [closureFontSize, setClosureFontSize] = useState(11)
+  const [receiptPaperWidth, setReceiptPaperWidth] = useState<58 | 80 | 88>(58)
 
   const load = async () => {
     const [nextClosures, nextSales, currentKey, settings] = await Promise.all([getClosures(), getSales(), getCurrentBusinessDayKey(), getGeneralSettings()])
     setClosures(nextClosures)
     setSales(nextSales)
-    setReceiptFontSize(settings.receiptFontSize)
+    setClosureFontSize(settings.closureFontSize || 11)
+    setReceiptPaperWidth(settings.receiptPaperWidth || 58)
     setDateKey(currentKey)
   }
 
   useEffect(() => { void load() }, [])
   useEffect(() => {
-    const handleSettingsChange = () => { void getGeneralSettings().then(settings => setReceiptFontSize(settings.receiptFontSize)) }
+    const handleSettingsChange = () => { void getGeneralSettings().then(settings => { setClosureFontSize(settings.closureFontSize || 11); setReceiptPaperWidth(settings.receiptPaperWidth || 58) }) }
     window.addEventListener('smaky-settings-change', handleSettingsChange)
     return () => window.removeEventListener('smaky-settings-change', handleSettingsChange)
   }, [])
@@ -81,7 +83,7 @@ export function CashClosing() {
   }
 
   const printClosure = (closure: CashClosure) => {
-    const printed = printCashClosingReceipt(closure, receiptFontSize)
+    const printed = printCashClosingReceipt(closure, closureFontSize, receiptPaperWidth)
     if (!printed) setToast('El navegador bloqueó la ventana de impresión. Permite las ventanas emergentes para Smaky.')
   }
 

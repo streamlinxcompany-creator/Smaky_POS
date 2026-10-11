@@ -53,7 +53,9 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<string[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>([])
-  const [receiptFontSize, setReceiptFontSize] = useState(10)
+  const [receiptFontSize, setReceiptFontSize] = useState(11)
+  const [comandaFontSize, setComandaFontSize] = useState(11)
+  const [receiptPaperWidth, setReceiptPaperWidth] = useState<58 | 80 | 88>(58)
   const [orderFields, setOrderFields] = useState<import('../lib/types').OrderFieldConfig[]>([])
   const [items, setItems] = useState<SaleItem[]>(initialOrder?.items.map(item => ({ ...item, lineId: item.lineId || newLineId() })) || [])
   const [order, setOrder] = useState<Order | null>(initialOrder || null)
@@ -151,6 +153,8 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
           setPaymentMethods(paymentMethodData)
           setOrderFields(fieldData)
           setReceiptFontSize(settings.receiptFontSize)
+          setComandaFontSize(settings.comandaFontSize || 11)
+          setReceiptPaperWidth(settings.receiptPaperWidth || 58)
           if (paymentMethodData.length) setPayment(current => paymentMethodData.some(method => method.id === current) ? current : paymentMethodData[0].id)
         })
     }
@@ -343,7 +347,7 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
       if (!order) {
         const created = await createOrder(items, { ...customerDelivery, notes: notes || customerDelivery.notes }, user, currentCustomer?.id)
         setCurrent(created)
-        const printed = print ? printOrderComanda(created) : false
+        const printed = print ? printOrderComanda(created, comandaFontSize, receiptPaperWidth) : false
         if (printed) setCurrent(await updateOrderComandaStatus(created.id, 'printed'))
         if (print && !printed) setError('El pedido se registró, pero no fue posible iniciar la impresión automática.')
         else setMessage(print ? `Pedido #${created.orderNumber} registrado` : `Pedido #${created.orderNumber} guardado sin comanda`)
@@ -353,7 +357,7 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
       if (!updated) return null
       setCurrent(updated)
       if (print) {
-        const printed = printOrderComanda(updated)
+        const printed = printOrderComanda(updated, comandaFontSize, receiptPaperWidth)
         if (printed) setCurrent(await updateOrderComandaStatus(updated.id, 'printed'))
         if (!printed) setError('Los cambios se guardaron, pero no fue posible iniciar la impresión automática.')
         else setMessage('Cambios guardados y comanda actualizada')
@@ -452,7 +456,7 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
       paymentProgressRef.current = 0
       setPaymentProgress(0)
       setMessage('Venta realizada · factura enviada')
-      const printed = printSaleReceipt(result.sale, receiptFontSize, 'ORIGINAL')
+      const printed = printSaleReceipt(result.sale, receiptFontSize, 'ORIGINAL', receiptPaperWidth)
       if (!printed) setError('La venta quedó registrada, pero no fue posible iniciar la impresión automática de la factura.')
       setCompletedSale(result.sale)
     } catch (caught) {

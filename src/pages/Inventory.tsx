@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { getSessionUser, hasPermission } from '../lib/auth'
-import { DEFAULT_INVENTORY_UNITS, getAllProducts, getInventoryUnits } from '../lib/store'
+import { DEFAULT_INVENTORY_UNITS, getAllProducts, getGeneralSettings, getInventoryUnits } from '../lib/store'
 import { date, money, time } from '../lib/format'
 import { printSaleReceipt } from '../lib/print'
 import {
@@ -82,6 +82,8 @@ function notifyCatalogProductLinked(productId: string) {
 export function Inventory() {
   const user = getSessionUser()
   const [snapshot, setSnapshot] = useState<InventorySnapshot>(emptySnapshot)
+  const [invoiceFontSize, setInvoiceFontSize] = useState(11)
+  const [receiptPaperWidth, setReceiptPaperWidth] = useState<58 | 80 | 88>(58)
   const [products, setProducts] = useState<Product[]>([])
   const [measurementUnits, setMeasurementUnits] = useState<string[]>(DEFAULT_INVENTORY_UNITS)
   const [loading, setLoading] = useState(true)
@@ -141,6 +143,13 @@ export function Inventory() {
 
   useEffect(() => {
     void refresh()
+    const loadPrintSettings = () => {
+      void getGeneralSettings().then(settings => {
+        setInvoiceFontSize(settings.receiptFontSize || 11)
+        setReceiptPaperWidth(settings.receiptPaperWidth || 58)
+      }).catch(() => undefined)
+    }
+    loadPrintSettings()
     let refreshTimer: ReturnType<typeof setTimeout> | undefined
     const unsubscribe = subscribeInventoryChanges(() => {
       if (refreshTimer) clearTimeout(refreshTimer)
@@ -149,8 +158,11 @@ export function Inventory() {
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'visible' && navigator.onLine) void refresh(true)
     }, 20_000)
-    const handleOnline = () => { void refresh(true) }
-    const handleSettingsChange = () => { void getInventoryUnits().then(setMeasurementUnits).catch(() => undefined) }
+    const handleOnline = () => { void refresh(true); loadPrintSettings() }
+    const handleSettingsChange = () => {
+      void getInventoryUnits().then(setMeasurementUnits).catch(() => undefined)
+      loadPrintSettings()
+    }
     window.addEventListener('online', handleOnline)
     window.addEventListener('smaky-settings-change', handleSettingsChange)
     return () => {
@@ -346,7 +358,10 @@ export function Inventory() {
 
   const openMovement = (item: InventoryItem, movementType: 'entry' | 'exit') => {
     setMovementItem(item)
-    setMovementForm({ movementType, quantity: '', occurredAt: localDateTimeValue(), reason: movementType === 'entry' ? 'Compra / reposición' : 'Merma / desperdicio' })
+    const defaultReason = movementType === 'entry'
+      ? 'Compra / reposición'
+      : item.recordKind === 'catalog_product' ? 'Salida / ajuste de producto' : 'Merma / desperdicio'
+    setMovementForm({ movementType, quantity: '', occurredAt: localDateTimeValue(), reason: defaultReason })
     setPageError(''); setFeedback('')
   }
 
@@ -554,7 +569,7 @@ export function Inventory() {
               <div className={`inventory-stock-status ${tone}`}>{tone === 'negative' ? 'Existencia negativa' : tone === 'low' ? 'Existencias bajas' : 'Control de unidades activo'}</div>
               {minimum !== null && <div className="inventory-minimum">Alertar cuando llegue a {formatQuantity(minimum)} unidad(es)</div>}
               <div className="inventory-item-footer"><span>Se descuenta al vender</span><button type="button" onClick={() => { setHistoryItemId(item.id); setActiveTab('history') }}><History size={14}/> Historial</button></div>
-              <div className="inventory-item-controls inventory-catalog-controls"><button onClick={() => openMovement(item,'entry')} disabled={!navigator.onLine || saving}><Plus size={15}/> Registrar llegada</button></div>
+              <div className="inventory-item-controls inventory-catalog-controls"><button onClick={() => openMovement(item,'entry')} disabled={!navigator.onLine || saving}><Plus size={15}/> Entrada</button><button onClick={() => openMovement(item,'exit')} disabled={!navigator.onLine || saving}><ArrowDownLeft size={15}/> Salida</button></div>
             </article>
           })}</div>}
     </>}
@@ -638,7 +653,7 @@ export function Inventory() {
     </form></div></div>}
 
     {movementItem && <div className="modal-backdrop inventory-modal-backdrop" onClick={event => { if (event.target === event.currentTarget && !saving) setMovementItem(null) }}><div className="modal inventory-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-movement-modal-title"><div className="modal-header"><div><p className="eyebrow">MOVIMIENTO DE EXISTENCIAS</p><h2 id="inventory-movement-modal-title">{movementForm.movementType === 'entry' ? 'Registrar entrada' : 'Registrar salida'}</h2><p className="muted">{movementItem.name} · saldo actual: {formatQuantity(itemDisplayStock(movementItem))} {movementItem.unit}</p></div><button className="inventory-icon-btn" onClick={() => !saving && setMovementItem(null)} aria-label="Cerrar"><X size={18}/></button></div><form onSubmit={saveMovement}>
-      <div className="inventory-movement-type-selector"><button type="button" className={movementForm.movementType === 'entry' ? 'selected entry' : ''} onClick={() => setMovementForm({ ...movementForm, movementType: 'entry', reason: 'Compra / reposición' })}><ArrowUpRight size={17}/> Entrada (+)</button>{movementItem.recordKind !== 'catalog_product' && <button type="button" className={movementForm.movementType === 'exit' ? 'selected exit' : ''} onClick={() => setMovementForm({ ...movementForm, movementType: 'exit', reason: 'Merma / desperdicio' })}><ArrowDownLeft size={17}/> Salida (−)</button>}</div>
+      <div className="inventory-movement-type-selector"><button type="button" className={movementForm.movementType === 'entry' ? 'selected entry' : ''} onClick={() => setMovementForm({ ...movementForm, movementType: 'entry', reason: 'Compra / reposición' })}><ArrowUpRight size={17}/> Entrada (+)</button><button type="button" className={movementForm.movementType === 'exit' ? 'selected exit' : ''} onClick={() => setMovementForm({ ...movementForm, movementType: 'exit', reason: 'Uso / salida de producto' })}><ArrowDownLeft size={17}/> Salida (−)</button></div>
       <label>Cantidad ({movementItem.unit})<input type="number" min={movementItem.unitKind === 'custom' ? 1 : 0.001} step={movementItem.unitKind === 'custom' ? 1 : 0.001} value={movementForm.quantity} onChange={event => setMovementForm({ ...movementForm, quantity: event.target.value })} placeholder={movementItem.unitKind === 'custom' ? "Ej. 1, 2 o 3" : "Ej. 1 o 0,5"} required autoFocus/><small>{movementItem.unitKind === 'custom' ? "Cantidad entera: 1, 2, 3…" : "Puedes usar fracciones para peso o volumen."}</small></label>
       <label>Fecha y hora<input type="datetime-local" value={movementForm.occurredAt} onChange={event => setMovementForm({ ...movementForm, occurredAt: event.target.value })} required/></label>
       <label>Motivo<input list="inventory-movement-reasons" value={movementForm.reason} onChange={event => setMovementForm({ ...movementForm, reason: event.target.value })} placeholder="Ej. Compra, desperdicio, ajuste…" required/><datalist id="inventory-movement-reasons">{reasonsByType[movementForm.movementType].map(reason => <option key={reason} value={reason}/>)}</datalist></label>
@@ -663,7 +678,7 @@ export function Inventory() {
     {invoiceMovement && saleForInvoice && <div className="modal-backdrop inventory-modal-backdrop" onClick={event => { if (event.target === event.currentTarget) setInvoiceMovement(null) }}><div className="modal inventory-invoice-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-invoice-title"><div className="modal-header"><div><p className="eyebrow">TRAZABILIDAD DE INVENTARIO</p><h2 id="inventory-invoice-title">Factura de venta</h2><p className="muted">Este comprobante se conserva con el movimiento para poder rastrear el consumo.</p></div><button className="inventory-icon-btn" onClick={() => setInvoiceMovement(null)} aria-label="Cerrar"><X size={18}/></button></div>
       <div className="inventory-invoice-summary"><div><span>Pedido</span><b>#{saleForInvoice.orderNumber ?? saleForInvoice.id.slice(-6).toUpperCase()}</b></div><div><span>Fecha</span><b>{date(saleForInvoice.createdAt)} · {time(saleForInvoice.createdAt)}</b></div><div><span>Usuario</span><b>{saleForInvoice.userName || invoiceMovement.actorName}</b></div><div><span>Total</span><b>{money(saleForInvoice.total)}</b></div></div>
       <div className="inventory-invoice-items">{(saleForInvoice.items || []).map((saleItem,index) => <div key={saleItem.lineId || `${saleItem.productId}-${index}`}><span>{formatQuantity(saleItem.quantity)} × {saleItem.name}</span><b>{money(saleItem.total)}</b></div>)}</div>
-      <div className="modal-actions"><button className="secondary" onClick={() => setInvoiceMovement(null)}>Cerrar</button><button className="primary" onClick={() => printSaleReceipt(saleForInvoice, 10)}><Printer size={15}/> Imprimir factura</button></div>
+      <div className="modal-actions"><button className="secondary" onClick={() => setInvoiceMovement(null)}>Cerrar</button><button className="primary" onClick={() => printSaleReceipt(saleForInvoice, invoiceFontSize, 'COPIA', receiptPaperWidth)}><Printer size={15}/> Imprimir factura</button></div>
     </div></div>}
   </div>
 }
