@@ -421,24 +421,24 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
     if (!order || order.status === 'paid' || saving || !items.length || !cashIsSufficient || paymentProgressRef.current < 96) return
 
     // Check the authoritative stock on Supabase before finalizing the sale.
-    // This check is advisory only: continuing always remains possible and the
-    // database trigger will record the real resulting balance, including negatives.
-    if (!continueDespiteInventoryWarning) {
-      setSaving(true)
-      setError('')
-      try {
+    // A failure to *consult* inventory must never stop a cashier from
+    // recording a payment. Real shortages still ask for confirmation below.
+    try {
+      if (!continueDespiteInventoryWarning) {
+        setSaving(true)
+        setError('')
         const shortages = await checkInventorySaleShortages(items.map(item => ({ productId: item.productId, name: item.name, quantity: item.quantity })))
         if (shortages.length) {
           setInventoryWarning({ shortages })
           return
         }
-      } catch (caught) {
-        const checkMessage = caught instanceof Error ? caught.message : 'No fue posible consultar el inventario en este momento.'
-        setInventoryWarning({ shortages: [], checkFailed: checkMessage })
-        return
-      } finally {
-        setSaving(false)
       }
+    } catch (caught) {
+      // Inventory is a control, not a payment gateway. Keep a diagnostic for
+      // support but continue to the durable local sale/outbox transaction.
+      console.warn('No fue posible verificar el inventario antes de cobrar; se continúa con la venta:', caught)
+    } finally {
+      setSaving(false)
     }
 
     setInventoryWarning(null)
@@ -469,7 +469,9 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
       paymentProgressRef.current = 0
       setPaymentProgress(0)
       setError(caught instanceof Error ? caught.message : 'No fue posible registrar el pago.')
-    } finally { setSaving(false) }
+    } finally {
+      setSaving(false)
+    }
   }
 
 
