@@ -4,7 +4,7 @@ import type { Table } from 'dexie'
 import { applyLocalCashClosurePurge, applyLocalSalesPurge, enqueueCashClosuresPurgeOperation, enqueueEntityUpsert, enqueueResetOperation, enqueueSalesPurgeOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, isNetworkError, purgeRemoteCashClosures, purgeRemoteSales, resetRemoteData, purgePosToVirgin, withSyncSuppressed } from './sync'
 import { products as seedProducts } from './demoData'
 import { createRemoteWorker, defaultPermissionsForRole, deleteRemoteUser, getLoginProfiles, getManagedProfile, getManagedProfiles, getSessionUser, hasPermission, isStreamlinxOperator, PERMISSION_DEFINITIONS, setSessionUser, updateRemoteUser } from './auth'
-import type { AuditEvent, BackupSnapshot, CashClosure, Customer, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
+import type { AuditEvent, BackupSnapshot, CashClosure, Customer, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, PaymentAllocation, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
 
 type Auditable = Record<string, unknown>
 const redact = (value: unknown): unknown => {
@@ -1679,7 +1679,8 @@ export async function completeOrder(
   payment: PaymentMethod,
   actor: User,
   discount?: { type: 'percent' | 'fixed'; value: number },
-  paymentLabel?: string
+  paymentLabel?: string,
+  paymentAllocations?: PaymentAllocation[]
 ) {
   // El cobro no mantiene una transacción Dexie abierta mientras ejecuta
   // sincronización/auditoría. Cada escritura de negocio usa su propia outbox,
@@ -1734,6 +1735,9 @@ export async function completeOrder(
     0,
     subtotal - discountAmount
   )
+  const allocations = (paymentAllocations || []).map(item => ({ method: String(item.method), label: String(item.label || item.method), amount: Math.max(0, Math.round(Number(item.amount) || 0)), ...(item.cashReceived !== undefined ? { cashReceived: Math.max(0, Math.round(Number(item.cashReceived) || 0)) } : {}) })).filter(item => item.method && item.amount > 0)
+  if (allocations.length && allocations.reduce((sum, item) => sum + item.amount, 0) !== saleTotal) throw new Error('Los montos de los medios de pago deben sumar exactamente el total de la venta.')
+  if (allocations.some(item => item.method === 'cash' && item.cashReceived !== undefined && item.cashReceived < item.amount)) throw new Error('El efectivo recibido no puede ser menor al monto aplicado en efectivo.')
 
   const sale: Sale = {
     id: crypto.randomUUID(),
@@ -1741,9 +1745,9 @@ export async function completeOrder(
     userId: freshActor.id,
     userName: freshActor.name,
     customerId: order.customerId,
-    payment,
+    payment: allocations.length > 1 ? 'multiple' : (allocations[0]?.method || payment),
     paymentLabel:
-      paymentLabel ||
+      allocations.length > 1 ? 'Pago mixto' : paymentLabel ||
       (
         payment === 'cash'
           ? 'Efectivo'
@@ -1753,6 +1757,7 @@ export async function completeOrder(
               ? 'Tarjeta'
               : payment
       ),
+    ...(allocations.length ? { paymentAllocations: allocations } : {}),
     orderId: order.id,
     orderNumber: order.orderNumber,
     customerName: order.customerName,

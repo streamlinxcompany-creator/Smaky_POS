@@ -17,6 +17,7 @@ export type PermissionKey =
   | 'invoice.settings'
 
 export type PaymentMethod = string
+export type PaymentAllocation = { method: PaymentMethod; label: string; amount: number; cashReceived?: number }
 
 export type OrderFieldType = 'text' | 'textarea' | 'number' | 'phone' | 'address' | 'select'
 
@@ -210,6 +211,7 @@ export type Sale = DeliveryInfo & {
   customerId?: string
   payment: PaymentMethod
   paymentLabel?: string
+  paymentAllocations?: PaymentAllocation[]
   items: SaleItem[]
   subtotal: number
   total: number

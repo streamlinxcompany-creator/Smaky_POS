@@ -46,9 +46,8 @@ export function CashClosing() {
   const daySales = useMemo(() => sales.filter(sale => !sale.deletedAt && businessDayKey(sale.createdAt) === dateKey), [sales, dateKey])
   const totals = useMemo(() => daySales.reduce((acc, sale) => {
     acc.total += sale.total
-    if (sale.payment === 'cash') acc.cash += sale.total
-    else if (sale.payment === 'transfer') acc.transfer += sale.total
-    else if (sale.payment === 'card') acc.card += sale.total
+    const allocations = sale.paymentAllocations?.length ? sale.paymentAllocations : [{ method: sale.payment, amount: sale.total }]
+    allocations.forEach(allocation => { if (allocation.method === 'cash') acc.cash += allocation.amount; else if (allocation.method === 'transfer') acc.transfer += allocation.amount; else if (allocation.method === 'card') acc.card += allocation.amount })
     return acc
   }, { total: 0, cash: 0, transfer: 0, card: 0 }), [daySales])
 

@@ -1,9 +1,9 @@
-import { AlertTriangle, ArrowRight, Banknote, Calculator, Check, CreditCard, ExternalLink, FileText, Minus, PackagePlus, PackageX, Plus, Printer, Search, ShoppingCart, SlidersHorizontal, Tag, Trash2, UserRound, X } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Banknote, Calculator, Check, CreditCard, ExternalLink, FileText, Minus, PackagePlus, PackageX, Pencil, Plus, Printer, Search, ShoppingCart, SlidersHorizontal, Tag, Trash2, UserRound, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent } from 'react'
 import { hasPermission } from '../lib/auth'
 import { completeOrder, createOrder, getGeneralSettings, getOrderFields, getPaymentMethods, getProductCategories, getProducts, updateOrderComandaStatus, updateOrderItems } from '../lib/store'
 import { money, time, date } from '../lib/format'
-import type { Customer, Order, PaymentMethod, PaymentMethodConfig, Product, Sale, SaleItem, User } from '../lib/types'
+import type { Customer, Order, PaymentAllocation, PaymentMethod, PaymentMethodConfig, Product, Sale, SaleItem, User } from '../lib/types'
 import { printOrderComanda, printSaleReceipt } from '../lib/print'
 import { checkInventorySaleShortages, getInventoryManagedProductIds, subscribeInventoryChanges, type InventoryShortage } from '../lib/inventory'
 
@@ -65,6 +65,9 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
   const [search, setSearch] = useState('')
   const [payment, setPayment] = useState<PaymentMethod>('cash')
   const [cashReceived, setCashReceived] = useState('')
+  const [multiPayment, setMultiPayment] = useState(false)
+  const [multiAmounts, setMultiAmounts] = useState<Record<string, string>>({})
+  const [multiCashReceived, setMultiCashReceived] = useState<Record<string, string>>({})
   const [discountType, setDiscountType] = useState<'percent' | 'fixed'>('percent')
   const [discountValue, setDiscountValue] = useState('')
   const [notes, setNotes] = useState(initialOrder?.notes || '')
@@ -102,8 +105,12 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
     return Math.min(subtotal, Math.round(safeValue))
   }, [discountType, parsedDiscountValue, subtotal])
   const total = Math.max(0, subtotal - discountAmount)
+  const multiMethods = useMemo(() => paymentMethods.filter(method => Object.hasOwn(multiAmounts, method.id)), [paymentMethods, multiAmounts])
+  const multiAllocations = useMemo<PaymentAllocation[]>(() => multiMethods.map(method => ({ method: method.id, label: method.name, amount: Math.max(0, Math.round(Number(multiAmounts[method.id]) || 0)), ...(method.id === 'cash' ? { cashReceived: Math.max(0, Math.round(Number(multiCashReceived[method.id] || multiAmounts[method.id]) || 0)) } : {}) })), [multiMethods, multiAmounts, multiCashReceived])
+  const multiApplied = multiAllocations.reduce((sum, item) => sum + item.amount, 0)
+  const multiIsSufficient = multiMethods.length >= 2 && multiApplied === total && multiAllocations.filter(item => item.method === 'cash').every(item => (item.cashReceived || 0) >= item.amount)
   const cashReceivedNumber = Number(cashReceived || 0)
-  const cashIsSufficient = payment !== 'cash' || (Number.isFinite(cashReceivedNumber) && cashReceivedNumber >= total)
+  const cashIsSufficient = multiPayment ? multiIsSufficient : payment !== 'cash' || (Number.isFinite(cashReceivedNumber) && cashReceivedNumber >= total)
   const cashChange = payment === 'cash' && Number.isFinite(cashReceivedNumber) ? Math.max(0, cashReceivedNumber - total) : 0
   const cashMissing = payment === 'cash' && Number.isFinite(cashReceivedNumber) ? Math.max(0, total - cashReceivedNumber) : 0
   const cashPresets = useMemo(() => {
@@ -446,7 +453,7 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
       }
       const discount = discountAmount > 0 ? { type: discountType, value: Number.isFinite(parsedDiscountValue) ? parsedDiscountValue : 0 } as const : undefined
       const selectedPayment = paymentMethods.find(method => method.id === payment)
-      const result = await completeOrder(currentOrder.id, payment, user, discount, selectedPayment?.name || fallbackPaymentLabel(payment))
+      const result = await completeOrder(currentOrder.id, payment, user, discount, selectedPayment?.name || fallbackPaymentLabel(payment), multiPayment ? multiAllocations : undefined)
       if (!result) throw new Error('No fue posible registrar el pago.')
       setCurrent(result.order)
       setCheckoutOpen(false)
@@ -633,17 +640,17 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
                     <div className="checkout-module-icon"><CreditCard size={17}/></div>
                     <div><span>MÓDULO 02</span><b>Medios de pago</b></div>
                   </div>
-                  <div className="item-editor-section-head"><div><b>¿Cómo paga el cliente?</b><span>Selecciona un solo medio de pago</span></div><strong>{paymentMethods.find(method => method.id === payment)?.name || fallbackPaymentLabel(payment)}</strong></div>
-                  <div className="payment-grid checkout-payment-grid">{paymentMethods.map(method => <button key={method.id} className={payment === method.id ? 'selected' : ''} disabled={saving} onClick={() => setPayment(method.id)} aria-pressed={payment === method.id}>{method.name}</button>)}</div>
+                  <div className="item-editor-section-head"><div><b>¿Cómo paga el cliente?</b><span>{multiPayment ? 'Distribuye el total entre los medios elegidos' : 'Selecciona un solo medio de pago'}</span></div><strong>{multiPayment ? 'Pago mixto' : paymentMethods.find(method => method.id === payment)?.name || fallbackPaymentLabel(payment)}</strong></div>
+                  {!multiPayment ? <><div className="payment-grid checkout-payment-grid">{paymentMethods.map(method => <button key={method.id} className={payment === method.id ? 'selected' : ''} disabled={saving} onClick={() => setPayment(method.id)} aria-pressed={payment === method.id}>{method.name}</button>)}</div><button type="button" className="mixed-payment-trigger" disabled={saving || paymentMethods.length < 2} onClick={() => { setMultiPayment(true); setMultiAmounts({ [payment]: String(total) }); setMultiCashReceived(payment === 'cash' ? { cash: String(total) } : {}) }}><Plus size={15}/> Pagar con varios medios</button></> : <div className="mixed-payment-editor"><div className="mixed-payment-methods">{paymentMethods.map(method => <button type="button" key={method.id} className={Object.hasOwn(multiAmounts, method.id) ? 'selected' : ''} disabled={saving} onClick={() => setMultiAmounts(current => { if (Object.hasOwn(current, method.id)) { const { [method.id]: _, ...rest } = current; return rest }; return { ...current, [method.id]: '' } })}>{Object.hasOwn(multiAmounts, method.id) ? <Check size={14}/> : <Plus size={14}/>} {method.name}</button>)}</div><div className="mixed-payment-rows">{multiMethods.map(method => { const row = multiAllocations.find(item => item.method === method.id); return <div className="mixed-payment-row" key={method.id}><div><b>{method.name}</b><small>{method.id === 'cash' ? 'Monto y efectivo recibido' : 'Monto aplicado'}</small></div><label><span>$</span><input type="number" min="0" step="100" value={multiAmounts[method.id] || ''} onChange={event => setMultiAmounts(current => ({ ...current, [method.id]: event.target.value }))} placeholder="0" disabled={saving}/></label>{method.id === 'cash' && <label className="mixed-cash-received"><small>EFECTIVO RECIBIDO</small><span>$</span><input type="number" min="0" step="100" value={multiCashReceived[method.id] || ''} onChange={event => setMultiCashReceived(current => ({ ...current, [method.id]: event.target.value }))} placeholder={String(row?.amount || 0)} disabled={saving}/></label>}</div> })}</div><div className={`mixed-payment-total ${multiIsSufficient ? 'ready' : ''}`}><div><span>Asignado</span><b>{money(multiApplied)}</b></div><div><span>Pendiente</span><b>{money(Math.max(0, total - multiApplied))}</b></div><button type="button" onClick={() => { setMultiPayment(false); setMultiAmounts({}); setMultiCashReceived({}) }}><Pencil size={14}/> Editar</button></div></div>}
                 </div>
 
-                <div className={`checkout-cash-card checkout-module-card ${payment !== 'cash' ? 'checkout-cash-not-needed' : ''}`}>
+                <div className={`checkout-cash-card checkout-module-card ${multiPayment || payment !== 'cash' ? 'checkout-cash-not-needed' : ''}`}>
                   <div className="checkout-module-heading">
                     <div className="checkout-module-icon"><Banknote size={17}/></div>
                     <div><span>MÓDULO 03</span><b>Arqueo de efectivo</b></div>
                     {payment === 'cash' && <span className={`checkout-module-status ${cashIsSufficient ? 'ok' : 'wait'}`}>{cashIsSufficient ? 'LISTO' : 'PENDIENTE'}</span>}
                   </div>
-                  {payment === 'cash' ? <>
+                  {multiPayment ? <div className="checkout-cash-no-required"><CreditCard size={21}/><div><b>{multiIsSufficient ? 'Pago mixto listo' : 'Completa la distribución'}</b><span>{multiIsSufficient ? `${multiMethods.length} medios suman ${money(total)}.` : `Faltan ${money(Math.max(0, total - multiApplied))} por asignar.`}</span></div></div> : payment === 'cash' ? <>
                     <p className="checkout-module-description">Registra cuánto efectivo recibes y calcula el cambio automáticamente.</p>
                     <label className="checkout-cash-field">
                       <span>EFECTIVO RECIBIDO</span>

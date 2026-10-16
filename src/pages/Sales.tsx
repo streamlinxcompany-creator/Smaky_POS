@@ -156,6 +156,10 @@ export function Sales() {
           <div><span>Subtotal</span><b>{money(Number(selectedSale.subtotal) || 0)}</b></div>
           <div className="grand"><span>Total</span><strong>{money(Number(selectedSale.total) || 0)}</strong></div>
         </div>
+        <div className="receipt-payment-breakdown">
+          <span>Medios de pago</span>
+          {(selectedSale.paymentAllocations?.length ? selectedSale.paymentAllocations : [{ method: selectedSale.payment, label: paymentLabel(selectedSale.payment, selectedSale), amount: selectedSale.total }]).map((allocation, index) => <div key={`${allocation.method}-${index}`}><b>{allocation.label || paymentLabel(allocation.method)}</b><strong>{money(allocation.amount)}</strong></div>)}
+        </div>
         <button className="secondary receipt-print-btn" onClick={() => printSaleReceipt(selectedSale, receiptFontSize, 'COPIA', receiptPaperWidth)}><Printer size={15}/> Imprimir factura</button>
         {canDelete && <div className="receipt-danger">
           <button className="delete-sale-btn" onClick={() => { setConfirmDelete(true); deleteProgressRef.current = 0; setDeleteProgress(0) }}><Trash2 size={15}/> Eliminar esta venta</button>

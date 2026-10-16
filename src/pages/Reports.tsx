@@ -70,7 +70,7 @@ export function Reports() {
       const day = daily.get(keyFromDate(new Date(sale.createdAt)))
       if (day) { day.revenue += sale.total; day.tickets += 1 }
       revenue += sale.total
-      payments.set(sale.payment, (payments.get(sale.payment) || 0) + sale.total)
+      ;(sale.paymentAllocations?.length ? sale.paymentAllocations : [{ method: sale.payment, amount: sale.total }]).forEach(allocation => payments.set(allocation.method, (payments.get(allocation.method) || 0) + allocation.amount))
       ;(Array.isArray(sale.items) ? sale.items : []).forEach(item => {
         units += item.quantity
         burgers += burgerEquivalent(item.productId, item.name, item.quantity)
@@ -101,7 +101,7 @@ export function Reports() {
     const productMap = new Map<string, { name: string; units: number; burgers: number; revenue: number }>()
     const paymentMap = new Map<PaymentMethod, number>()
     daySales.forEach(sale => {
-      paymentMap.set(sale.payment, (paymentMap.get(sale.payment) || 0) + sale.total)
+      ;(sale.paymentAllocations?.length ? sale.paymentAllocations : [{ method: sale.payment, amount: sale.total }]).forEach(allocation => paymentMap.set(allocation.method, (paymentMap.get(allocation.method) || 0) + allocation.amount))
       ;(Array.isArray(sale.items) ? sale.items : []).forEach(item => {
         const burgers = burgerEquivalent(item.productId, item.name, item.quantity)
         const current = productMap.get(item.productId) || { name: item.name, units: 0, burgers: 0, revenue: 0 }
