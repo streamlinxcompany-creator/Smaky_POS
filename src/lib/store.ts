@@ -1458,6 +1458,18 @@ export async function createOrder(
     ? closure.nextDateKey
     : calendarKey
 
+  // La comanda se imprime inmediatamente después de crear el pedido. Por eso
+  // el número debe estar reservado por Supabase ANTES de tocar IndexedDB: una
+  // corrección posterior del servidor no puede desimprimir dos tickets iguales.
+  if (!navigator.onLine || !supabase || !(await ensureRemoteSession())) {
+    throw new Error('No hay conexión segura con Supabase para reservar el número de comanda. Reconecta antes de registrar o imprimir un pedido para evitar duplicados.')
+  }
+  const { data: reservedOrderNumber, error: reservationError } = await supabase
+    .rpc('reserve_order_number', { p_business_date_key: businessDateKey })
+  if (reservationError || !Number.isSafeInteger(Number(reservedOrderNumber)) || Number(reservedOrderNumber) < 1) {
+    throw new Error(`No fue posible reservar un número único de comanda${reservationError?.message ? `: ${reservationError.message}` : '.'}`)
+  }
+
   const cleanItems = items.map(item => ({
     ...item,
     modification: item.modification?.trim() || undefined
@@ -1498,11 +1510,7 @@ export async function createOrder(
   // pedido recién creado en el breve intervalo entre el guardado local y el
   // encolado de sincronización.
   const order = await db.transaction('rw', db.orders, db.syncQueue, async () => {
-    const existing = await db.orders.toArray()
-    const nextNumber = existing
-      .filter(existingOrder => recordBusinessDayKey(existingOrder) === businessDateKey)
-      .reduce((max, existingOrder) => Math.max(max, Number(existingOrder.orderNumber) || 0), 0) + 1
-    const nextOrder: Order = { ...orderBase, orderNumber: nextNumber }
+    const nextOrder: Order = { ...orderBase, orderNumber: Number(reservedOrderNumber) }
     await db.orders.add(nextOrder)
     await enqueueEntityUpsert('orders', nextOrder.id, nextOrder)
     return nextOrder
