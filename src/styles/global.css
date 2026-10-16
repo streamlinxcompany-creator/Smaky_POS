@@ -2752,3 +2752,21 @@ html[data-theme='light'] .customer-profile-loyalty{border-color:#e1d6ca;backgrou
 .slx-virgin-reset-modal .slx-reset-phrase-label input{display:block;width:100%;box-sizing:border-box;margin-top:8px;padding:11px 12px;border-radius:8px;border:1px solid #55424b;background:#0d0d11;color:#f7f4f7;font-size:14px;font-weight:600;font-family:inherit;outline:none}
 .slx-virgin-reset-modal .slx-reset-phrase-label input:focus{border-color:#d97745;box-shadow:0 0 0 3px rgba(217,119,69,.16)}
 @media(max-width:520px){.slx-virgin-reset-modal{padding:20px!important}.slx-virgin-reset-modal .slx-danger-actions{flex-wrap:wrap}.slx-virgin-reset-modal .slx-danger-actions button{flex:1 1 100%}}
+
+/* POS: el catálogo solo se desplaza en vertical; las tarjetas nunca fuerzan
+   una barra lateral por títulos o categorías largas. */
+.workspace-product-grid{
+  overflow-y:auto;
+  overflow-x:hidden;
+  padding-right:8px;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+  scrollbar-width:thin;
+  scrollbar-color:#a84a2c #151718;
+}
+.workspace-product-grid::-webkit-scrollbar{width:9px}
+.workspace-product-grid::-webkit-scrollbar-track{margin:4px 0;border-radius:999px;background:#151718}
+.workspace-product-grid::-webkit-scrollbar-thumb{min-height:48px;border:2px solid #151718;border-radius:999px;background:linear-gradient(180deg,#bd5735,#80301b)}
+.workspace-product-grid::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,#db6b43,#9d3b21)}
+.workspace-product{grid-template-columns:42px minmax(0,1fr) auto}
+.workspace-product>div:nth-child(2){min-width:0}
