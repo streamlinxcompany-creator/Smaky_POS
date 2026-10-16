@@ -1458,17 +1458,6 @@ export async function createOrder(
     ? closure.nextDateKey
     : calendarKey
 
-  const existing = await db.orders.toArray()
-  const todayOrders = existing.filter(
-    order => recordBusinessDayKey(order) === businessDateKey
-  )
-
-  const nextNumber =
-    todayOrders.reduce(
-      (max, order) => Math.max(max, Number(order.orderNumber) || 0),
-      0
-    ) + 1
-
   const cleanItems = items.map(item => ({
     ...item,
     modification: item.modification?.trim() || undefined
@@ -1476,9 +1465,8 @@ export async function createOrder(
 
   const total = cleanItems.reduce((sum, item) => sum + item.total, 0)
 
-  const order: Order = {
+  const orderBase = {
     id: crypto.randomUUID(),
-    orderNumber: nextNumber,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
     userId: user.id,
@@ -1501,9 +1489,24 @@ export async function createOrder(
     total,
     status: 'pending',
     businessDateKey
-  }
+  } satisfies Omit<Order, 'orderNumber'>
 
-  await persistAdd(db.orders, 'orders', order)
+  // Reservar el consecutivo y crear el pedido dentro de la misma transacción
+  // IndexedDB. Antes se leía el máximo y se escribía después: dos clics/pestañas
+  // rápidos podían leer el mismo valor y ambos terminar en la misma comanda.
+  // La outbox también nace aquí para que una reconciliación no pueda borrar un
+  // pedido recién creado en el breve intervalo entre el guardado local y el
+  // encolado de sincronización.
+  const order = await db.transaction('rw', db.orders, db.syncQueue, async () => {
+    const existing = await db.orders.toArray()
+    const nextNumber = existing
+      .filter(existingOrder => recordBusinessDayKey(existingOrder) === businessDateKey)
+      .reduce((max, existingOrder) => Math.max(max, Number(existingOrder.orderNumber) || 0), 0) + 1
+    const nextOrder: Order = { ...orderBase, orderNumber: nextNumber }
+    await db.orders.add(nextOrder)
+    await enqueueEntityUpsert('orders', nextOrder.id, nextOrder)
+    return nextOrder
+  })
 
   await audit(
     'ORDER_CREATED',

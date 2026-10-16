@@ -548,10 +548,30 @@ async function putLocalRemote(entity: SyncEntity, remoteRow: any) {
   const table = entityTable(entity) as Table<any, string>
   const local = remoteToLocal(entity, remoteRow)
   if (!local) return
-  const previous = entity === 'settings'
+  const previous = entity === 'settings' || entity === 'orders'
     ? await table.get(String(local.id)) as SystemSetting | undefined
     : undefined
   await withSyncSuppressed(() => table.put(local))
+
+  // The database can correct a ticket number when an offline device collides
+  // with a number already used by another device. Keep any local invoice tied
+  // to that order aligned before its outbox operation is sent.
+  if (entity === 'orders') {
+    const previousOrder = previous as Order | undefined
+    const syncedOrder = local as Order
+    if (previousOrder && previousOrder.orderNumber !== syncedOrder.orderNumber) {
+      const relatedSales = await db.sales.where('orderId').equals(syncedOrder.id).toArray()
+      if (relatedSales.length) {
+        await db.transaction('rw', db.sales, db.syncQueue, async () => {
+          for (const sale of relatedSales) {
+            const correctedSale = { ...sale, orderNumber: syncedOrder.orderNumber, updatedAt: stamp() }
+            await db.sales.put(correctedSale)
+            await enqueueEntityUpsert('sales', correctedSale.id, correctedSale)
+          }
+        })
+      }
+    }
+  }
 
   // Solo los registros de settings tienen key/value. No acceder a esas
   // propiedades sobre el union de entidades de sincronización.
@@ -761,7 +781,13 @@ async function processDataOperation(operation: DataSyncOperation) {
     }
   }
 
-  const remote = await upsertRemote(operation.entity, operation.payload)
+  // An order number may have been corrected while this operation was waiting
+  // in the outbox. Read the durable local sale again instead of sending the
+  // stale snapshot captured when the queue was first flushed.
+  const payload = operation.entity === 'sales' && operation.recordId
+    ? (await db.sales.get(operation.recordId)) || operation.payload
+    : operation.payload
+  const remote = await upsertRemote(operation.entity, payload)
   if (remote) await putLocalRemote(operation.entity, remote)
 }
 
