@@ -18,6 +18,14 @@ type Props = {
   onOrderChange?: (order: Order) => void
 }
 
+// Consultar existencias es un control, no una pasarela de pago: si Supabase
+// tarda, el cobro continúa en lugar de dejar el deslizador "colgado".
+const INVENTORY_CHECK_TIMEOUT_MS = 4_000
+const withTimeout = <T,>(work: Promise<T>, ms: number) => new Promise<T>((resolve, reject) => {
+  const timer = window.setTimeout(() => reject(new Error('La verificación de inventario tardó demasiado.')), ms)
+  work.then(resolve, reject).finally(() => window.clearTimeout(timer))
+})
+
 const newLineId = () => typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
 
 const emptyItem = (product: Product): SaleItem => ({
@@ -93,6 +101,11 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
   const [inventorySetupOpened, setInventorySetupOpened] = useState(false)
   const inventorySetupProductRef = useRef<string | null>(null)
   const inventoryChecksInFlightRef = useRef<Set<string>>(new Set())
+  // Cerrojo síncrono: `saving` es estado de React y no bloquea un doble clic o
+  // un doble deslizamiento que ocurre antes del siguiente render.
+  const busyRef = useRef(false)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   const isLocked = order?.status === 'paid' || order?.status === 'cancelled'
   const initialItems = order?.items || []
@@ -189,6 +202,8 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
 
   useEffect(() => {
     if (!completedSale) return
+    // onClose cambia en cada render del POS (cada sincronización). Usar una ref
+    // evita que la cuenta regresiva se reinicie y la pantalla quede detenida.
     const deadline = Date.now() + 5000
     setPaymentCountdown(5)
     const timer = window.setInterval(() => {
@@ -196,11 +211,11 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
       setPaymentCountdown(remaining)
       if (remaining <= 0) {
         window.clearInterval(timer)
-        onClose()
+        onCloseRef.current()
       }
     }, 100)
     return () => window.clearInterval(timer)
-  }, [completedSale, onClose, onOrderChange])
+  }, [completedSale])
 
   const setCurrent = (next: Order | null) => {
     setOrder(next)
@@ -345,6 +360,8 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
   }
 
   const saveDraft = async (print = true): Promise<Order | null> => {
+    if (busyRef.current) return null
+    busyRef.current = true
     setSaving(true)
     setError('')
     try {
@@ -372,7 +389,7 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
       console.error('No fue posible guardar el pedido:', caught)
       setError(caught instanceof Error ? caught.message : 'No fue posible guardar el pedido.')
       return null
-    } finally { setSaving(false) }
+    } finally { busyRef.current = false; setSaving(false) }
   }
 
   const openCheckout = () => {
@@ -418,18 +435,21 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
   }
 
   const payNow = async (continueDespiteInventoryWarning = false) => {
-    if (!order || order.status === 'paid' || saving || !items.length || !cashIsSufficient || paymentProgressRef.current < 96) return
+    if (!order || order.status === 'paid' || busyRef.current || !items.length || !cashIsSufficient || paymentProgressRef.current < 96) return
+    busyRef.current = true
+    setSaving(true)
+    setError('')
 
     // Check the authoritative stock on Supabase before finalizing the sale.
     // A failure to *consult* inventory must never stop a cashier from
     // recording a payment. Real shortages still ask for confirmation below.
     try {
       if (!continueDespiteInventoryWarning) {
-        setSaving(true)
-        setError('')
-        const shortages = await checkInventorySaleShortages(items.map(item => ({ productId: item.productId, name: item.name, quantity: item.quantity })))
+        const shortages = await withTimeout(checkInventorySaleShortages(items.map(item => ({ productId: item.productId, name: item.name, quantity: item.quantity }))), INVENTORY_CHECK_TIMEOUT_MS)
         if (shortages.length) {
           setInventoryWarning({ shortages })
+          busyRef.current = false
+          setSaving(false)
           return
         }
       }
@@ -437,13 +457,9 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
       // Inventory is a control, not a payment gateway. Keep a diagnostic for
       // support but continue to the durable local sale/outbox transaction.
       console.warn('No fue posible verificar el inventario antes de cobrar; se continúa con la venta:', caught)
-    } finally {
-      setSaving(false)
     }
 
     setInventoryWarning(null)
-    setSaving(true)
-    setError('')
     try {
       let currentOrder = order
       if (dirty) {
@@ -460,9 +476,14 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
       setCheckoutOpen(false)
       paymentProgressRef.current = 0
       setPaymentProgress(0)
-      setMessage('Venta realizada · factura enviada')
-      const printed = printSaleReceipt(result.sale, receiptFontSize, 'ORIGINAL', receiptPaperWidth)
-      if (!printed) setError('La venta quedó registrada, pero no fue posible iniciar la impresión automática de la factura.')
+      if (result.alreadyPaid) {
+        // Ya existía una factura para este pedido: no se duplica ni se reimprime.
+        setMessage(`El pedido #${result.order.orderNumber} ya estaba cobrado · no se generó otra factura`)
+      } else {
+        setMessage('Venta realizada · factura enviada')
+        const printed = printSaleReceipt(result.sale, receiptFontSize, 'ORIGINAL', receiptPaperWidth)
+        if (!printed) setError('La venta quedó registrada, pero no fue posible iniciar la impresión automática de la factura.')
+      }
       setCompletedSale(result.sale)
     } catch (caught) {
       console.error('No fue posible cobrar el pedido:', caught)
@@ -470,6 +491,7 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
       setPaymentProgress(0)
       setError(caught instanceof Error ? caught.message : 'No fue posible registrar el pago.')
     } finally {
+      busyRef.current = false
       setSaving(false)
     }
   }
@@ -495,6 +517,8 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
 
   const closeWithoutComanda = async () => {
     // Deliberadamente no usa saveDraft(): esta ruta nunca abre una ventana de impresión.
+    if (busyRef.current) return
+    busyRef.current = true
     setSaving(true)
     setError('')
     try {
@@ -512,7 +536,7 @@ export function OrderWorkspace({ user, initialOrder, initialCustomer, onClose, o
       onClose()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'No fue posible guardar el pedido.')
-    } finally { setSaving(false) }
+    } finally { busyRef.current = false; setSaving(false) }
   }
 
   const printAndClose = async () => {

@@ -451,6 +451,34 @@ async function upsertRemote(entity: SyncEntity, payload: unknown) {
   return data
 }
 
+/**
+ * Crea el pedido directamente en Supabase. El trigger BEFORE INSERT asigna el
+ * consecutivo dentro de la misma transacción del INSERT: si el alta falla, el
+ * número no se consume (sin huecos) y dos equipos nunca reciben el mismo.
+ */
+export async function insertOrderRemote(order: Order): Promise<Order> {
+  if (!supabase) throw new Error('Supabase no está configurado.')
+  const row = { ...orderRow(order), order_number: 0 }
+  const { data, error } = await supabase.from('orders').insert(row).select('*').single()
+  if (!error && data) return remoteToLocal('orders', data) as Order
+  // Si la red cayó después de que Postgres confirmó el INSERT, el pedido ya
+  // existe con su número definitivo: recupéralo por id en lugar de duplicarlo.
+  if (error && !isNetworkError(error) && String((error as { code?: string }).code || '') !== '23505') throw error
+  const { data: existing, error: lookupError } = await supabase.from('orders').select('*').eq('id', order.id).maybeSingle()
+  if (lookupError || !existing) throw error || lookupError || new Error('Supabase no confirmó el pedido.')
+  return remoteToLocal('orders', existing) as Order
+}
+
+/** Busca en Supabase una venta activa ya registrada para este pedido. */
+export async function findRemoteActiveSaleForOrder(orderId: string, timeoutMs = 3_000): Promise<Sale | undefined> {
+  if (!supabase || !navigator.onLine) return undefined
+  const lookup = supabase.from('sales').select('*').eq('order_id', orderId).is('deleted_at', null).limit(1)
+  const timeout = new Promise<null>(resolve => window.setTimeout(() => resolve(null), timeoutMs))
+  const result = await Promise.race([lookup, timeout])
+  if (!result || result.error || !result.data?.length) return undefined
+  return remoteToLocal('sales', result.data[0]) as Sale | undefined
+}
+
 function rowTimestamp(entity: SyncEntity, row: any) {
   if (entity === 'audit_events') return String(row.timestamp || '')
   if (entity === 'history_records') return String(row.captured_at || '')
@@ -544,14 +572,50 @@ function entityTable(entity: SyncEntity) {
   }
 }
 
-async function putLocalRemote(entity: SyncEntity, remoteRow: any) {
+const TERMINAL_ORDER_STATUSES = new Set(['paid', 'cancelled'])
+
+/**
+ * Escribe en la caché local una fila descargada de Supabase.
+ *
+ * La lectura remota y esta escritura no son atómicas: entre ambas el cajero
+ * puede cobrar el pedido. Antes, la copia remota (todavía "pendiente") pisaba
+ * el cobro local y el pedido reaparecía comandando. Ahora, dentro de una
+ * transacción con la outbox:
+ * - si hay un cambio local pendiente de enviar (distinto de la operación que
+ *   produjo esta respuesta), gana el cambio local;
+ * - un pedido pagado/cancelado nunca vuelve a un estado abierto.
+ */
+async function putLocalRemote(entity: SyncEntity, remoteRow: any, sourceOperationId?: string) {
   const table = entityTable(entity) as Table<any, string>
   const local = remoteToLocal(entity, remoteRow)
   if (!local) return
-  const previous = entity === 'settings' || entity === 'orders'
-    ? await table.get(String(local.id)) as SystemSetting | undefined
-    : undefined
-  await withSyncSuppressed(() => table.put(local))
+  const id = String(local.id)
+  let previous: any
+  let healTerminalOrder: Order | undefined
+  const applied = await withSyncSuppressed(() => db.transaction('rw', table, db.syncQueue, async () => {
+    const newerLocalChanges = await db.syncQueue
+      .where('[entity+recordId]').equals([entity, id])
+      .filter(operation => operation.operation === 'upsert' && operation.id !== sourceOperationId)
+      .count()
+    if (newerLocalChanges > 0) return false
+    previous = await table.get(id)
+    if (entity === 'orders' && previous) {
+      const before = previous as Order
+      const incoming = local as Order
+      if (TERMINAL_ORDER_STATUSES.has(before.status) && !TERMINAL_ORDER_STATUSES.has(incoming.status)) {
+        healTerminalOrder = before
+        return false
+      }
+    }
+    await table.put(local)
+    return true
+  }))
+  if (healTerminalOrder) {
+    // El servidor quedó con una versión abierta de un pedido ya cobrado aquí:
+    // vuelve a enviar el estado local definitivo en lugar de revivir el pedido.
+    await enqueueEntityUpsert('orders', healTerminalOrder.id, healTerminalOrder)
+  }
+  if (!applied) return
 
   // The database can correct a ticket number when an offline device collides
   // with a number already used by another device. Keep any local invoice tied
@@ -640,6 +704,9 @@ function hasPendingFor(entity: SyncEntity, recordId: string | undefined) {
 }
 
 async function reconcileEntity(entity: SyncEntity) {
+  // Marca de tiempo local tomada ANTES de leer Supabase: un registro creado
+  // después de esta lectura todavía no puede aparecer en ella.
+  const fetchStartedAt = Date.now()
   let remoteRows: any[]
   try {
     remoteRows = await fetchAll(entity)
@@ -682,6 +749,11 @@ async function reconcileEntity(entity: SyncEntity) {
         } else {
           // En ventas/cierres, si una lectura remota exitosa no encuentra la fila,
           // significa que fue borrada: limpiar caché y evitar resurrecciones.
+          // Excepción: registros creados/editados después de iniciar la lectura
+          // (por ejemplo, un pedido recién creado en este equipo).
+          const touchedAt = Date.parse(String(local.updatedAt || local.createdAt || '')) || 0
+          if (touchedAt >= fetchStartedAt - 5_000) continue
+          if (await hasPendingFor(entity, id)) continue
           await withSyncSuppressed(() => (entityTable(entity) as Table<any, string>).delete(id))
         }
         continue
@@ -775,7 +847,7 @@ async function processDataOperation(operation: DataSyncOperation) {
       const operationAge = operationTime ? Date.now() - operationTime : Number.POSITIVE_INFINITY
       const isFreshOnlineEdit = operation.attempts === 0 && operationAge >= 0 && operationAge < 5_000
       if (!isFreshOnlineEdit && remoteTime >= localTime) {
-        await putLocalRemote('settings', remoteSetting)
+        await putLocalRemote('settings', remoteSetting, operation.id)
         return
       }
     }
@@ -788,7 +860,7 @@ async function processDataOperation(operation: DataSyncOperation) {
     ? (await db.sales.get(operation.recordId)) || operation.payload
     : operation.payload
   const remote = await upsertRemote(operation.entity, payload)
-  if (remote) await putLocalRemote(operation.entity, remote)
+  if (remote) await putLocalRemote(operation.entity, remote, operation.id)
 }
 
 async function processUserOperation(operation: UserSyncOperation) {

@@ -1,7 +1,7 @@
 import { db } from './db'
 import { supabase, supabaseConfigured } from './supabase'
 import type { Table } from 'dexie'
-import { applyLocalCashClosurePurge, applyLocalSalesPurge, enqueueCashClosuresPurgeOperation, enqueueEntityUpsert, enqueueResetOperation, enqueueSalesPurgeOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, isNetworkError, purgeRemoteCashClosures, purgeRemoteSales, resetRemoteData, purgePosToVirgin, withSyncSuppressed } from './sync'
+import { applyLocalCashClosurePurge, applyLocalSalesPurge, enqueueCashClosuresPurgeOperation, enqueueEntityUpsert, enqueueResetOperation, enqueueSalesPurgeOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, findRemoteActiveSaleForOrder, insertOrderRemote, isNetworkError, purgeRemoteCashClosures, purgeRemoteSales, resetRemoteData, purgePosToVirgin, withSyncSuppressed } from './sync'
 import { products as seedProducts } from './demoData'
 import { createRemoteWorker, defaultPermissionsForRole, deleteRemoteUser, getLoginProfiles, getManagedProfile, getManagedProfiles, getSessionUser, hasPermission, isStreamlinxOperator, PERMISSION_DEFINITIONS, setSessionUser, updateRemoteUser } from './auth'
 import type { AuditEvent, BackupSnapshot, CashClosure, Customer, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, PaymentAllocation, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
@@ -61,14 +61,22 @@ async function persistPut<T extends SyncableRecord>(table: Table<T, string>, ent
   // No mantenemos una transacción Dexie abierta mientras la outbox dispara
   // tareas de sincronización. Esto evita que un segundo ciclo IndexedDB deje
   // la transacción original inactiva y produzca "Transaction committed too early".
-  await table.put(value)
+  // La outbox se escribe PRIMERO: así una sincronización que corra en medio
+  // ya ve el cambio pendiente y no puede pisar el registro local con la copia
+  // remota anterior (p. ej. devolver un pedido cobrado a "pendiente").
   await enqueueEntityUpsert(entity, value.id, value)
+  await table.put(value)
   return value
 }
 
 async function persistAdd<T extends SyncableRecord>(table: Table<T, string>, entity: Parameters<typeof enqueueEntityUpsert>[0], value: T) {
-  await table.add(value)
   await enqueueEntityUpsert(entity, value.id, value)
+  try {
+    await table.add(value)
+  } catch (error) {
+    await db.syncQueue.where('[entity+recordId]').equals([entity, value.id]).delete()
+    throw error
+  }
   return value
 }
 
@@ -1459,15 +1467,11 @@ export async function createOrder(
     : calendarKey
 
   // La comanda se imprime inmediatamente después de crear el pedido. Por eso
-  // el número debe estar reservado por Supabase ANTES de tocar IndexedDB: una
-  // corrección posterior del servidor no puede desimprimir dos tickets iguales.
+  // el pedido se crea primero en Supabase, que asigna el consecutivo dentro
+  // del mismo INSERT (ver migración 0029): sin duplicados entre equipos y sin
+  // números "quemados" si el alta falla.
   if (!navigator.onLine || !supabase || !(await ensureRemoteSession())) {
-    throw new Error('No hay conexión segura con Supabase para reservar el número de comanda. Reconecta antes de registrar o imprimir un pedido para evitar duplicados.')
-  }
-  const { data: reservedOrderNumber, error: reservationError } = await supabase
-    .rpc('reserve_order_number', { p_business_date_key: businessDateKey })
-  if (reservationError || !Number.isSafeInteger(Number(reservedOrderNumber)) || Number(reservedOrderNumber) < 1) {
-    throw new Error(`No fue posible reservar un número único de comanda${reservationError?.message ? `: ${reservationError.message}` : '.'}`)
+    throw new Error('No hay conexión segura con Supabase para asignar el número de comanda. Reconecta antes de registrar o imprimir un pedido para evitar duplicados.')
   }
 
   const cleanItems = items.map(item => ({
@@ -1503,18 +1507,19 @@ export async function createOrder(
     businessDateKey
   } satisfies Omit<Order, 'orderNumber'>
 
-  // Reservar el consecutivo y crear el pedido dentro de la misma transacción
-  // IndexedDB. Antes se leía el máximo y se escribía después: dos clics/pestañas
-  // rápidos podían leer el mismo valor y ambos terminar en la misma comanda.
-  // La outbox también nace aquí para que una reconciliación no pueda borrar un
-  // pedido recién creado en el breve intervalo entre el guardado local y el
-  // encolado de sincronización.
-  const order = await db.transaction('rw', db.orders, db.syncQueue, async () => {
-    const nextOrder: Order = { ...orderBase, orderNumber: Number(reservedOrderNumber) }
-    await db.orders.add(nextOrder)
-    await enqueueEntityUpsert('orders', nextOrder.id, nextOrder)
-    return nextOrder
-  })
+  let order: Order
+  try {
+    order = await insertOrderRemote({ ...orderBase, orderNumber: 0 })
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : (error as { message?: string } | null)?.message
+    throw new Error(`No fue posible registrar el pedido en Supabase${detail ? `: ${detail}` : '.'} Inténtalo de nuevo.`)
+  }
+  if (!Number.isSafeInteger(order.orderNumber) || order.orderNumber < 1) {
+    throw new Error('Supabase no asignó un número de comanda válido. Verifica que la migración 0029 esté aplicada.')
+  }
+  // El pedido ya existe en Supabase con su número definitivo; aquí solo se
+  // guarda la copia local (no hace falta encolarlo en la outbox).
+  await withSyncSuppressed(() => db.orders.put(order))
 
   await audit(
     'ORDER_CREATED',
@@ -1682,7 +1687,11 @@ async function resolveLocalActor(actor: User): Promise<User | null> {
   return actor
 }
 
-export async function completeOrder(
+// Un mismo pedido no puede procesar dos cobros a la vez (doble deslizamiento,
+// doble clic o dos pestañas del mismo navegador comparten este módulo).
+const paymentsInFlight = new Map<string, Promise<{ sale: Sale; order: Order; alreadyPaid: boolean }>>()
+
+export function completeOrder(
   orderId: string,
   payment: PaymentMethod,
   actor: User,
@@ -1690,6 +1699,22 @@ export async function completeOrder(
   paymentLabel?: string,
   paymentAllocations?: PaymentAllocation[]
 ) {
+  const running = paymentsInFlight.get(orderId)
+  if (running) return running
+  const work = completeOrderOnce(orderId, payment, actor, discount, paymentLabel, paymentAllocations)
+    .finally(() => paymentsInFlight.delete(orderId))
+  paymentsInFlight.set(orderId, work)
+  return work
+}
+
+async function completeOrderOnce(
+  orderId: string,
+  payment: PaymentMethod,
+  actor: User,
+  discount?: { type: 'percent' | 'fixed'; value: number },
+  paymentLabel?: string,
+  paymentAllocations?: PaymentAllocation[]
+): Promise<{ sale: Sale; order: Order; alreadyPaid: boolean }> {
   // El cobro no mantiene una transacción Dexie abierta mientras ejecuta
   // sincronización/auditoría. Cada escritura de negocio usa su propia outbox,
   // evitando "Transaction committed too early" en IndexedDB.
@@ -1697,6 +1722,19 @@ export async function completeOrder(
 
   if (!order) {
     throw new Error('No encontramos el pedido que intentas cobrar. Actualiza el pedido e inténtalo de nuevo.')
+  }
+
+  // Cobro idempotente: si este pedido ya tiene una venta activa (cobrado en
+  // otro intento, en otra pestaña o en otro equipo), no se crea una segunda
+  // factura; solo se asegura que el pedido quede como pagado.
+  const existingSale = (await db.sales.where('orderId').equals(orderId).filter(sale => !sale.deletedAt).first())
+    || (order.status !== 'paid' ? await findRemoteActiveSaleForOrder(orderId).catch(() => undefined) : undefined)
+  if (existingSale) {
+    if (!(await db.sales.get(existingSale.id))) await withSyncSuppressed(() => db.sales.put(existingSale))
+    const paidOrder: Order = order.status === 'paid'
+      ? order
+      : await persistPut(db.orders, 'orders', { ...order, status: 'paid' as const, updatedAt: new Date().toISOString() })
+    return { sale: existingSale, order: paidOrder, alreadyPaid: true }
   }
 
   if (['paid', 'cancelled'].includes(order.status)) {
@@ -1835,7 +1873,8 @@ export async function completeOrder(
 
   return {
     sale,
-    order: updatedOrder as Order
+    order: updatedOrder as Order,
+    alreadyPaid: false
   }
 }
 
