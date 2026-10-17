@@ -128,13 +128,23 @@ export function isNetworkError(error: unknown) {
     || /econn|etimedout|enetwork|fetch/.test(code)
 }
 
-function scheduleSyncSoon() {
+function scheduleSyncSoon(entity?: string) {
   if (typeof window === 'undefined' || !navigator.onLine || !supabaseConfigured || !supabase) return
+  const changed = entity ? REALTIME_TABLE_ENTITY[entity] : undefined
+  if (changed) realtimeDirtyEntities.add(changed)
   if (scheduledSyncTimer !== null) window.clearTimeout(scheduledSyncTimer)
   scheduledSyncTimer = window.setTimeout(() => {
     scheduledSyncTimer = null
-    void syncNow()
-  }, 250)
+    // Un cambio local solo necesita enviar la outbox y refrescar su tabla; la
+    // sincronización completa queda para el ciclo periódico.
+    if (syncRunning) {
+      scheduleSyncSoon()
+      return
+    }
+    const entities = [...realtimeDirtyEntities]
+    realtimeDirtyEntities.clear()
+    void syncEntitiesNow(entities)
+  }, syncRunning ? 500 : 250)
 }
 
 async function enqueueOperation(operation: SyncOperation) {
@@ -144,12 +154,17 @@ async function enqueueOperation(operation: SyncOperation) {
   // Auditoría, historial y backups son append-only: cada evento debe llegar
   // al servidor y jamás se debe descartar uno por compartir recordId.
   const coalescible = new Set<SyncEntity>(['products', 'customers', 'orders', 'sales', 'cash_closures', 'settings'])
-  if (operation.operation === 'upsert' && coalescible.has(operation.entity as SyncEntity) && operation.recordId) {
-    await db.syncQueue.where('[entity+recordId]').equals([operation.entity, operation.recordId]).delete()
-  }
-  await db.syncQueue.put(operation)
+  // Borrar la operación anterior y guardar la nueva en UNA transacción. Si no,
+  // una sincronización que leyera la outbox justo en medio veía el registro
+  // "sin cambios pendientes" y podía borrar o pisar el pedido recién creado.
+  await db.transaction('rw', db.syncQueue, async () => {
+    if (operation.operation === 'upsert' && coalescible.has(operation.entity as SyncEntity) && operation.recordId) {
+      await db.syncQueue.where('[entity+recordId]').equals([operation.entity, operation.recordId]).delete()
+    }
+    await db.syncQueue.put(operation)
+  })
   emitSyncChange()
-  scheduleSyncSoon()
+  scheduleSyncSoon(operation.entity)
 }
 
 export async function enqueueEntityUpsert(entity: SyncEntity, recordId: string, payload: unknown, createdAt = stamp()) {
@@ -726,7 +741,9 @@ async function reconcileEntity(entity: SyncEntity) {
   }
 
   const remoteById = new Map(remoteRows.map(row => [String(row.id), row]))
+  const localIds = new Set((localRows as any[]).map(item => String(item.id)))
   const pendingIds = new Set(pending.filter(op => op.entity === entity && op.operation === 'upsert' && op.recordId).map(op => String(op.recordId)))
+  const missingRemotely: string[] = []
 
   // Supabase es autoritativo para ventas, cierres y configuración compartida.
   // Las filas locales solo pueden ganar si hay una operación explícita pendiente
@@ -753,8 +770,7 @@ async function reconcileEntity(entity: SyncEntity) {
           // (por ejemplo, un pedido recién creado en este equipo).
           const touchedAt = Date.parse(String(local.updatedAt || local.createdAt || '')) || 0
           if (touchedAt >= fetchStartedAt - 5_000) continue
-          if (await hasPendingFor(entity, id)) continue
-          await withSyncSuppressed(() => (entityTable(entity) as Table<any, string>).delete(id))
+          missingRemotely.push(id)
         }
         continue
       }
@@ -769,12 +785,37 @@ async function reconcileEntity(entity: SyncEntity) {
       await upsertRemote(entity, local)
       continue
     }
+    // Auditoría, historial y copias son de solo inserción: si ya están en la
+    // caché no hay nada que actualizar (antes se reescribían todas en cada ciclo).
+    if (entity === 'audit_events' || entity === 'history_records' || entity === 'backups') continue
     const localTime = Date.parse(localTimestamp(entity, local)) || 0
     const remoteTime = Date.parse(rowTimestamp(entity, remote)) || 0
-    if (localTime > remoteTime && entity !== 'audit_events' && entity !== 'history_records' && entity !== 'backups') {
+    if (localTime > remoteTime) {
       await upsertRemote(entity, local)
     } else {
       await putLocalRemote(entity, remote)
+    }
+  }
+
+  // Antes de borrar de la caché, confirma con una consulta puntual que el
+  // registro de verdad ya no existe. El listado completo pudo leerse un instante
+  // antes de que este equipo creara el pedido (p. ej. mientras se sincronizaba
+  // un cliente) y ese pedido no debe desaparecer de la pantalla.
+  if (missingRemotely.length) {
+    const tableName = entity === 'cash_closures' ? 'cash_closures' : entity
+    const stillThere = new Set<string>()
+    for (let index = 0; index < missingRemotely.length; index += 200) {
+      const chunk = missingRemotely.slice(index, index + 200)
+      const { data, error } = await supabase!.from(tableName).select('*').in('id', chunk)
+      if (error) throw error
+      for (const row of data || []) {
+        stillThere.add(String(row.id))
+        await putLocalRemote(entity, row)
+      }
+    }
+    for (const id of missingRemotely) {
+      if (stillThere.has(id) || await hasPendingFor(entity, id)) continue
+      await withSyncSuppressed(() => (entityTable(entity) as Table<any, string>).delete(id))
     }
   }
 
@@ -782,9 +823,8 @@ async function reconcileEntity(entity: SyncEntity) {
   // online/offline. For audit/history, this also respects the user's RLS scope.
   for (const remote of remoteRows) {
     const id = String(remote.id)
-    if (pendingIds.has(id)) continue
-    const local = (localRows as any[]).find(item => String(item.id) === id)
-    if (!local) await putLocalRemote(entity, remote)
+    if (pendingIds.has(id) || localIds.has(id)) continue
+    await putLocalRemote(entity, remote)
   }
 }
 
@@ -1675,7 +1715,17 @@ export async function syncNow(): Promise<SyncResult> {
 }
 
 /** Sync only the order queue and remote order list while the POS screen is open. */
-export async function syncOrdersNow(): Promise<SyncResult> {
+export function syncOrdersNow(): Promise<SyncResult> {
+  return syncEntitiesNow(['orders'])
+}
+
+/**
+ * Ciclo corto: envía la outbox y descarga solo las tablas indicadas. Lo usan el
+ * POS (pedidos cada pocos segundos) y los avisos en vivo de Supabase, para que
+ * un pedido creado en otro equipo aparezca sin esperar una sincronización
+ * completa de todo el sistema.
+ */
+async function syncEntitiesNow(entities: SyncEntity[]): Promise<SyncResult> {
   if (syncRunning) return { ...(await getSyncState()), ok: false }
   if (!supabaseConfigured || !supabase || !navigator.onLine) return { ...(await getSyncState()), ok: false }
 
@@ -1696,7 +1746,7 @@ export async function syncOrdersNow(): Promise<SyncResult> {
     // Primero intenta enviar todas las operaciones pendientes (incluido el
     // pedido guardado offline); después descarga el listado autoritativo.
     await flushQueue()
-    await reconcileEntity('orders')
+    for (const entity of entities) await reconcileEntity(entity)
     lastSyncedAt = stamp()
     const state = await getSyncState()
     clearPendingQueueRetryIfEmpty(state.pending)
@@ -1715,13 +1765,43 @@ export async function syncAfterLogin() {
   await syncNow()
 }
 
-function scheduleRealtimeSync() {
+// Tablas que cambiaron en Supabase y todavía no se han descargado.
+const realtimeDirtyEntities = new Set<SyncEntity>()
+
+const REALTIME_TABLE_ENTITY: Record<string, SyncEntity | undefined> = {
+  settings: 'settings',
+  products: 'products',
+  customers: 'customers',
+  orders: 'orders',
+  sales: 'sales',
+  cash_closures: 'cash_closures',
+}
+
+function scheduleRealtimeSync(table?: string) {
   if (typeof window === 'undefined' || !navigator.onLine || !supabaseConfigured || !supabase) return
+  const entity = table ? REALTIME_TABLE_ENTITY[table] : undefined
+  // Auditoría/historial/copias cambian con cada acción del POS. Descargarlas en
+  // vivo disparaba una sincronización completa tras otra; el ciclo periódico
+  // de 45 s ya las mantiene al día.
+  if (table && !entity) return
+  if (entity) realtimeDirtyEntities.add(entity)
   if (liveSyncDebounceTimer !== null) window.clearTimeout(liveSyncDebounceTimer)
   liveSyncDebounceTimer = window.setTimeout(() => {
     liveSyncDebounceTimer = null
-    if (document.visibilityState === 'visible' && navigator.onLine) void syncNow()
-  }, 350)
+    if (document.visibilityState !== 'visible' || !navigator.onLine) return
+    if (!table) {
+      void syncNow()
+      return
+    }
+    if (syncRunning) {
+      // Otro ciclo está en curso: reintenta en breve sin perder qué tablas cambiaron.
+      scheduleRealtimeSync(table)
+      return
+    }
+    const entities = [...realtimeDirtyEntities]
+    realtimeDirtyEntities.clear()
+    if (entities.length) void syncEntitiesNow(entities)
+  }, table ? 300 : 350)
 }
 
 /**
@@ -1738,7 +1818,7 @@ function startRealtimeSubscription() {
   let channel = supabase.channel('smaky-pos-live-sync')
   for (const table of tables) {
     channel = channel.on('postgres_changes', { event: '*', schema: 'public', table }, () => {
-      scheduleRealtimeSync()
+      scheduleRealtimeSync(table)
     })
   }
   liveSyncChannel = channel
