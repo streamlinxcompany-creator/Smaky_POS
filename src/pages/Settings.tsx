@@ -1,4 +1,4 @@
-import { Banknote, Check, ChevronRight, CreditCard, Pencil, Plus, Settings2, Tag, Trash2, WalletCards, Users as UsersIcon, Package, ClipboardList, Palette, Sun, Moon, Monitor, GripVertical, X, FileText, Ruler } from 'lucide-react'
+import { Banknote, Check, ChevronRight, CreditCard, Pencil, Plus, Settings2, Tag, Trash2, WalletCards, Users as UsersIcon, Package, ClipboardList, Palette, Sun, Moon, Monitor, GripVertical, X, FileText, Ruler, BadgeCheck, GitCommit, MonitorCheck, ShieldCheck, Sparkles } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { getSessionUser, hasPermission } from '../lib/auth'
 import { addPaymentMethod, addProductCategory, DEFAULT_GENERAL_SETTINGS, DEFAULT_ORDER_FIELDS, DEFAULT_PRODUCT_CATEGORIES, DEFAULT_INVENTORY_UNITS, deletePaymentMethod, deleteProductCategory, getAllProducts, getCustomInventoryUnits, getGeneralSettings, getInventoryUnits, getOrderFields, getPaymentMethods, getProductCategories, saveCustomInventoryUnits, updateGeneralSettings, updateOrderFields, updatePaymentMethod, updateProductCategory } from '../lib/store'
@@ -9,8 +9,9 @@ import { Products } from './Products'
 import { getInventorySnapshot } from '../lib/inventory'
 import { money } from '../lib/format'
 import type { InventoryItem, InventoryRecipe } from '../lib/types'
+import { SOFTWARE_RELEASE } from '../lib/software'
 
-type SettingsSection = 'general' | 'orders' | 'payments' | 'categories' | 'products' | 'inventory' | 'invoice' | 'users'
+type SettingsSection = 'general' | 'orders' | 'payments' | 'categories' | 'products' | 'inventory' | 'invoice' | 'users' | 'software'
 type PrintPreviewType = 'invoice' | 'comanda' | 'closure'
 type UnitUsageDialog = { unit: string; items: InventoryItem[]; recipes: Array<{ productName: string; itemName: string }> }
 
@@ -307,9 +308,10 @@ export function Settings() {
     ...(canManageInventory ? ['inventory' as const] : []),
     ...(canManage || canManageInvoice ? ['invoice' as const] : []),
     ...(isManager ? ['users' as const] : []),
+    'software',
   ]
   const activeSection = allowedSections.includes(section) ? section : allowedSections[0]
-  const contentTitle = activeSection === 'general' ? 'General' : activeSection === 'orders' ? 'Pedidos' : activeSection === 'payments' ? 'Cobrar' : activeSection === 'categories' ? 'Categorías' : activeSection === 'products' ? 'Productos' : activeSection === 'inventory' ? 'Inventario' : activeSection === 'invoice' ? 'Factura' : 'Usuarios'
+  const contentTitle = activeSection === 'general' ? 'General' : activeSection === 'orders' ? 'Pedidos' : activeSection === 'payments' ? 'Cobrar' : activeSection === 'categories' ? 'Categorías' : activeSection === 'products' ? 'Productos' : activeSection === 'inventory' ? 'Inventario' : activeSection === 'invoice' ? 'Factura' : activeSection === 'users' ? 'Usuarios' : 'Software'
 
   return <div className="settings-page">
     <aside className="settings-sidebar">
@@ -321,12 +323,15 @@ export function Settings() {
         {isManager && <button className={`settings-nav-item ${activeSection === 'users' ? 'active' : ''}`} onClick={() => { setSection('users'); clearFeedback() }}>
           <div><b>Usuarios y permisos</b><small>Accesos</small></div><ChevronRight size={14}/>
         </button>}
+        <button className={`settings-nav-item settings-software-nav ${activeSection === 'software' ? 'active' : ''}`} onClick={() => { setSection('software'); clearFeedback() }}>
+          <div><b>Software</b><small>Versión y actualizaciones</small></div><ChevronRight size={14}/>
+        </button>
       </div>
       <div className="settings-sidebar-footer"><span className="settings-user-dot"></span>{isManager ? 'Gerente' : user.role === 'admin' ? 'Administrador' : 'Acceso a factura'}</div>
     </aside>
 
     <main className="settings-content">
-      <header className="settings-content-head"><div><span className="settings-overline">CONFIGURACIÓN</span><h2>{contentTitle}</h2></div><div className="settings-head-count">{activeSection === 'orders' ? `${orderFields.filter(field => field.enabled).length} campos activos` : activeSection === 'payments' ? `${paymentMethods.length} medios · ${generalSettings.cashQuickAmounts.length} valores`  : activeSection === 'categories' ? `${categories.length} categorías` : activeSection === 'products' ? `${products.length} productos` : activeSection === 'inventory' ? `${customInventoryUnits.length} personalizadas` : activeSection === 'invoice' ? `${generalSettings.receiptFontSize}px` : activeSection === 'users' ? 'Accesos' : 'Preferencias'}</div></header>
+      <header className="settings-content-head"><div><span className="settings-overline">CONFIGURACIÓN</span><h2>{contentTitle}</h2></div><div className="settings-head-count">{activeSection === 'orders' ? `${orderFields.filter(field => field.enabled).length} campos activos` : activeSection === 'payments' ? `${paymentMethods.length} medios · ${generalSettings.cashQuickAmounts.length} valores`  : activeSection === 'categories' ? `${categories.length} categorías` : activeSection === 'products' ? `${products.length} productos` : activeSection === 'inventory' ? `${customInventoryUnits.length} personalizadas` : activeSection === 'invoice' ? `${generalSettings.receiptFontSize}px` : activeSection === 'users' ? 'Accesos' : activeSection === 'software' ? `v${SOFTWARE_RELEASE.version}` : 'Preferencias'}</div></header>
 
       {(error || message) && <div className={`settings-feedback ${error ? 'error' : 'success'}`}>{error || message}</div>}
 
@@ -400,6 +405,29 @@ export function Settings() {
               </div>
             })}
           </div>
+        </section>
+      </div>}
+
+      {activeSection === 'software' && <div className="settings-stack software-settings-stack">
+        <section className="software-release-card">
+          <div className="software-release-glow" aria-hidden="true"/>
+          <div className="software-release-topline"><span><Sparkles size={14}/> {SOFTWARE_RELEASE.name}</span><b><BadgeCheck size={14}/> {SOFTWARE_RELEASE.channel}</b></div>
+          <div className="software-release-main">
+            <div>
+              <span className="software-release-kicker">PLATAFORMA OPERATIVA</span>
+              <h3>{SOFTWARE_RELEASE.product}</h3>
+              <p>{SOFTWARE_RELEASE.description}</p>
+            </div>
+            <div className="software-version-lockup"><span>VERSIÓN ACTIVA</span><strong>v{SOFTWARE_RELEASE.version}</strong><small>{SOFTWARE_RELEASE.build}</small></div>
+          </div>
+          <div className="software-release-badges"><span><ShieldCheck size={15}/> Núcleo protegido</span><span><GitCommit size={15}/> Compilación identificable</span><span><MonitorCheck size={15}/> Lista para verificar equipos</span></div>
+        </section>
+
+        <section className="settings-list-card software-update-card">
+          <div className="software-update-head"><div className="settings-row-icon settings-feature-icon"><MonitorCheck size={17}/></div><div><b>Control de actualizaciones</b><span>En cada dispositivo, abre esta pantalla y compara la versión activa.</span></div></div>
+          <div className="software-update-check"><div><span>VERSIÓN QUE DEBE MOSTRAR TODO EL EQUIPO</span><b>v{SOFTWARE_RELEASE.version}</b></div><BadgeCheck size={25}/></div>
+          <p>Cuando todos los computadores, tablets o cajas muestren <b>v{SOFTWARE_RELEASE.version}</b>, todos están usando la misma versión publicada del POS.</p>
+          <div className="software-release-note"><GitCommit size={15}/><span>Para la siguiente mejora, cambia el número en <code>src/lib/software.ts</code> —por ejemplo, <b>3.0.13</b>— y publica esa compilación.</span></div>
         </section>
       </div>}
 

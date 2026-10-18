@@ -1,7 +1,7 @@
 import { db } from './db'
 import { supabase, supabaseConfigured } from './supabase'
 import type { Table } from 'dexie'
-import { applyLocalCashClosurePurge, applyLocalSalesPurge, enqueueCashClosuresPurgeOperation, enqueueEntityUpsert, enqueueResetOperation, enqueueSalesPurgeOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, findRemoteActiveSaleForOrder, insertOrderRemote, isNetworkError, purgeRemoteCashClosures, purgeRemoteSales, resetRemoteData, purgePosToVirgin, withSyncSuppressed } from './sync'
+import { applyLocalCashClosurePurge, applyLocalSalesPurge, enqueueCashClosuresPurgeOperation, enqueueEntityUpsert, enqueueResetOperation, enqueueSalesPurgeOperation, enqueueUserDelete, enqueueUserProvision, enqueueUserUpdate, ensureRemoteSession, findRemoteActiveSaleForOrder, insertOrderRemote, insertSaleRemote, isNetworkError, purgeRemoteCashClosures, purgeRemoteSales, resetRemoteData, purgePosToVirgin, withSyncSuppressed } from './sync'
 import { products as seedProducts } from './demoData'
 import { createRemoteWorker, defaultPermissionsForRole, deleteRemoteUser, getLoginProfiles, getManagedProfile, getManagedProfiles, getSessionUser, hasPermission, isStreamlinxOperator, PERMISSION_DEFINITIONS, setSessionUser, updateRemoteUser } from './auth'
 import type { AuditEvent, BackupSnapshot, CashClosure, Customer, HistoryRecord, Order, OrderStatus, Product, Role, Sale, User, DeliveryInfo, PaymentMethod, PaymentAllocation, SystemSetting, PaymentMethodConfig, PermissionKey } from './types'
@@ -1841,15 +1841,25 @@ async function completeOrderOnce(
     throw new Error('No se pudo construir una venta válida. No se registró ningún cobro.')
   }
 
-  await persistAdd(db.sales, 'sales', sale)
+  // No imprimimos ni confirmamos el cobro únicamente porque quedó en la
+  // caché/outbox. La factura y el descuento de inventario nacen de los
+  // triggers de Supabase en la misma transacción; esperar esta confirmación
+  // elimina el caso de una factura #2 impresa que luego no existe en Ventas.
+  const confirmedSale = await insertSaleRemote(sale)
 
   const updatedOrder = {
     ...order,
     status: 'paid' as const,
-    updatedAt: new Date().toISOString()
+    updatedAt: confirmedSale.updatedAt || new Date().toISOString()
   }
 
-  await persistPut(db.orders, 'orders', updatedOrder)
+  // La migración 0030 marca el pedido pagado en el servidor dentro del mismo
+  // cobro. Estas son solo las copias locales ya confirmadas, por lo que no se
+  // encolan ni pueden volver a abrir el pedido remoto.
+  await withSyncSuppressed(() => db.transaction('rw', db.sales, db.orders, async () => {
+    await db.sales.put(confirmedSale)
+    await db.orders.put(updatedOrder)
+  }))
 
   await audit(
     'INVOICE_CREATED',
@@ -1857,7 +1867,7 @@ async function completeOrderOnce(
     'sale',
     sale.id,
     null,
-    sale,
+    confirmedSale,
     freshActor
   )
 
@@ -1872,7 +1882,7 @@ async function completeOrderOnce(
   )
 
   return {
-    sale,
+    sale: confirmedSale,
     order: updatedOrder as Order,
     alreadyPaid: false
   }
