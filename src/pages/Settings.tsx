@@ -427,7 +427,6 @@ export function Settings() {
           <div className="software-update-head"><div className="settings-row-icon settings-feature-icon"><MonitorCheck size={17}/></div><div><b>Control de actualizaciones</b><span>En cada dispositivo, abre esta pantalla y compara la versión activa.</span></div></div>
           <div className="software-update-check"><div><span>VERSIÓN QUE DEBE MOSTRAR TODO EL EQUIPO</span><b>v{SOFTWARE_RELEASE.version}</b></div><BadgeCheck size={25}/></div>
           <p>Cuando todos los computadores, tablets o cajas muestren <b>v{SOFTWARE_RELEASE.version}</b>, todos están usando la misma versión publicada del POS.</p>
-          <div className="software-release-note"><GitCommit size={15}/><span>Para la siguiente mejora, cambia el número en <code>src/lib/software.ts</code> —por ejemplo, <b>3.0.13</b>— y publica esa compilación.</span></div>
         </section>
       </div>}
 
