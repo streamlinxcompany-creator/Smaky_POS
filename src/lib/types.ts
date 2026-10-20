@@ -250,6 +250,11 @@ export type CashClosure = {
   deletedAt?: string
   deletedBy?: string
   updatedAt?: string
+  /**
+   * Solo en memoria: valores que se guardaron originalmente cuando el cierre
+   * sumó ventas eliminadas. Permite mostrar el aviso de corrección.
+   */
+  storedTotals?: { saleCount: number; total: number; cashExpected: number; cashDifference: number; excludedSales: number; excludedTotal: number }
 }
 
 export type User = {

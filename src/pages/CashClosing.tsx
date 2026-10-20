@@ -1,6 +1,6 @@
-import { CheckCircle2, ChevronRight, CircleDollarSign, Clock3, Eye, LockKeyhole, Printer, ReceiptText, Trash2, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronRight, CircleDollarSign, Clock3, Eye, LockKeyhole, Printer, ReceiptText, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { addBusinessDay, businessDayKey, createDailyClosure, deletePreviousDayClosure, getClosures, getCurrentBusinessDayKey, getGeneralSettings, getSales } from '../lib/store'
+import { addBusinessDay, businessDayKey, createDailyClosure, deletePreviousDayClosure, getClosures, getCurrentBusinessDayKey, getGeneralSettings, getSales, recordBusinessDayKey, summarizeClosureSales } from '../lib/store'
 import { getSessionUser, hasPermission } from '../lib/auth'
 import { money, date, time } from '../lib/format'
 import type { CashClosure, Sale } from '../lib/types'
@@ -43,13 +43,10 @@ export function CashClosing() {
   useEffect(() => { if (!toast) return; const t = window.setTimeout(() => setToast(''), 3000); return () => window.clearTimeout(t) }, [toast])
 
   const currentClosure = useMemo(() => closures.find(item => item.dateKey === dateKey), [closures, dateKey])
-  const daySales = useMemo(() => sales.filter(sale => !sale.deletedAt && businessDayKey(sale.createdAt) === dateKey), [sales, dateKey])
-  const totals = useMemo(() => daySales.reduce((acc, sale) => {
-    acc.total += sale.total
-    const allocations = sale.paymentAllocations?.length ? sale.paymentAllocations : [{ method: sale.payment, amount: sale.total }]
-    allocations.forEach(allocation => { if (allocation.method === 'cash') acc.cash += allocation.amount; else if (allocation.method === 'transfer') acc.transfer += allocation.amount; else if (allocation.method === 'card') acc.card += allocation.amount })
-    return acc
-  }, { total: 0, cash: 0, transfer: 0, card: 0 }), [daySales])
+  // Misma regla que el registro del cierre (store.summarizeClosureSales): lo que
+  // se ve antes de confirmar es exactamente lo que queda guardado.
+  const daySales = useMemo(() => sales.filter(sale => !sale.deletedAt && recordBusinessDayKey(sale) === dateKey), [sales, dateKey])
+  const totals = useMemo(() => summarizeClosureSales(daySales), [daySales])
 
   const canClose = Boolean(actor && hasPermission(actor, 'cashClosing.access'))
   const difference = Number(cashCounted || 0) - totals.cash
@@ -120,36 +117,109 @@ export function CashClosing() {
 
     {modal && <div className="closing-backdrop"><div className="closing-modal" role="dialog" aria-modal="true"><div className="closing-modal-head"><div><span className="eyebrow">CONFIRMAR CIERRE</span><h2>{dateKey}</h2></div><button onClick={() => setModal(false)} aria-label="Cerrar"><X size={18}/></button></div><div className="closing-modal-body"><div className="closing-modal-summary"><div><span>Ventas</span><b>{daySales.length}</b></div><div><span>Total</span><b>{money(totals.total)}</b></div><div><span>Efectivo esperado</span><b>{money(totals.cash)}</b></div><div><span>Contado</span><b>{money(Number(cashCounted || 0))}</b></div></div><label className="closing-cash-input"><span>EFECTIVO CONTADO</span><input autoFocus type="number" min="0" value={cashCounted} onChange={e => setCashCounted(e.target.value)}/><small>Esperado: {money(totals.cash)}</small></label><div className={`cash-difference-box ${difference === 0 ? 'ok' : difference > 0 ? 'surplus' : ''}`}><div>Diferencia de caja: <b>{money(difference)}</b></div></div><label className="closing-note-input"><span>NOTAS</span><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Observaciones del cierre…"/></label><div className="closing-confirm-warning"><LockKeyhole size={14}/><span>Confirmar creará un registro inmutable del cierre y bloqueará nuevas ventas de este período.</span></div></div><div className="closing-modal-footer"><span>El registro se sincroniza automáticamente cuando vuelve la conexión.</span><button className="primary" disabled={saving} onClick={() => void confirmClose()}>{saving ? 'GUARDANDO…' : 'CONFIRMAR CIERRE'}</button></div></div></div>}
 
-    {detail && <div className="closing-backdrop">
-      <div className="closing-modal closure-detail-modal" role="dialog" aria-modal="true">
-        <div className="closing-modal-head">
-          <div><span className="eyebrow">DETALLE DE CIERRE</span><h2>{detail.dateKey}</h2></div>
-          <button onClick={() => setDetail(null)} aria-label="Cerrar"><X size={18}/></button>
-        </div>
-        <div className="closing-modal-body closure-detail-body">
-          <div className="closure-detail-summary">
-            <div><span>Ventas</span><strong>{detail.saleCount}</strong></div>
-            <div><span>Total</span><strong>{money(detail.total)}</strong></div>
-            <div><span>Efectivo esperado</span><strong>{money(detail.cashExpected)}</strong></div>
-            <div><span>Efectivo contado</span><strong>{money(detail.cashCounted)}</strong></div>
-          </div>
-          <div className="closure-cash-verification">
-            <div><span>Cuadre</span><strong>{money(detail.cashDifference)}</strong><b>{detail.cashDifference === 0 ? 'OK' : detail.cashDifference > 0 ? 'SOBRANTE' : 'FALTANTE'}</b></div>
-            <div><span>Atendido por</span><strong>{detail.userName}</strong></div>
-            <div><span>Hora</span><strong>{time(detail.closedAt)}</strong></div>
-          </div>
-          <div className="closure-detail-summary-block">
-            <div className="closure-detail-subtitle">Resumen por medio de pago</div>
-            {Object.entries(detail.payments && Object.keys(detail.payments).length ? detail.payments : { cash: detail.cash, transfer: detail.transfer, card: detail.card }).filter(([, amount]) => Number(amount) !== 0).map(([id, amount]) => <div className="closure-detail-payment-row" key={id}><span>{detail.paymentLabels?.[id] || (id === 'cash' ? 'Efectivo' : id === 'transfer' ? 'Transferencia' : id === 'card' ? 'Tarjeta' : id)}</span><strong>{money(Number(amount) || 0)}</strong></div>)}
-          </div>
-          {detail.notes && <div className="closure-detail-note"><ReceiptText size={16}/><div><b>Notas</b><span>{detail.notes}</span></div></div>}
-        </div>
-        <div className="closing-modal-footer closure-detail-footer">
-          <button className="secondary" onClick={() => setDetail(null)}>Cerrar</button>
-          <button className="primary" onClick={() => void printClosure(detail)}><Printer size={15}/> Imprimir cierre</button>
-        </div>
-      </div>
-    </div>}
+    {detail && <ClosureDetail closure={detail} onClose={() => setDetail(null)} onPrint={() => void printClosure(detail)} />}
     {toast && <div className="closing-toast">{toast}</div>}
+  </div>
+}
+
+const fallbackPaymentLabels: Record<string, string> = { cash: 'Efectivo', transfer: 'Transferencia', card: 'Tarjeta', multiple: 'Pago mixto' }
+
+const longDate = (dateKey: string) => {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  if (!year || !month || !day) return dateKey
+  const text = new Intl.DateTimeFormat('es-CO', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(Date.UTC(year, month - 1, day)))
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+function ClosureDetail({ closure, onClose, onPrint }: { closure: CashClosure; onClose: () => void; onPrint: () => void }) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const difference = Number(closure.cashDifference) || 0
+  const status = difference === 0 ? 'ok' : difference > 0 ? 'surplus' : 'short'
+  const statusLabel = status === 'ok' ? 'Cuadre exacto' : status === 'surplus' ? 'Sobrante' : 'Faltante'
+  const activeSales = (Array.isArray(closure.sales) ? closure.sales : []).filter(sale => !sale.deletedAt)
+    .sort((a, b) => (a.orderNumber ?? 0) - (b.orderNumber ?? 0) || a.createdAt.localeCompare(b.createdAt))
+  const labelFor = (id: string) => closure.paymentLabels?.[id] || fallbackPaymentLabels[id] || id
+  const payments = Object.entries(closure.payments && Object.keys(closure.payments).length ? closure.payments : { cash: closure.cash, transfer: closure.transfer, card: closure.card })
+    .map(([id, amount]) => ({
+      id,
+      label: labelFor(id),
+      amount: Number(amount) || 0,
+      count: activeSales.filter(sale => sale.paymentAllocations?.length ? sale.paymentAllocations.some(item => item.method === id) : sale.payment === id).length,
+    }))
+    .filter(item => item.amount !== 0)
+    .sort((a, b) => b.amount - a.amount)
+  const paymentTotal = payments.reduce((sum, item) => sum + item.amount, 0) || 1
+
+  return <div className="cdm-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
+    <section className="cdm" role="dialog" aria-modal="true" aria-labelledby="cdm-title">
+      <header className="cdm-head">
+        <div>
+          <span className="cdm-eyebrow">Detalle de cierre</span>
+          <h2 id="cdm-title">{longDate(closure.dateKey)}</h2>
+          <p>Cerrado a las {time(closure.closedAt)} por {closure.userName || '—'}</p>
+        </div>
+        <button className="cdm-close" onClick={onClose} aria-label="Cerrar detalle"><X size={18}/></button>
+      </header>
+
+      <div className="cdm-body">
+        {closure.storedTotals && <div className="cdm-notice">
+          <AlertTriangle size={18}/>
+          <div>
+            <b>Valores corregidos</b>
+            <span>Este cierre se guardó sumando {closure.storedTotals.excludedSales} {closure.storedTotals.excludedSales === 1 ? 'venta eliminada' : 'ventas eliminadas'} ({money(closure.storedTotals.excludedTotal)}). Aquí se muestran sin ellas. Antes decía: total {money(closure.storedTotals.total)} · efectivo esperado {money(closure.storedTotals.cashExpected)} · diferencia {money(closure.storedTotals.cashDifference)}.</span>
+          </div>
+        </div>}
+
+        <div className="cdm-hero">
+          <div className="cdm-hero-main">
+            <span>Total vendido</span>
+            <strong>{money(closure.total)}</strong>
+            <small>{closure.saleCount} {closure.saleCount === 1 ? 'venta' : 'ventas'}</small>
+          </div>
+          <div className={`cdm-status cdm-status-${status}`}>
+            {status === 'ok' ? <CheckCircle2 size={20}/> : <AlertTriangle size={20}/>}
+            <div><span>{statusLabel}</span><strong>{status === 'ok' ? 'Caja cuadrada' : money(Math.abs(difference))}</strong></div>
+          </div>
+        </div>
+
+        <div className="cdm-section">
+          <h3>Arqueo de efectivo</h3>
+          <div className="cdm-arqueo">
+            <div><span>Esperado</span><strong>{money(closure.cashExpected)}</strong></div>
+            <div><span>Contado</span><strong>{money(closure.cashCounted)}</strong></div>
+            <div className={`cdm-diff cdm-status-${status}`}><span>Diferencia</span><strong>{difference > 0 ? '+' : ''}{money(difference)}</strong></div>
+          </div>
+        </div>
+
+        <div className="cdm-section">
+          <h3>Medios de pago</h3>
+          {payments.length ? <div className="cdm-payments">{payments.map(item => <div className="cdm-payment" key={item.id}>
+            <div className="cdm-payment-top"><span>{item.label}<small>{item.count} {item.count === 1 ? 'venta' : 'ventas'}</small></span><strong>{money(item.amount)}</strong></div>
+            <div className="cdm-bar"><i style={{ width: `${Math.max(2, Math.round(item.amount / paymentTotal * 100))}%` }}/></div>
+          </div>)}</div> : <p className="cdm-empty">Sin movimientos en este período.</p>}
+        </div>
+
+        {activeSales.length > 0 && <div className="cdm-section">
+          <h3>Ventas incluidas <span>{activeSales.length}</span></h3>
+          <div className="cdm-sales">{activeSales.map(sale => <div className="cdm-sale" key={sale.id}>
+            <b>#{sale.orderNumber ?? sale.id.slice(-4).toUpperCase()}</b>
+            <span className="cdm-sale-who">{sale.customerName || 'Consumidor final'}<small>{time(sale.createdAt)} · {sale.paymentAllocations && sale.paymentAllocations.length > 1 ? 'Pago mixto' : (sale.paymentLabel || labelFor(sale.payment))}</small></span>
+            <strong>{money(sale.total)}</strong>
+          </div>)}</div>
+        </div>}
+
+        {closure.notes && <div className="cdm-section cdm-notes"><h3>Notas</h3><p>{closure.notes}</p></div>}
+      </div>
+
+      <footer className="cdm-foot">
+        <button className="secondary" onClick={onClose}>Cerrar</button>
+        <button className="cdm-print" onClick={onPrint}><Printer size={15}/> Imprimir cierre</button>
+      </footer>
+    </section>
   </div>
 }

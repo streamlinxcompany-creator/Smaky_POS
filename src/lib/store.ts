@@ -929,9 +929,68 @@ export const addBusinessDay = (dateKey: string, amount = 1) => {
   }).format(date)
 }
 
+export type ClosureTotals = {
+  saleCount: number
+  total: number
+  cash: number
+  transfer: number
+  card: number
+  payments: Record<string, number>
+}
+
+/**
+ * Única regla de cálculo para el cierre (pantalla, registro e impresión):
+ * excluye ventas eliminadas y reparte los pagos mixtos por medio de pago.
+ */
+export function summarizeClosureSales(sales: Sale[]): ClosureTotals {
+  return sales.filter(sale => !sale.deletedAt).reduce<ClosureTotals>((acc, sale) => {
+    const total = Number(sale.total) || 0
+    acc.saleCount += 1
+    acc.total += total
+    const allocations = sale.paymentAllocations?.length
+      ? sale.paymentAllocations
+      : [{ method: sale.payment, amount: total }]
+    for (const allocation of allocations) {
+      const amount = Number(allocation.amount) || 0
+      acc.payments[allocation.method] = (acc.payments[allocation.method] || 0) + amount
+      if (allocation.method === 'cash') acc.cash += amount
+      else if (allocation.method === 'transfer') acc.transfer += amount
+      else if (allocation.method === 'card') acc.card += amount
+    }
+    return acc
+  }, { saleCount: 0, total: 0, cash: 0, transfer: 0, card: 0, payments: {} })
+}
+
+/**
+ * Los cierres anteriores a esta corrección sumaban también las ventas que ya
+ * estaban eliminadas al cerrar. Su copia de ventas sí marca cuáles estaban
+ * eliminadas, así que los totales se recalculan desde esa copia.
+ */
+export function normalizeClosure(closure: CashClosure): CashClosure {
+  if (!Array.isArray(closure.sales) || !closure.sales.length) return closure
+  const excluded = closure.sales.filter(sale => sale.deletedAt)
+  if (!excluded.length) return closure
+  const totals = summarizeClosureSales(closure.sales)
+  const counted = Number(closure.cashCounted) || 0
+  return {
+    ...closure,
+    ...totals,
+    cashExpected: totals.cash,
+    cashDifference: counted - totals.cash,
+    storedTotals: {
+      saleCount: closure.saleCount,
+      total: closure.total,
+      cashExpected: closure.cashExpected,
+      cashDifference: closure.cashDifference,
+      excludedSales: excluded.length,
+      excludedTotal: excluded.reduce((sum, sale) => sum + (Number(sale.total) || 0), 0),
+    },
+  }
+}
+
 export async function getClosures() {
   const closures = await db.closures.orderBy('closedAt').reverse().toArray()
-  return closures.filter(closure => !closure.deletedAt)
+  return closures.filter(closure => !closure.deletedAt).map(normalizeClosure)
 }
 
 
@@ -1185,8 +1244,9 @@ export async function createDailyClosure(
     throw new Error('Este día ya tiene un cierre registrado.')
   }
 
+  // Solo ventas vigentes: una venta eliminada no es dinero en caja.
   const sales = (await db.sales.toArray())
-    .filter(sale => recordBusinessDayKey(sale) === dateKey)
+    .filter(sale => !sale.deletedAt && recordBusinessDayKey(sale) === dateKey)
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 
   const methods = await getPaymentMethods()
@@ -1195,23 +1255,8 @@ export async function createDailyClosure(
     (Array.isArray(methods) ? methods : []).map(item => [item.id, item.name])
   ) as Record<string, string>
 
-  const payments = sales.reduce<Record<string, number>>((acc, sale) => {
-    acc[sale.payment] = (acc[sale.payment] || 0) + sale.total
-    return acc
-  }, {})
-
-  const totals = sales.reduce((acc, sale) => {
-    acc.total += sale.total
-    if (sale.payment === 'cash') acc.cash += sale.total
-    else if (sale.payment === 'transfer') acc.transfer += sale.total
-    else if (sale.payment === 'card') acc.card += sale.total
-    return acc
-  }, {
-    total: 0,
-    cash: 0,
-    transfer: 0,
-    card: 0
-  })
+  const totals = summarizeClosureSales(sales)
+  const payments = totals.payments
 
   const counted = Number.isFinite(cashCounted)
     ? Math.max(0, cashCounted)
