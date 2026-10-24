@@ -1564,7 +1564,7 @@ export async function createOrder(
   }
   // El pedido ya existe en Supabase con su número definitivo; aquí solo se
   // guarda la copia local (no hace falta encolarlo en la outbox).
-  await withSyncSuppressed(() => db.orders.put(order))
+  await db.orders.put(order)
 
   await audit(
     'ORDER_CREATED',
@@ -1775,7 +1775,7 @@ async function completeOrderOnce(
   const existingSale = (await db.sales.where('orderId').equals(orderId).filter(sale => !sale.deletedAt).first())
     || (order.status !== 'paid' ? await findRemoteActiveSaleForOrder(orderId).catch(() => undefined) : undefined)
   if (existingSale) {
-    if (!(await db.sales.get(existingSale.id))) await withSyncSuppressed(() => db.sales.put(existingSale))
+    if (!(await db.sales.get(existingSale.id))) await db.sales.put(existingSale)
     const paidOrder: Order = order.status === 'paid'
       ? order
       : await persistPut(db.orders, 'orders', { ...order, status: 'paid' as const, updatedAt: new Date().toISOString() })
@@ -1901,10 +1901,10 @@ async function completeOrderOnce(
   // La migración 0030 marca el pedido pagado en el servidor dentro del mismo
   // cobro. Estas son solo las copias locales ya confirmadas, por lo que no se
   // encolan ni pueden volver a abrir el pedido remoto.
-  await withSyncSuppressed(() => db.transaction('rw', db.sales, db.orders, async () => {
+  await db.transaction('rw', db.sales, db.orders, async () => {
     await db.sales.put(confirmedSale)
     await db.orders.put(updatedOrder)
-  }))
+  })
 
   await audit(
     'INVOICE_CREATED',

@@ -45,6 +45,10 @@ export type SyncResult = SyncState & { ok: boolean }
 
 export const isSyncSuppressed = () => suppressionDepth > 0
 
+// La supresión es GLOBAL: mientras `work` esté pendiente se descarta cualquier
+// operación de la outbox, incluso las del cajero. Úsala solo cuando `work`
+// llame funciones que encolan (p. ej. seed); una escritura directa en Dexie no
+// encola nada y no debe envolverse.
 export async function withSyncSuppressed<T>(work: () => Promise<T> | T): Promise<T> {
   suppressionDepth += 1
   try {
@@ -654,7 +658,12 @@ async function putLocalRemote(entity: SyncEntity, remoteRow: any, sourceOperatio
   const id = String(local.id)
   let previous: any
   let healTerminalOrder: Order | undefined
-  const applied = await withSyncSuppressed(() => db.transaction('rw', table, db.syncQueue, async () => {
+  // Sin withSyncSuppressed: aquí solo se escribe la tabla (nada se encola) y la
+  // supresión es global. Mientras duraba esta transacción, un cambio del cajero
+  // (p. ej. agregar productos e imprimir la comanda) se guardaba localmente pero
+  // NO entraba a la outbox; la siguiente reconciliación lo pisaba con la copia
+  // remota anterior y los productos agregados desaparecían del pedido.
+  const applied = await db.transaction('rw', table, db.syncQueue, async () => {
     const newerLocalChanges = await db.syncQueue
       .where('[entity+recordId]').equals([entity, id])
       .filter(operation => operation.operation === 'upsert' && operation.id !== sourceOperationId)
@@ -671,7 +680,7 @@ async function putLocalRemote(entity: SyncEntity, remoteRow: any, sourceOperatio
     }
     await table.put(local)
     return true
-  }))
+  })
   if (healTerminalOrder) {
     // El servidor quedó con una versión abierta de un pedido ya cobrado aquí:
     // vuelve a enviar el estado local definitivo en lugar de revivir el pedido.
@@ -862,7 +871,7 @@ async function reconcileEntity(entity: SyncEntity) {
     }
     for (const id of missingRemotely) {
       if (stillThere.has(id) || await hasPendingFor(entity, id)) continue
-      await withSyncSuppressed(() => (entityTable(entity) as Table<any, string>).delete(id))
+      await (entityTable(entity) as Table<any, string>).delete(id)
     }
   }
 
