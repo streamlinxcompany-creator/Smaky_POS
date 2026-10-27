@@ -2892,3 +2892,12 @@ html[data-theme='light'] .cdm{
   .cdm-hero-main strong{font-size:30px}
   .cdm-foot>button{flex:1;justify-content:center}
 }
+
+/* Acceso rápido para editar un cliente desde "¿Para quién es el pedido?" */
+.customer-picker-item{position:relative}
+.customer-picker-item .customer-picker-arrow{margin-left:44px}
+.customer-picker-edit{position:absolute;top:50%;right:44px;transform:translateY(-50%);width:34px;height:34px;display:grid;place-items:center;border-radius:9px;border:1px solid #323637;background:#1a1d1e;color:#aaa39d;cursor:pointer;transition:.14s ease}
+.customer-picker-edit:hover{border-color:#8e452d;background:#231b17;color:#dc7a51}
+.customer-picker-edit:focus-visible{outline:0;border-color:#8e452d;box-shadow:0 0 0 3px rgba(144,62,31,.18)}
+html[data-theme='light'] .customer-picker-edit{background:#f7efe8;border-color:#e0d6cc;color:#7a6d64}
+html[data-theme='light'] .customer-picker-edit:hover{background:#fbf3ec;border-color:#cf977e;color:#b34821}
