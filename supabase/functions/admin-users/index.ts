@@ -405,7 +405,8 @@ Deno.serve(async (request) => {
     if (String(changes.role || target.role) === 'manager' && target.role !== 'manager') return json({ error: 'No se pueden crear más perfiles gerente.' }, 403)
     if (wantsActiveChange && target.role === 'admin' && actor.role !== 'manager') return json({ error: 'Solo el gerente puede desactivar administradores.' }, 403)
     if (target.id === actorId && wantsActiveChange) return json({ error: 'No puedes desactivar tu propia sesión.' }, 403)
-    if (target.role === 'manager') return json({ error: 'El gerente principal no admite ese cambio.' }, 403)
+    // El gerente sí puede editar su propio nombre, rango y PIN: las reglas de
+    // arriba ya impiden que otro perfil lo edite, lo degrade o lo desactive.
 
     const profileUpdate: Record<string, unknown> = {}
     if (typeof changes.name === 'string' && cleanName(changes.name).length >= 2) profileUpdate.name = cleanName(changes.name)
