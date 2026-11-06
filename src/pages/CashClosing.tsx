@@ -1,6 +1,6 @@
 import { AlertTriangle, CheckCircle2, ChevronRight, CircleDollarSign, Clock3, Eye, LockKeyhole, Printer, ReceiptText, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { addBusinessDay, businessDayKey, createDailyClosure, deletePreviousDayClosure, findPendingClosureDays, getClosures, getCurrentBusinessDayKey, getGeneralSettings, getOrders, getSales, recordBusinessDayKey, summarizeClosureSales } from '../lib/store'
+import { addBusinessDay, businessDayKey, createDailyClosure, deletePreviousDayClosure, findPendingClosureDays, getClosures, getCurrentBusinessDayKey, getGeneralSettings, getOrders, getRemovedClosureDays, getSales, recordBusinessDayKey, removePendingClosureDay, summarizeClosureSales, type PendingClosureDay } from '../lib/store'
 import { getSessionUser, hasPermission } from '../lib/auth'
 import { money, date, time } from '../lib/format'
 import type { CashClosure, Order, Sale } from '../lib/types'
@@ -17,13 +17,19 @@ export function CashClosing() {
   const [saving, setSaving] = useState(false)
   // Período que se está cerrando: el actual o uno anterior que quedó sin cierre.
   const [closingKey, setClosingKey] = useState<string | null>(null)
+  const [removedKeys, setRemovedKeys] = useState<string[]>([])
+  const [removeDay, setRemoveDay] = useState<PendingClosureDay | null>(null)
+  const [removeStep, setRemoveStep] = useState<'word' | 'authorize'>('word')
+  const [removeWord, setRemoveWord] = useState('')
+  const [removing, setRemoving] = useState(false)
   const [detail, setDetail] = useState<CashClosure | null>(null)
   const [toast, setToast] = useState('')
   const [closureFontSize, setClosureFontSize] = useState(11)
   const [receiptPaperWidth, setReceiptPaperWidth] = useState<58 | 80 | 88>(58)
 
   const load = async () => {
-    const [nextClosures, nextSales, nextOrders, currentKey, settings] = await Promise.all([getClosures(), getSales(), getOrders(), getCurrentBusinessDayKey(), getGeneralSettings()])
+    const [nextClosures, nextSales, nextOrders, currentKey, settings, nextRemovedKeys] = await Promise.all([getClosures(), getSales(), getOrders(), getCurrentBusinessDayKey(), getGeneralSettings(), getRemovedClosureDays()])
+    setRemovedKeys(nextRemovedKeys)
     setClosures(nextClosures)
     setSales(nextSales)
     setOrders(nextOrders)
@@ -51,7 +57,7 @@ export function CashClosing() {
   const daySales = useMemo(() => sales.filter(sale => !sale.deletedAt && recordBusinessDayKey(sale) === dateKey), [sales, dateKey])
   const totals = useMemo(() => summarizeClosureSales(daySales), [daySales])
 
-  const pendingDays = useMemo(() => dateKey ? findPendingClosureDays(sales, closures, dateKey) : [], [sales, closures, dateKey])
+  const pendingDays = useMemo(() => dateKey ? findPendingClosureDays(sales, closures, dateKey, removedKeys) : [], [sales, closures, dateKey, removedKeys])
   const closingSales = useMemo(() => closingKey ? sales.filter(sale => !sale.deletedAt && recordBusinessDayKey(sale) === closingKey) : [], [sales, closingKey])
   const closingTotals = useMemo(() => summarizeClosureSales(closingSales), [closingSales])
   const closingOpenOrders = useMemo(() => closingKey ? orders.filter(order => recordBusinessDayKey(order) === closingKey && !['paid', 'cancelled'].includes(order.status)).length : 0, [orders, closingKey])
@@ -81,6 +87,25 @@ export function CashClosing() {
     } finally { setSaving(false) }
   }
 
+  const openRemove = (day: PendingClosureDay) => {
+    setRemoveWord('')
+    setRemoveStep('word')
+    setRemoveDay(day)
+  }
+
+  const confirmRemove = async () => {
+    if (!actor || !removeDay || removing) return
+    setRemoving(true)
+    try {
+      await removePendingClosureDay(removeDay, actor)
+      setRemoveDay(null)
+      setToast('Cierre pendiente eliminado. Las ventas de ese día no se tocaron.')
+      await load()
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'No fue posible eliminar el cierre pendiente.')
+    } finally { setRemoving(false) }
+  }
+
   const deletePrevious = async (closure: CashClosure) => {
     if (!actor || actor.role !== 'manager') return
     const ok = await deletePreviousDayClosure(closure.id, actor)
@@ -108,7 +133,10 @@ export function CashClosing() {
       <div className="closing-pending-head"><AlertTriangle size={18}/><div><b>{pendingDays.length === 1 ? 'Hay 1 día sin cierre' : `Hay ${pendingDays.length} días sin cierre`}</b><span>Sus ventas siguen guardadas. Puedes cerrarlos ahora; esto no cambia las ventas de hoy.</span></div></div>
       <div className="closing-pending-list">{pendingDays.map(day => <div className="closing-pending-row" key={day.dateKey}>
         <div className="closing-pending-main"><b>{longDate(day.dateKey)}</b><span>{day.saleCount} {day.saleCount === 1 ? 'venta' : 'ventas'} · {money(day.total)}</span></div>
-        {canClose && <button className="primary" onClick={() => openClose(day.dateKey)}>CERRAR ESTE DÍA <ChevronRight size={15}/></button>}
+        <div className="closing-pending-actions">
+          {actor.role === 'manager' && <button className="secondary closing-pending-remove" onClick={() => openRemove(day)}><Trash2 size={14}/> Eliminar</button>}
+          {canClose && <button className="primary" onClick={() => openClose(day.dateKey)}>CERRAR ESTE DÍA <ChevronRight size={15}/></button>}
+        </div>
       </div>)}</div>
     </section>}
 
@@ -134,6 +162,21 @@ export function CashClosing() {
     {actor.role === 'manager' && previousClosure && <section className="panel closing-warning-box"><div><b>Corrección administrativa disponible</b><span>El cierre del período anterior puede archivarse por un gerente.</span></div><button className="secondary" onClick={() => void deletePrevious(previousClosure)}><Trash2 size={14}/> Archivar anterior</button></section>}
 
     {closingKey && <div className="closing-backdrop"><div className="closing-modal" role="dialog" aria-modal="true"><div className="closing-modal-head"><div><span className="eyebrow">{closingLate ? 'CIERRE DE UN DÍA ANTERIOR' : 'CONFIRMAR CIERRE'}</span><h2>{closingKey}</h2></div><button onClick={() => setClosingKey(null)} aria-label="Cerrar"><X size={18}/></button></div><div className="closing-modal-body"><div className="closing-modal-summary"><div><span>Ventas</span><b>{closingSales.length}</b></div><div><span>Total</span><b>{money(closingTotals.total)}</b></div><div><span>Efectivo esperado</span><b>{money(closingTotals.cash)}</b></div><div><span>Contado</span><b>{money(Number(cashCounted || 0))}</b></div></div><label className="closing-cash-input"><span>EFECTIVO CONTADO</span><input autoFocus type="number" min="0" value={cashCounted} onChange={e => setCashCounted(e.target.value)}/><small>Esperado: {money(closingTotals.cash)}</small></label><div className={`cash-difference-box ${difference === 0 ? 'ok' : difference > 0 ? 'surplus' : ''}`}><div>Diferencia de caja: <b>{money(difference)}</b></div></div><label className="closing-note-input"><span>NOTAS</span><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Observaciones del cierre…"/></label>{closingOpenOrders > 0 && <div className="closing-confirm-warning"><AlertTriangle size={14}/><span>{closingOpenOrders === 1 ? 'Queda 1 pedido sin cobrar' : `Quedan ${closingOpenOrders} pedidos sin cobrar`} en este período. No entran en el cierre y después no se podrán cobrar.</span></div>}<div className="closing-confirm-warning"><LockKeyhole size={14}/><span>{closingLate ? 'Se registrará como cierre tardío con la fecha de hoy. El período actual y sus ventas no cambian.' : 'Confirmar creará un registro inmutable del cierre y bloqueará nuevas ventas de este período.'}</span></div></div><div className="closing-modal-footer"><span>El registro se sincroniza automáticamente cuando vuelve la conexión.</span><button className="primary" disabled={saving} onClick={() => void confirmClose()}>{saving ? 'GUARDANDO…' : 'CONFIRMAR CIERRE'}</button></div></div></div>}
+
+    {removeDay && <div className="closing-backdrop"><div className="closing-modal closing-remove-modal" role="dialog" aria-modal="true">
+      <div className="closing-modal-head"><div><span className="eyebrow">ELIMINAR CIERRE PENDIENTE</span><h2>{longDate(removeDay.dateKey)}</h2></div><button onClick={() => setRemoveDay(null)} disabled={removing} aria-label="Cerrar"><X size={18}/></button></div>
+      {removeStep === 'word'
+        ? <div className="closing-modal-body">
+            <p className="closing-remove-text">{removeDay.saleCount} {removeDay.saleCount === 1 ? 'venta' : 'ventas'} · {money(removeDay.total)}</p>
+            <label className="closing-cash-input"><span>ESCRIBE ELIMINAR PARA CONTINUAR</span><input autoFocus value={removeWord} onChange={event => setRemoveWord(event.target.value)} placeholder="ELIMINAR" autoComplete="off"/></label>
+            <div className="closing-remove-actions"><button className="secondary" onClick={() => setRemoveDay(null)}>Cancelar</button><button className="primary" disabled={removeWord !== 'ELIMINAR'} onClick={() => setRemoveStep('authorize')}>Continuar</button></div>
+          </div>
+        : <div className="closing-modal-body">
+            <div className="closing-confirm-warning"><AlertTriangle size={14}/><span><b>Una vez borrado, no se podrá recuperar la información de este cierre de caja.</b> Este día dejará de aparecer como pendiente y ya no se podrá cerrar.</span></div>
+            <p className="closing-remove-text">Las ventas de ese día no se borran: siguen en Ventas y Reportes.</p>
+            <div className="closing-remove-actions"><button className="secondary" disabled={removing} onClick={() => setRemoveDay(null)}>Cancelar</button><button className="primary closing-remove-confirm" disabled={removing} onClick={() => void confirmRemove()}>{removing ? 'ELIMINANDO…' : 'AUTORIZAR Y ELIMINAR'}</button></div>
+          </div>}
+    </div></div>}
 
     {detail && <ClosureDetail closure={detail} onClose={() => setDetail(null)} onPrint={() => void printClosure(detail)} />}
     {toast && <div className="closing-toast">{toast}</div>}

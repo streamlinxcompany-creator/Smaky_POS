@@ -941,8 +941,8 @@ export type PendingClosureDay = {
  * deja de ser el período actual: esta lista es lo que permite cerrarlo después.
  * Un cierre archivado no cuenta, así que ese día vuelve a quedar pendiente.
  */
-export function findPendingClosureDays(sales: Sale[], closures: CashClosure[], currentKey: string): PendingClosureDay[] {
-  const closedKeys = new Set(closures.filter(closure => !closure.deletedAt).map(closure => closure.dateKey))
+export function findPendingClosureDays(sales: Sale[], closures: CashClosure[], currentKey: string, removedKeys: string[] = []): PendingClosureDay[] {
+  const closedKeys = new Set([...removedKeys, ...closures.filter(closure => !closure.deletedAt).map(closure => closure.dateKey)])
   const days = new Map<string, PendingClosureDay>()
 
   for (const sale of sales) {
@@ -959,8 +959,46 @@ export function findPendingClosureDays(sales: Sale[], closures: CashClosure[], c
 }
 
 export async function getPendingClosureDays() {
-  const [sales, closures, currentKey] = await Promise.all([getSales(), getClosures(), getCurrentBusinessDayKey()])
-  return findPendingClosureDays(sales, closures, currentKey)
+  const [sales, closures, currentKey, removedKeys] = await Promise.all([getSales(), getClosures(), getCurrentBusinessDayKey(), getRemovedClosureDays()])
+  return findPendingClosureDays(sales, closures, currentKey, removedKeys)
+}
+
+const REMOVED_CLOSURE_DAYS_KEY = 'removedClosureDays'
+
+export async function getRemovedClosureDays(): Promise<string[]> {
+  const setting = await db.settings.get(REMOVED_CLOSURE_DAYS_KEY)
+  return Array.isArray(setting?.value) ? setting.value.map(String) : []
+}
+
+/**
+ * Quita un día de la lista de cierres pendientes en todos los equipos. Solo
+ * retira el aviso: las ventas de ese día no se tocan y siguen en Ventas y
+ * Reportes. No se guarda como cierre para no bloquear ni alterar ese período.
+ */
+export async function removePendingClosureDay(day: PendingClosureDay, actor: User) {
+  const freshActor = await db.users.get(actor.id)
+  if (!freshActor?.active || freshActor.role !== 'manager') {
+    throw new Error('Solo el gerente puede eliminar un cierre pendiente.')
+  }
+
+  const before = await getRemovedClosureDays()
+  const setting: SystemSetting = {
+    id: REMOVED_CLOSURE_DAYS_KEY,
+    key: REMOVED_CLOSURE_DAYS_KEY,
+    value: Array.from(new Set([...before, day.dateKey])).sort(),
+    updatedAt: new Date().toISOString()
+  }
+
+  await persistPut(db.settings, 'settings', setting)
+  await audit(
+    'CASH_CLOSE_PENDING_REMOVED',
+    'CASH',
+    'setting',
+    REMOVED_CLOSURE_DAYS_KEY,
+    null,
+    { ...day },
+    freshActor
+  )
 }
 
 export type ClosureTotals = {

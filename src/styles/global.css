@@ -2922,3 +2922,15 @@ html[data-theme='light'] .closing-pending-head{color:#91601f}
 html[data-theme='light'] .closing-pending-head span,html[data-theme='light'] .closing-pending-main span{color:#6e645c}
 html[data-theme='light'] .closing-pending-row{border-color:#e8ded6}
 @media(max-width:760px){.closing-pending-row{align-items:stretch;flex-direction:column}.closing-pending-row .primary{width:100%;justify-content:center}.pending-closure-chip{padding:5px 8px;font-size:11px}}
+/* Eliminar un cierre pendiente (solo gerente) */
+.closing-pending-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.closing-pending-remove{display:inline-flex;align-items:center;gap:6px;width:auto;white-space:nowrap;color:#e58b76}
+.closing-remove-modal{max-width:460px}
+.closing-remove-text{margin:0;font-size:13px;color:#aaa}
+.closing-remove-actions{display:flex;justify-content:flex-end;gap:8px}
+.closing-remove-actions button{width:auto;white-space:nowrap}
+.closing-remove-actions .primary:disabled{opacity:.45;cursor:not-allowed}
+.closing-remove-confirm{background:#a3261a}
+html[data-theme='light'] .closing-remove-text{color:#6e645c}
+html[data-theme='light'] .closing-pending-remove{color:#a3321f}
+@media(max-width:760px){.closing-pending-actions{flex-direction:column;align-items:stretch}.closing-pending-remove{justify-content:center;width:100%}.closing-remove-actions button{flex:1}}
