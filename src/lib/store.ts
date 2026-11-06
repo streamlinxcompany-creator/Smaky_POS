@@ -929,6 +929,40 @@ export const addBusinessDay = (dateKey: string, amount = 1) => {
   }).format(date)
 }
 
+export type PendingClosureDay = {
+  dateKey: string
+  saleCount: number
+  total: number
+}
+
+/**
+ * Días operativos anteriores al actual que tienen ventas vigentes y ningún
+ * cierre activo. Si el cierre se olvida, las ventas siguen guardadas pero el día
+ * deja de ser el período actual: esta lista es lo que permite cerrarlo después.
+ * Un cierre archivado no cuenta, así que ese día vuelve a quedar pendiente.
+ */
+export function findPendingClosureDays(sales: Sale[], closures: CashClosure[], currentKey: string): PendingClosureDay[] {
+  const closedKeys = new Set(closures.filter(closure => !closure.deletedAt).map(closure => closure.dateKey))
+  const days = new Map<string, PendingClosureDay>()
+
+  for (const sale of sales) {
+    if (sale.deletedAt) continue
+    const dateKey = recordBusinessDayKey(sale)
+    if (dateKey >= currentKey || closedKeys.has(dateKey)) continue
+    const day = days.get(dateKey) || { dateKey, saleCount: 0, total: 0 }
+    day.saleCount += 1
+    day.total += Number(sale.total) || 0
+    days.set(dateKey, day)
+  }
+
+  return [...days.values()].sort((a, b) => b.dateKey.localeCompare(a.dateKey))
+}
+
+export async function getPendingClosureDays() {
+  const [sales, closures, currentKey] = await Promise.all([getSales(), getClosures(), getCurrentBusinessDayKey()])
+  return findPendingClosureDays(sales, closures, currentKey)
+}
+
 export type ClosureTotals = {
   saleCount: number
   total: number
@@ -1238,9 +1272,15 @@ export async function createDailyClosure(
     return null
   }
 
-  const existingClosure = await db.closures.where('dateKey').equals(dateKey).first()
+  // Un día puede tener un cierre archivado y volver a cerrarse: se busca el
+  // vigente, no el primero que aparezca.
+  const existingClosure = await db.closures
+    .where('dateKey')
+    .equals(dateKey)
+    .filter(closure => !closure.deletedAt)
+    .first()
 
-  if (existingClosure && !existingClosure.deletedAt) {
+  if (existingClosure) {
     throw new Error('Este día ya tiene un cierre registrado.')
   }
 

@@ -441,7 +441,16 @@ async function upsertRemote(entity: SyncEntity, payload: unknown) {
     // happen after Postgres committed the row but before the client cleared its
     // outbox. On retry, DO NOTHING on the same primary key is success, not an error.
     case 'audit_events': query = supabase.from('audit_events').upsert(auditRow(payload as AuditEvent), { onConflict: 'id', ignoreDuplicates: true }); break
-    case 'history_records': query = supabase.from('history_records').upsert(historyRow(payload as HistoryRecord), { onConflict: 'id', ignoreDuplicates: true }); break
+    case 'history_records': {
+      // NO usar upsert aquí. ON CONFLICT obliga a Postgres a evaluar también la
+      // política SELECT sobre la fila nueva, y history_select solo admite gerente
+      // y administrador: al trabajador le devolvía 42501 y su historial se quedaba
+      // en la outbox para siempre. El INSERT simple solo exige history_insert; si
+      // la fila ya llegó en un intento anterior, el 23505 también es éxito.
+      const { error: historyError } = await supabase.from('history_records').insert(historyRow(payload as HistoryRecord))
+      if (historyError && String(historyError.code || '') !== '23505') throw historyError
+      return null
+    }
     case 'backups': query = supabase.from('backup_snapshots').upsert(backupRow(payload as BackupSnapshot), { onConflict: 'id', ignoreDuplicates: true }); break
     default: throw new Error(`Entidad no soportada: ${entity}`)
   }
@@ -774,7 +783,18 @@ function hasPendingFor(entity: SyncEntity, recordId: string | undefined) {
   return db.syncQueue.where('[entity+recordId]').equals([entity, recordId]).count().then(count => count > 0)
 }
 
+async function canReadRemoteHistory() {
+  const { getSessionUser } = await import('./auth')
+  const role = getSessionUser()?.role
+  return role === 'manager' || role === 'admin'
+}
+
 async function reconcileEntity(entity: SyncEntity) {
+  // El trabajador puede escribir historial pero no leerlo: la lectura siempre le
+  // llega vacía, y comparar contra ella haría reenviar todo su historial local en
+  // cada ciclo. Lo que le falta por subir ya está en la outbox.
+  if (entity === 'history_records' && !(await canReadRemoteHistory())) return
+
   // Marca de tiempo local tomada ANTES de leer Supabase: un registro creado
   // después de esta lectura todavía no puede aparecer en ella.
   const fetchStartedAt = Date.now()

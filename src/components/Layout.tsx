@@ -2,7 +2,7 @@ import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-route
 import { BarChart3, Boxes, ClipboardList, ContactRound, LayoutDashboard, LockKeyhole, LogOut, Menu, Settings, ShoppingCart, ShieldCheck, Wifi, WifiOff, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { clearSession, getSessionUser, hasPermission, initials } from '../lib/auth'
-import { getGeneralSettings } from '../lib/store'
+import { getGeneralSettings, getPendingClosureDays } from '../lib/store'
 import { getSyncState, SYNC_CHANGE_EVENT, type SyncState } from '../lib/sync'
 
 const allNav = [
@@ -26,6 +26,7 @@ export function Layout() {
   const [online, setOnline] = useState(navigator.onLine)
   const [confirmLogout, setConfirmLogout] = useState(false)
   const [syncState, setSyncState] = useState<SyncState>({ syncing: false, pending: 0 })
+  const [pendingClosures, setPendingClosures] = useState(0)
 
   useEffect(() => {
     let clearTimer: (() => void) | null = null
@@ -88,6 +89,33 @@ export function Layout() {
     window.addEventListener('online', on); window.addEventListener('offline', off); window.addEventListener('smaky-auth-change', auth); window.addEventListener(SYNC_CHANGE_EVENT, onSync)
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); window.removeEventListener('smaky-auth-change', auth); window.removeEventListener(SYNC_CHANGE_EVENT, onSync) }
   }, [])
+  useEffect(() => {
+    if (!user || !hasPermission(user, 'cashClosing.access')) {
+      setPendingClosures(0)
+      return
+    }
+    let cancelled = false
+    let timer: number | null = null
+    const refresh = () => {
+      void getPendingClosureDays()
+        .then(days => { if (!cancelled) setPendingClosures(days.length) })
+        .catch(() => undefined)
+    }
+    // Cada sincronización emite varios eventos seguidos y esto recorre todas las
+    // ventas locales: basta con una lectura cuando termine la ráfaga.
+    const onSync = () => {
+      if (timer !== null) window.clearTimeout(timer)
+      timer = window.setTimeout(refresh, 1_500)
+    }
+    refresh()
+    window.addEventListener(SYNC_CHANGE_EVENT, onSync)
+    return () => {
+      cancelled = true
+      if (timer !== null) window.clearTimeout(timer)
+      window.removeEventListener(SYNC_CHANGE_EVENT, onSync)
+    }
+  }, [user, location.pathname])
+
   if (!user) return <Navigate to="/login" replace />
   const permissionForRoute: Record<string, Parameters<typeof hasPermission>[1] | null> = {
     '/': 'dashboard.view',
@@ -113,7 +141,7 @@ export function Layout() {
       <nav>{nav.map(({to,label,icon:Icon}) => <NavLink key={to} to={to} end={to === '/'} onClick={() => setOpen(false)} className={({isActive}: {isActive: boolean}) => isActive ? 'nav-item active' : 'nav-item'}><Icon size={18}/><span>{label}</span></NavLink>)}</nav>
       <div className="sidebar-bottom"><div className="connection"><span className={`dot ${online ? 'online' : ''}`}></span>{online ? <><Wifi size={15}/> Conectado</> : <><WifiOff size={15}/> Sin conexión</>}</div><button className="profile-mini" onClick={logout}><div className="avatar">{initials(user.name)}</div><div><b>{user.name}</b><small>{roleLabel(user.role)}</small></div><LogOut size={15}/></button></div>
     </aside>
-    <main className="main"><header className="topbar"><button className="icon-btn mobile-only" onClick={() => setOpen(true)}><Menu/></button><div className="topbar-title">{isAdminArea ? 'Apartado administrativo de Smaky' : user.name} <span>•</span> <small>{isAdminArea ? `${roleLabel(user.role)} · Control general` : 'Operación'}</small></div><div className="topbar-actions"><div className={`live-status ${syncState.pending ? 'pending' : ''}`} title={syncState.lastError || ''}><span className={`dot ${online ? 'online' : ''}`}></span>{!online ? `Modo offline${syncState.pending ? ` · ${syncState.pending} pendientes` : ''}` : syncState.syncing ? 'Sincronizando…' : syncState.pending ? `${syncState.pending} pendientes` : 'En línea'}</div></div></header><section className={`content ${location.pathname === '/pos' ? 'pos-content' : ''}`}><Outlet/></section></main>
+    <main className="main"><header className="topbar"><button className="icon-btn mobile-only" onClick={() => setOpen(true)}><Menu/></button><div className="topbar-title">{isAdminArea ? 'Apartado administrativo de Smaky' : user.name} <span>•</span> <small>{isAdminArea ? `${roleLabel(user.role)} · Control general` : 'Operación'}</small></div><div className="topbar-actions">{pendingClosures > 0 && <NavLink to="/cierre-caja" className="pending-closure-chip" title="Hay días con ventas que todavía no tienen cierre de caja"><LockKeyhole size={13}/>{pendingClosures === 1 ? '1 cierre pendiente' : `${pendingClosures} cierres pendientes`}</NavLink>}<div className={`live-status ${syncState.pending ? 'pending' : ''}`} title={syncState.lastError || ''}><span className={`dot ${online ? 'online' : ''}`}></span>{!online ? `Modo offline${syncState.pending ? ` · ${syncState.pending} pendientes` : ''}` : syncState.syncing ? 'Sincronizando…' : syncState.pending ? `${syncState.pending} pendientes` : 'En línea'}</div></div></header><section className={`content ${location.pathname === '/pos' ? 'pos-content' : ''}`}><Outlet/></section></main>
     {confirmLogout && <div className="modal-backdrop logout-backdrop"><div className="logout-modal" role="dialog" aria-modal="true" aria-labelledby="logout-title">
       <button className="logout-close" onClick={() => setConfirmLogout(false)} aria-label="Cancelar"><X size={17}/></button>
       <div className="logout-icon"><LogOut size={21}/></div>
