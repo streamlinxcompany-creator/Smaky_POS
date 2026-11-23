@@ -159,21 +159,40 @@ function mapMovement(row: RemoteRow): InventoryMovement {
   }
 }
 
+// Los movimientos nunca se editan (solo se agregan o se borran) y pesan casi todo
+// el inventario: si el más reciente y el total no cambiaron, se reutilizan.
+let recentMovements: { key: string; rows: InventoryMovement[] } | undefined
+
+async function getRecentMovements(): Promise<InventoryMovement[]> {
+  const client = requiredClient()
+  const newest = await client.from('inventory_movements').select('id', { count: 'exact' })
+    .order('occurred_at', { ascending: false }).order('id', { ascending: false }).limit(1)
+  if (newest.error) throw newest.error
+  const key = `${newest.data?.[0]?.id ?? ''}|${newest.count ?? ''}`
+  if (recentMovements?.key !== key) {
+    const { data, error } = await client.from('inventory_movements').select('*')
+      .order('occurred_at', { ascending: false }).order('id', { ascending: false }).range(0, 599)
+    if (error) throw error
+    recentMovements = { key, rows: (data || []).map(mapMovement) }
+  }
+  return [...recentMovements.rows]
+}
+
 export async function getInventorySnapshot(): Promise<InventorySnapshot> {
   const client = requiredClient()
-  const [itemsResult, recipesResult, productComponentsResult, movementsResult] = await Promise.all([
+  const [itemsResult, recipesResult, productComponentsResult, movements] = await Promise.all([
     client.from('inventory_items').select('*').order('name', { ascending: true }),
     client.from('inventory_recipes').select('*').order('product_name', { ascending: true }),
     client.from('inventory_recipe_products').select('*').order('product_name', { ascending: true }),
-    client.from('inventory_movements').select('*').order('occurred_at', { ascending: false }).order('id', { ascending: false }).range(0, 599),
+    getRecentMovements().catch(error => { throw new Error(errorMessage(error, 'No fue posible leer el inventario desde Supabase.')) }),
   ])
-  const failed = [itemsResult.error, recipesResult.error, productComponentsResult.error, movementsResult.error].find(Boolean)
+  const failed = [itemsResult.error, recipesResult.error, productComponentsResult.error].find(Boolean)
   if (failed) throw new Error(errorMessage(failed, 'No fue posible leer el inventario desde Supabase.'))
   return {
     items: (itemsResult.data || []).map(mapItem),
     recipes: (recipesResult.data || []).map(mapRecipe),
     productComponents: (productComponentsResult.data || []).map(mapProductComponent),
-    movements: (movementsResult.data || []).map(mapMovement),
+    movements,
   }
 }
 

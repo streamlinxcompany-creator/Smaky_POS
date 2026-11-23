@@ -2,7 +2,7 @@ import { AlertTriangle, Check, FileText, MapPin, Pencil, Phone, Plus, Search, Us
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { OrderWorkspace } from '../components/OrderWorkspace'
 import { getSessionUser } from '../lib/auth'
-import { getSyncState, SYNC_CHANGE_EVENT, syncOrdersNow, type SyncState } from '../lib/sync'
+import { getSyncState, SYNC_CHANGE_EVENT, startFallbackPolling, syncOrdersNow, type SyncState } from '../lib/sync'
 import { createCustomer, getClosureByDate, getCustomers, getGeneralSettings, getOrderFields, getOrders, recordBusinessDayKey, updateCustomer } from '../lib/store'
 import { date, money, time } from '../lib/format'
 import type { CashClosure, Customer, Order, OrderFieldConfig, OrderStatus } from '../lib/types'
@@ -82,14 +82,12 @@ export function POS() {
     // La lista se lee primero desde IndexedDB y después desde Supabase. Así el
     // POS abre rápido, pero no se queda congelado mostrando solo la caché local.
     void runOrderSync()
-    const poll = window.setInterval(() => {
-      if (!disposed && navigator.onLine && document.visibilityState === 'visible') void runOrderSync()
-    }, 12_000)
+    const stopPolling = startFallbackPolling(() => { void runOrderSync() }, 12_000, 60_000)
     window.addEventListener(SYNC_CHANGE_EVENT, onSyncChange)
     window.addEventListener('online', onOnline)
     return () => {
       disposed = true
-      window.clearInterval(poll)
+      stopPolling()
       if (refreshTimer !== null) window.clearTimeout(refreshTimer)
       window.removeEventListener(SYNC_CHANGE_EVENT, onSyncChange)
       window.removeEventListener('online', onOnline)

@@ -25,14 +25,15 @@ let syncRunning = false
 let started = false
 let retryTimer: number | null = null
 let scheduledSyncTimer: number | null = null
-let settingsPollingTimer: number | null = null
-let liveSyncFallbackTimer: number | null = null
 let liveSyncDebounceTimer: number | null = null
 let liveSyncChannel: { unsubscribe: () => Promise<unknown> } | null = null
 let pendingQueueRetryTimer: number | null = null
 let lastError: string | undefined
 let lastSyncedAt: string | undefined
 let lastAutomaticSyncRequest = 0
+// Solo es true si ya llegó un aviso en vivo por la conexión actual: estar
+// "suscrito" no garantiza que los avisos lleguen.
+let realtimeProven = false
 
 export type SyncState = {
   syncing: boolean
@@ -1819,12 +1820,14 @@ export async function syncNow(): Promise<SyncResult> {
     const remoteSessionReady = await ensureRemoteSession()
     if (remoteSessionReady) startRealtimeSubscription()
     if (!remoteSessionReady && !localPurgePending) {
+      realtimeProven = false
       schedulePendingQueueRetry()
       return { ...(await getSyncState()), ok: false }
     }
 
     // Una purga pendiente va primero. En los demás casos, limpiamos el estado
     // remoto antes de vaciar la outbox para evitar resurrecciones de datos.
+    let flushed = true
     if (localPurgePending) {
       await flushQueue()
       if (!remoteSessionReady && !(await hasPendingSalesPurge()) && !(await hasPendingCashClosurePurge())) {
@@ -1839,20 +1842,27 @@ export async function syncNow(): Promise<SyncResult> {
       await reconcileEntity('orders')
       await reconcileEntity('sales')
       await reconcileEntity('cash_closures')
+      flushed = (await pendingCount()) > 0
       await flushQueue()
     }
 
     // Recoger de nuevo el marcador después de procesar cualquier purga remota.
-    await reconcileEntity('settings')
-    await applyRemoteSalesPurgeMarker()
+    // Sin nada que enviar, lo leído arriba sigue vigente y no se repite.
+    if (flushed) {
+      await reconcileEntity('settings')
+      await applyRemoteSalesPurgeMarker()
+    }
 
-    const entities: SyncEntity[] = ['products', 'customers', 'orders', 'sales', 'cash_closures']
+    const entities: SyncEntity[] = flushed
+      ? ['products', 'customers', 'orders', 'sales', 'cash_closures']
+      : ['products', 'customers']
     for (const entity of entities) await reconcileEntity(entity)
     lastSyncedAt = stamp()
     const state = await getSyncState()
     clearPendingQueueRetryIfEmpty(state.pending)
     return { ...state, ok: state.pending === 0 && !state.lastError }
   } catch (error) {
+    realtimeProven = false
     lastError = cleanError(error)
     return { ...(await getSyncState()), ok: false }
   } finally {
@@ -1892,6 +1902,7 @@ async function syncEntitiesNow(entities: SyncEntity[]): Promise<SyncResult> {
   try {
     const remoteSessionReady = await ensureRemoteSession()
     if (!remoteSessionReady) {
+      realtimeProven = false
       schedulePendingQueueRetry()
       return { ...(await getSyncState()), ok: false }
     }
@@ -1907,6 +1918,7 @@ async function syncEntitiesNow(entities: SyncEntity[]): Promise<SyncResult> {
     clearPendingQueueRetryIfEmpty(state.pending)
     return { ...state, ok: state.pending === 0 && !state.lastError }
   } catch (error) {
+    realtimeProven = false
     lastError = cleanError(error)
     return { ...(await getSyncState()), ok: false }
   } finally {
@@ -1969,11 +1981,13 @@ function startRealtimeSubscription() {
   let channel = supabase.channel('smaky-pos-live-sync')
   for (const table of tables) {
     channel = channel.on('postgres_changes', { event: '*', schema: 'public', table }, () => {
+      realtimeProven = true
       scheduleRealtimeSync(table)
     })
   }
   liveSyncChannel = channel
   channel.subscribe((status) => {
+    realtimeProven = false
     if (status === 'SUBSCRIBED') scheduleRealtimeSync()
   })
 }
@@ -1989,32 +2003,41 @@ function scheduleRetry(force = false) {
   }, 1500)
 }
 
+/**
+ * Sondeo de respaldo: cada `fastMs`, o cada `slowMs` mientras los avisos en vivo
+ * estén llegando. Cualquier fallo o reconexión vuelve al ritmo rápido.
+ */
+export function startFallbackPolling(work: () => void, fastMs: number, slowMs: number) {
+  let last = performance.now()
+  const timer = window.setInterval(() => {
+    if (document.visibilityState !== 'visible' || !navigator.onLine) return
+    if (realtimeProven && performance.now() - last < slowMs) return
+    last = performance.now()
+    work()
+  }, fastMs)
+  return () => window.clearInterval(timer)
+}
+
 export function startSync() {
   if (started || typeof window === 'undefined') return
   started = true
   window.addEventListener('online', () => { scheduleRetry(true) })
-  window.addEventListener('offline', () => { emitSyncChange() })
+  window.addEventListener('offline', () => { realtimeProven = false; emitSyncChange() })
   window.addEventListener('focus', () => { scheduleRetry(true) })
   window.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') scheduleRetry(true)
   })
-  window.addEventListener('smaky-auth-change', () => { scheduleRetry(true) })
+  window.addEventListener('smaky-auth-change', () => { realtimeProven = false; scheduleRetry(true) })
   // main.tsx emite este evento después de terminar seed(). Esto garantiza que
   // una recarga con el perfil ya iniciado también consulte Supabase al arrancar.
   window.addEventListener('smaky-data-ready', () => { scheduleRetry(true) })
 
   // The websocket normally propagates changes in well under a second. These
   // polling fallbacks recover missed notifications and still skip hidden/offline tabs.
-  if (settingsPollingTimer === null) {
-    settingsPollingTimer = window.setInterval(() => {
-      if (document.visibilityState === 'visible' && navigator.onLine) void refreshRemoteSettings()
-    }, 30_000)
-  }
-  if (liveSyncFallbackTimer === null) {
-    liveSyncFallbackTimer = window.setInterval(() => {
-      if (document.visibilityState === 'visible' && navigator.onLine) void syncNow()
-    }, 45_000)
-  }
+  // El ciclo general ya incluye los ajustes; su sondeo propio solo hace falta
+  // cuando los avisos en vivo no están llegando.
+  startFallbackPolling(() => { void refreshRemoteSettings() }, 30_000, Number.POSITIVE_INFINITY)
+  startFallbackPolling(() => { void syncNow() }, 45_000, 90_000)
 }
 
 export const SYNC_CHANGE_EVENT = SYNC_EVENT
