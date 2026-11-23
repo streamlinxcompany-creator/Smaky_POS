@@ -8,8 +8,8 @@
 export const SOFTWARE_RELEASE = {
   name: 'StreamLinx Software',
   product: 'Smaky POS',
-  version: '3.0.18',
+  version: '3.0.19',
   channel: 'Canal estable',
-  build: 'SLX-3.0.18',
-  description: 'Arreglos y mejoras de flujo',
+  build: 'SLX-3.0.19',
+  description: 'Sincronización más ligera',
 } as const

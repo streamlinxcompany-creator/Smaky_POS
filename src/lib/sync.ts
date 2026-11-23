@@ -732,16 +732,72 @@ async function putLocalRemote(entity: SyncEntity, remoteRow: any, sourceOperatio
   }
 }
 
-async function fetchAll(entity: SyncEntity) {
+function remoteTable(entity: SyncEntity) {
+  return entity === 'backups' ? 'backup_snapshots' : entity
+}
+
+async function fetchPages(entity: SyncEntity, columns = '*', changedSince?: string) {
   if (!supabase) throw new Error('Supabase no está configurado.')
-  const tableName = entity === 'cash_closures' ? 'cash_closures' : entity === 'backups' ? 'backup_snapshots' : entity
   const rows: any[] = []
   for (let from = 0; ; from += PAGE_SIZE) {
     const to = from + PAGE_SIZE - 1
-    const { data, error } = await supabase.from(tableName).select('*').range(from, to)
+    // Sin un orden fijo, dos páginas pueden repetir u omitir filas.
+    let query = supabase.from(remoteTable(entity)).select(columns).order('id')
+    if (changedSince) query = query.gte('updated_at', changedSince)
+    const { data, error } = await query.range(from, to)
     if (error) throw error
     rows.push(...(data || []))
     if (!data || data.length < PAGE_SIZE) break
+  }
+  return rows
+}
+
+// Copia en memoria de lo que Supabase tiene en las tablas que más pesan. Volver a
+// descargarlas completas en cada ciclo agotaba la cuota de egress del proyecto.
+type RemoteMirror = { userId: string; rows: Map<string, any>; changedSince: string; loadedAt: number }
+const MIRRORED_ENTITIES = new Set<SyncEntity>(['customers', 'orders', 'sales', 'cash_closures'])
+const MIRROR_MAX_AGE_MS = 30 * 60_000
+// Margen para transacciones que empezaron antes de la lectura y se confirmaron después.
+const MIRROR_OVERLAP_MS = 5 * 60_000
+const remoteMirrors = new Map<SyncEntity, RemoteMirror>()
+
+/**
+ * Devuelve la tabla remota completa, descargando solo lo que cambió. El trigger
+ * touch_updated_at fija la hora del servidor en cada UPDATE, así que toda edición
+ * posterior al punto de partida llega en la consulta; las altas atrasadas y los
+ * borrados físicos se notan porque el conteo exacto deja de coincidir. Ante
+ * cualquier diferencia (o cambio de usuario) se descarga todo de nuevo.
+ */
+async function fetchAll(entity: SyncEntity) {
+  if (!supabase) throw new Error('Supabase no está configurado.')
+  if (!MIRRORED_ENTITIES.has(entity)) return fetchPages(entity)
+  const table = remoteTable(entity)
+  const { data: auth } = await supabase.auth.getSession()
+  const userId = auth.session?.user.id
+  const mirror = remoteMirrors.get(entity)
+  if (mirror && mirror.userId === userId && Math.abs(Date.now() - mirror.loadedAt) < MIRROR_MAX_AGE_MS) {
+    const changed = await fetchPages(entity, '*', mirror.changedSince)
+    const { count, error } = await supabase.from(table).select('id', { count: 'exact' }).limit(1)
+    if (error) throw error
+    for (const row of changed) mirror.rows.set(String(row.id), row)
+    if (count === mirror.rows.size) return [...mirror.rows.values()]
+  }
+
+  remoteMirrors.delete(entity)
+  // El punto de partida se lee antes que los datos y con el reloj del servidor
+  // ('now'): una fila fechada en el futuro por un equipo con la hora adelantada
+  // no puede ocultar los cambios siguientes.
+  const { data: newest, error: newestError } = await supabase.from(table).select('updated_at')
+    .lte('updated_at', 'now').order('updated_at', { ascending: false }).limit(1)
+  const rows = await fetchPages(entity)
+  const newestMs = newestError ? NaN : Date.parse(String(newest?.[0]?.updated_at || ''))
+  if (userId && Number.isFinite(newestMs)) {
+    remoteMirrors.set(entity, {
+      userId,
+      rows: new Map(rows.map(row => [String(row.id), row])),
+      changedSince: new Date(newestMs - MIRROR_OVERLAP_MS).toISOString(),
+      loadedAt: Date.now(),
+    })
   }
   return rows
 }
@@ -783,6 +839,10 @@ function hasPendingFor(entity: SyncEntity, recordId: string | undefined) {
   return db.syncQueue.where('[entity+recordId]').equals([entity, recordId]).count().then(count => count > 0)
 }
 
+// Pesan más que todo lo demás y solo se consultan en StreamLinx: se descargan
+// allí (syncArchiveNow). Su subida sigue siendo inmediata por la outbox.
+const ARCHIVE_ENTITIES: SyncEntity[] = ['audit_events', 'history_records', 'backups']
+
 async function canReadRemoteHistory() {
   const { getSessionUser } = await import('./auth')
   const role = getSessionUser()?.role
@@ -793,14 +853,16 @@ async function reconcileEntity(entity: SyncEntity) {
   // El trabajador puede escribir historial pero no leerlo: la lectura siempre le
   // llega vacía, y comparar contra ella haría reenviar todo su historial local en
   // cada ciclo. Lo que le falta por subir ya está en la outbox.
-  if (entity === 'history_records' && !(await canReadRemoteHistory())) return
+  const archive = ARCHIVE_ENTITIES.includes(entity)
+  const readsWholeArchive = archive && await canReadRemoteHistory()
+  if (entity === 'history_records' && !readsWholeArchive) return
 
   // Marca de tiempo local tomada ANTES de leer Supabase: un registro creado
   // después de esta lectura todavía no puede aparecer en ella.
   const fetchStartedAt = Date.now()
   let remoteRows: any[]
   try {
-    remoteRows = await fetchAll(entity)
+    remoteRows = archive ? await fetchPages(entity, 'id') : await fetchAll(entity)
   } catch (error) {
     if (isPermissionError(error)) return
     throw error
@@ -858,12 +920,15 @@ async function reconcileEntity(entity: SyncEntity) {
     // This avoids destructive cache cleanup for users whose RLS policy does not
     // expose the full entity while still making sales deletion authoritative.
     if (!remote) {
+      // Un trabajador solo ve su propia auditoría: en un equipo compartido la de
+      // los demás parecería faltar y se reenviaría entera en cada ciclo.
+      if (archive && !readsWholeArchive) continue
       await upsertRemote(entity, local)
       continue
     }
     // Auditoría, historial y copias son de solo inserción: si ya están en la
     // caché no hay nada que actualizar (antes se reescribían todas en cada ciclo).
-    if (entity === 'audit_events' || entity === 'history_records' || entity === 'backups') continue
+    if (archive) continue
     const localTime = Date.parse(localTimestamp(entity, local)) || 0
     const remoteTime = Date.parse(rowTimestamp(entity, remote)) || 0
     if (localTime > remoteTime) {
@@ -897,11 +962,18 @@ async function reconcileEntity(entity: SyncEntity) {
 
   // Remote-only records must appear in the cache so reads remain identical
   // online/offline. For audit/history, this also respects the user's RLS scope.
-  for (const remote of remoteRows) {
-    const id = String(remote.id)
-    if (pendingIds.has(id) || localIds.has(id)) continue
-    await putLocalRemote(entity, remote)
+  const remoteOnly = remoteRows.filter(row => !pendingIds.has(String(row.id)) && !localIds.has(String(row.id)))
+  if (archive) {
+    // Solo inserción: basta descargar las filas que este equipo aún no tiene.
+    for (let index = 0; index < remoteOnly.length; index += 200) {
+      const chunk = remoteOnly.slice(index, index + 200).map(row => String(row.id))
+      const { data, error } = await supabase!.from(remoteTable(entity)).select('*').in('id', chunk)
+      if (error) throw error
+      for (const row of data || []) await putLocalRemote(entity, row)
+    }
+    return
   }
+  for (const remote of remoteOnly) await putLocalRemote(entity, remote)
 }
 
 async function processDataOperation(operation: DataSyncOperation) {
@@ -1774,7 +1846,7 @@ export async function syncNow(): Promise<SyncResult> {
     await reconcileEntity('settings')
     await applyRemoteSalesPurgeMarker()
 
-    const entities: SyncEntity[] = ['settings', 'products', 'customers', 'orders', 'sales', 'cash_closures', 'audit_events', 'history_records', 'backups']
+    const entities: SyncEntity[] = ['products', 'customers', 'orders', 'sales', 'cash_closures']
     for (const entity of entities) await reconcileEntity(entity)
     lastSyncedAt = stamp()
     const state = await getSyncState()
@@ -1793,6 +1865,13 @@ export async function syncNow(): Promise<SyncResult> {
 /** Sync only the order queue and remote order list while the POS screen is open. */
 export function syncOrdersNow(): Promise<SyncResult> {
   return syncEntitiesNow(['orders'])
+}
+
+/** Descarga auditoría, historial y copias; espera su turno si hay otro ciclo en curso. */
+export async function syncArchiveNow(): Promise<SyncResult> {
+  const deadline = Date.now() + 60_000
+  while (syncRunning && Date.now() < deadline) await new Promise(resolve => window.setTimeout(resolve, 200))
+  return syncEntitiesNow(ARCHIVE_ENTITIES)
 }
 
 /**
@@ -1856,9 +1935,6 @@ const REALTIME_TABLE_ENTITY: Record<string, SyncEntity | undefined> = {
 function scheduleRealtimeSync(table?: string) {
   if (typeof window === 'undefined' || !navigator.onLine || !supabaseConfigured || !supabase) return
   const entity = table ? REALTIME_TABLE_ENTITY[table] : undefined
-  // Auditoría/historial/copias cambian con cada acción del POS. Descargarlas en
-  // vivo disparaba una sincronización completa tras otra; el ciclo periódico
-  // de 45 s ya las mantiene al día.
   if (table && !entity) return
   if (entity) realtimeDirtyEntities.add(entity)
   if (liveSyncDebounceTimer !== null) window.clearTimeout(liveSyncDebounceTimer)
@@ -1889,7 +1965,6 @@ function startRealtimeSubscription() {
   if (liveSyncChannel || !supabaseConfigured || !supabase) return
   const tables = [
     'settings', 'products', 'customers', 'orders', 'sales', 'cash_closures',
-    'audit_events', 'history_records', 'backup_snapshots',
   ] as const
   let channel = supabase.channel('smaky-pos-live-sync')
   for (const table of tables) {

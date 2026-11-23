@@ -5,6 +5,7 @@ import { clearStreamlinxSession, getStreamlinxOperator, hasStreamlinxSession } f
 import { createBackupSnapshot, getArchivedClosures, getArchivedOrders, getArchivedProducts, getArchivedSales, getArchivedUsers, getAuditEvents, getBackupSnapshots, getGeneralSettings, getHistoryRecords, purgeCashClosures, purgeSalesData, resetPosToVirgin, restoreArchivedRecord } from '../lib/store'
 import { money } from '../lib/format'
 import { printSaleReceipt } from '../lib/print'
+import { syncArchiveNow } from '../lib/sync'
 import type { AuditEvent, BackupSnapshot, CashClosure, HistoryRecord, Order, Product, Sale, User } from '../lib/types'
 
 const tabs = [['command','Command',LayoutDashboard],['audit','Audit',Activity],['invoices','Invoices',FileText],['orders','Orders',ClipboardList],['products','Products',Package],['users','Users',Users],['cash','Cash',WalletCards],['recovery','Recovery',ArchiveRestore],['backups','Backups',HardDrive],['system','System',Database]] as const
@@ -73,6 +74,9 @@ export function StreamLinx() {
     return () => window.removeEventListener('smaky-sync-change', handleSyncChange)
   }, [])
 
+  // Al entrar y al cambiar de pestaña; el evento de sincronización recarga la vista.
+  useEffect(() => { if (current) void syncArchiveNow() }, [current, tab])
+
   const match = (item: unknown) => !query.trim() || JSON.stringify(item).toLowerCase().includes(query.trim().toLowerCase())
   const sales = data.sales.filter(x => !x.deletedAt)
   const todayKey = new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())
@@ -81,8 +85,9 @@ export function StreamLinx() {
   const backup = async (kind: BackupSnapshot['kind'] = 'manual') => {
     const actor = current || await getStreamlinxOperator()
     if (!actor) return setToast('Acceso StreamLinx no válido. Vuelve a entrar con el PIN de StreamLinx.')
+    const archive = await syncArchiveNow()
     const saved = await createBackupSnapshot(actor,kind,kind === 'manual' ? 'Backup manual StreamLinx' : 'Snapshot previo a operación crítica')
-    setToast(`Backup creado · ${Math.ceil(saved.size/1024)} KB`)
+    setToast(`Backup creado · ${Math.ceil(saved.size/1024)} KB${archive.ok ? '' : ' · auditoría solo de este equipo: no se pudo sincronizar'}`)
     await load()
   }
 
